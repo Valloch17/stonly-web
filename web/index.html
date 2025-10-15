@@ -83,7 +83,7 @@
             });
 
             const call = async (path, bodyOrParams) => {
-                const base = location.origin; // même domaine si reverse proxy, sinon changer
+                const base = "https://stonly-web.onrender.com";
                 const out = document.getElementById('out');
                 out.textContent = '...';
                 try {
