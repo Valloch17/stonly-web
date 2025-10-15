@@ -37,61 +37,26 @@ def ensure_admin(auth_header: Optional[str]):
 
 # ---- Client API Stonly ----
 class Stonly:
-    def __init__(self):
+    def __init__(self, *, base: str, user: str, password: str, team_id: int):
+        self.base = base.rstrip("/")
+        self.team_id = int(team_id)
         self.s = requests.Session()
-        self.s.auth = (STONLY_USER, STONLY_PASS)
+        self.s.auth = (user, password)
         self.s.headers.update({"Content-Type": "application/json"})
 
     def _req(self, method: str, path: str, *, params=None, json=None):
-        url = f"{STONLY_BASE}{path}"
-        p = {**(params or {}), "teamId": TEAM_ID}
+        url = f"{self.base}{path}"
+        p = {**(params or {}), "teamId": self.team_id}
         backoff = 1.0
         for _ in range(5):
             r = self.s.request(method, url, params=p, json=json, timeout=30)
             if r.status_code in (429,500,502,503,504):
-                time.sleep(backoff)
-                backoff = min(backoff * 2, 10)
-                continue
+                time.sleep(backoff); backoff = min(backoff*2, 10); continue
             if not r.ok:
-                try:
-                    msg = r.json()
-                except Exception:
-                    msg = r.text
+                try: msg = r.json()
+                except Exception: msg = r.text
                 raise HTTPException(r.status_code, detail={"error": msg})
-            return r.json() if r.headers.get("content-type","" ).startswith("application/json") else r.text
-
-    def list_children(self, parent_id: Optional[int]):
-        # endpoint paginé /folder avec entityName/entityId selon ton instance
-        if parent_id is None:
-            # fallback structure à la racine → liste plate, on filtrera côté appelant si besoin
-            data = self._req("GET", "/folder/structure")
-            items = data.get("items") if isinstance(data, dict) else []
-            return items or []
-        page, limit, acc = 1, 100, []
-        while True:
-            data = self._req("GET", "/folder", params={"folderId": parent_id, "page": page, "limit": limit})
-            items = []
-            if isinstance(data, dict):
-                items = data.get("items") or []
-            elif isinstance(data, list):
-                items = data
-            acc.extend(items)
-            if len(items) < limit:
-                break
-            page += 1
-        return acc
-
-    def create_folder(self, name: str, parent_id: Optional[int]):
-        body = {"name": name}
-        if parent_id is not None:
-            body["parentFolderId"] = int(parent_id)
-        data = self._req("POST", "/folder", json=body)
-        return int(data.get("folderId"))
-
-    def get_structure_flat(self, parent_id: Optional[int]):
-        data = self._req("GET", "/folder/structure", params={"folderId": parent_id} if parent_id else None)
-        items = data.get("items") if isinstance(data, dict) else []
-        return items or []
+            return r.json() if r.headers.get("content-type","").startswith("application/json") else r.text
 
 # ---- modèles ----
 class UINode(BaseModel):
@@ -100,16 +65,30 @@ class UINode(BaseModel):
 
 UINode.model_rebuild()
 
+class Creds(BaseModel):
+    user: str
+    password: str
+    teamId: int
+    base: Optional[str] = "https://public.stonly.com/api/v3"  # optionnel
+
+class UINode(BaseModel):
+    name: str
+    children: list["UINode"] = []
+UINode.model_rebuild()
+
 class ApplyPayload(BaseModel):
     token: str
+    creds: Creds
     parentId: Optional[int] = None
     dryRun: bool = False
     root: list[UINode]
 
 class VerifyPayload(BaseModel):
     token: str
+    creds: Creds
     parentId: Optional[int] = None
     root: list[UINode]
+
 
 # ---- util ----
 def extract_name_id(obj: dict) -> tuple[Optional[str], Optional[int]]:
@@ -132,8 +111,11 @@ def build_path(parent: str, name: str) -> str:
 # ---- endpoints ----
 @app.post("/api/apply")
 def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)):
-    ensure_admin(f"Bearer {payload.token}")  # token passé côté client
-    st = Stonly()
+    ensure_admin(f"Bearer {payload.token}")  # ton APP_ADMIN_TOKEN côté serveur
+    st = Stonly(base=payload.creds.base, user=payload.creds.user,
+                password=payload.creds.password, team_id=payload.creds.teamId)
+    # ... reste inchangé (list_children/create_folder/DFS)
+
     mapping: Dict[str, int] = {}
 
     def list_index(pid: Optional[int]) -> Dict[str, dict]:
@@ -167,7 +149,10 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
 @app.post("/api/verify")
 def api_verify(payload: VerifyPayload):
     ensure_admin(f"Bearer {payload.token}")
-    st = Stonly()
+    st = Stonly(base=payload.creds.base, user=payload.creds.user,
+                password=payload.creds.password, team_id=payload.creds.teamId)
+    # ... reste inchangé (collect expected vs real)
+
 
     expected = []
     def collect_expected(nodes: List[UINode], p: str):
@@ -195,10 +180,16 @@ def api_verify(payload: VerifyPayload):
     return {"ok": True, "missing": missing, "extra": extra}
 
 @app.get("/api/dump-structure")
-def api_dump(parentId: Optional[int] = None, token: Optional[str] = None):
+def api_dump(parentId: Optional[int] = None, token: Optional[str] = None,
+             user: Optional[str] = None, password: Optional[str] = None,
+             teamId: Optional[int] = None, base: Optional[str] = "https://public.stonly.com/api/v3"):
     ensure_admin(f"Bearer {token}")
-    st = Stonly()
+    if not all([user, password, teamId]):
+        raise HTTPException(400, "user, password, teamId are required")
+    st = Stonly(base=base, user=user, password=password, team_id=int(teamId))
     items = st.get_structure_flat(parentId)
+    # ... reconstruction de l’arbre comme avant, puis return {"root": roots}
+
 
     # Reconstituer l'arbre [ {name, children} ]
     by_id: Dict[int, Dict[str, Any]] = {}
