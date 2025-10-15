@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="fr">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stonly Folders UI</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body class="bg-gray-50">
+    <div id="app" class="max-w-4xl mx-auto p-6">
+        <h1 class="text-2xl font-bold mb-4">Stonly Folders UI</h1>
+
+        <div class="mb-4 p-4 bg-white rounded-xl shadow">
+            <label class="block text-sm font-medium">Admin token</label>
+            <input id="token" type="password" class="mt-1 w-full border rounded p-2" placeholder="APP_ADMIN_TOKEN" />
+            <label class="block text-sm font-medium mt-3">Parent folder ID (optionnel)</label>
+            <input id="parentId" type="number" class="mt-1 w-full border rounded p-2" placeholder="ex: 494710" />
+            <label class="inline-flex items-center mt-3 gap-2"><input id="dryRun" type="checkbox" /> Dry-run</label>
+        </div>
+
+        <div class="mb-4 p-4 bg-white rounded-xl shadow">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Arborescence</h2>
+                <button id="addRoot" class="px-3 py-1 rounded bg-black text-white">+ Racine</button>
+            </div>
+            <div id="tree" class="space-y-2"></div>
+        </div>
+
+        <div class="flex gap-2">
+            <button id="btnApply" class="px-4 py-2 rounded bg-emerald-600 text-white">Apply</button>
+            <button id="btnVerify" class="px-4 py-2 rounded bg-blue-600 text-white">Verify</button>
+            <button id="btnDump" class="px-4 py-2 rounded bg-gray-700 text-white">Dump structure</button>
+        </div>
+
+        <pre id="out" class="mt-4 p-4 bg-white rounded-xl shadow text-sm whitespace-pre-wrap"></pre>
+    </div>
+
+    <script>
+        const html = htm.bind(React.createElement);
+
+        function NodeEditor({ node, onChange, onRemove }) {
+            const addChild = () => {
+                const children = node.children ? [...node.children] : [];
+                children.push({ name: "", children: [] });
+                onChange({ ...node, children });
+            };
+            const updateName = (e) => onChange({ ...node, name: e.target.value });
+            const updateChild = (i, newChild) => {
+                const children = [...(node.children || [])];
+                children[i] = newChild; onChange({ ...node, children });
+            };
+            const removeChild = (i) => {
+                const children = [...(node.children || [])];
+                children.splice(i, 1); onChange({ ...node, children });
+            };
+            return html`<div class="border rounded p-3">
+    <div class="flex items-center gap-2">
+      <input class="flex-1 border rounded p-2" placeholder="Nom du dossier" value=${node.name || ""} onInput=${updateName} />
+      <button class="px-2 py-1 bg-red-500 text-white rounded" onClick=${onRemove}>Supprimer</button>
+      <button class="px-2 py-1 bg-black text-white rounded" onClick=${addChild}>+ Enfant</button>
+    </div>
+    <div class="mt-2 pl-4 space-y-2">
+      ${(node.children || []).map((c, i) => html`<${NodeEditor} key=${i} node=${c} onChange=${nc => updateChild(i, nc)} onRemove=${() => removeChild(i)} />`)}
+    </div>
+  </div>`;
+        }
+
+        function App() {
+            const [nodes, setNodes] = React.useState([]);
+
+            const addRoot = () => setNodes([...nodes, { name: "", children: [] }]);
+            const updateRoot = (i, n) => { const arr = [...nodes]; arr[i] = n; setNodes(arr); };
+            const removeRoot = (i) => { const arr = [...nodes]; arr.splice(i, 1); setNodes(arr); };
+
+            const getCommon = () => ({
+                token: document.getElementById('token').value,
+                parentId: (() => { const v = document.getElementById('parentId').value; return v ? Number(v) : null; })(),
+            });
+
+            const call = async (path, bodyOrParams) => {
+                const base = location.origin; // même domaine si reverse proxy, sinon changer
+                const out = document.getElementById('out');
+                out.textContent = '...';
+                try {
+                    let res;
+                    if (path === '/api/dump-structure') {
+                        const url = new URL(base + path);
+                        url.searchParams.set('token', bodyOrParams.token);
+                        if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
+                        res = await fetch(url, { method: 'GET' });
+                    } else {
+                        res = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyOrParams) });
+                    }
+                    const data = await res.json();
+                    out.textContent = JSON.stringify(data, null, 2);
+                } catch (e) { out.textContent = String(e); }
+            };
+
+            React.useEffect(() => {
+                document.getElementById('addRoot').onclick = addRoot;
+                document.getElementById('btnApply').onclick = () => call('/api/apply', { ...getCommon(), dryRun: document.getElementById('dryRun').checked, root: nodes });
+                document.getElementById('btnVerify').onclick = () => call('/api/verify', { ...getCommon(), root: nodes });
+                document.getElementById('btnDump').onclick = () => call('/api/dump-structure', getCommon());
+            }, [nodes]);
+
+            return html`<div class="space-y-2">
+    ${nodes.map((n, i) => html`<${NodeEditor} key=${i} node=${n} onChange=${nv => updateRoot(i, nv)} onRemove=${() => removeRoot(i)} />`)}
+  </div>`;
+        }
+
+        ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`)
+    </script>
+</body>
+
+</html>
