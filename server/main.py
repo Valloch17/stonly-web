@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import requests
 
+
 # ---- Config ----
 
 ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
@@ -26,6 +27,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+from fastapi.responses import JSONResponse
+import traceback, logging
+
+logger = logging.getLogger("stonly")
+logging.basicConfig(level=logging.INFO)
+
+@app.exception_handler(Exception)
+async def unhandled_exc(_, exc: Exception):
+    # Evite les 500 silencieux : log + payload JSON simple
+    logger.exception("Unhandled error")
+    return JSONResponse(
+        status_code=500,
+        content={"ok": False, "error": str(exc), "type": exc.__class__.__name__},
+    )
+
 
 # ---- Auth guard ----
 def ensure_admin(auth_header: Optional[str]):
@@ -60,20 +77,74 @@ class Stonly:
         # fallback: rien d'exploitable
         return []
 
-
     def _req(self, method: str, path: str, *, params=None, json=None):
         url = f"{self.base}{path}"
         p = {**(params or {}), "teamId": self.team_id}
         backoff = 1.0
         for _ in range(5):
             r = self.s.request(method, url, params=p, json=json, timeout=30)
-            if r.status_code in (429,500,502,503,504):
+            # log minimal
+            logger.info("REQ %s %s params=%s status=%s", method, r.url, p, r.status_code)
+
+            if r.status_code in (429, 500, 502, 503, 504):
                 time.sleep(backoff); backoff = min(backoff*2, 10); continue
+
             if not r.ok:
-                try: msg = r.json()
-                except Exception: msg = r.text
-                raise HTTPException(r.status_code, detail={"error": msg})
-            return r.json() if r.headers.get("content-type","").startswith("application/json") else r.text
+                # renvoyer le corps d'erreur Stonly pour debug
+                try:
+                    detail = r.json()
+                except Exception:
+                    detail = {"text": r.text[:2000]}
+                raise HTTPException(r.status_code, detail={"upstream": detail, "url": str(r.url)})
+
+            # OK
+            if r.headers.get("content-type", "").startswith("application/json"):
+                return r.json()
+            return r.text
+
+        raise HTTPException(502, detail={"error": "Too many retries", "url": url})
+
+
+    def create_folder(self, name: str, parent_id: Optional[int]) -> int:
+        """
+        Crée un dossier en essayant plusieurs variantes de payload observées sur différents tenants.
+        Retourne l'id du dossier créé.
+        """
+        # Essai 1 : body {"name": ..., "parentFolderId": ...}
+        body = {"name": name}
+        if parent_id is not None:
+            body["parentFolderId"] = int(parent_id)
+        try:
+            data = self._req("POST", "/folder", json=body)
+            fid = data.get("folderId") or data.get("id") or data.get("entityId")
+            return int(fid)
+        except HTTPException as e1:
+            # Essai 2 : body {"folderName": ..., "parentId": ...}
+            body2 = {"folderName": name}
+            if parent_id is not None:
+                body2["parentId"] = int(parent_id)
+            try:
+                data = self._req("POST", "/folder", json=body2)
+                fid = data.get("folderId") or data.get("id") or data.get("entityId")
+                return int(fid)
+            except HTTPException as e2:
+                # Essai 3 : body {"name": ...} + parentId en query
+                params3 = {"parentId": int(parent_id)} if parent_id is not None else None
+                try:
+                    data = self._req("POST", "/folder", params=params3, json={"name": name})
+                    fid = data.get("folderId") or data.get("id") or data.get("entityId")
+                    return int(fid)
+                except HTTPException as e3:
+                    # On renvoie l’erreur amont la plus récente avec détails
+                    raise HTTPException(e3.status_code, detail={
+                        "error": "create_folder failed (all variants)",
+                        "attempts": [
+                            {"variant": "name+parentFolderId", "detail": getattr(e1, "detail", str(e1))},
+                            {"variant": "folderName+parentId", "detail": getattr(e2, "detail", str(e2))},
+                            {"variant": "name + parentId(query)", "detail": getattr(e3, "detail", str(e3))},
+                        ],
+                    })
+
 
 # ---- modèles ----
 class UINode(BaseModel):
@@ -128,26 +199,33 @@ def build_path(parent: str, name: str) -> str:
 # ---- endpoints ----
 @app.post("/api/apply")
 def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)):
-    ensure_admin(f"Bearer {payload.token}")  # ton APP_ADMIN_TOKEN côté serveur
+    ensure_admin(f"Bearer {payload.token}")
     st = Stonly(base=payload.creds.base, user=payload.creds.user,
                 password=payload.creds.password, team_id=payload.creds.teamId)
-    # ... reste inchangé (list_children/create_folder/DFS)
-
     mapping: Dict[str, int] = {}
+
+    def path_join(p, n): return f"{p}/{n}" if p else f"/{n}"
 
     def list_index(pid: Optional[int]) -> Dict[str, dict]:
         items = st.list_children(pid)
         idx: Dict[str, dict] = {}
         for it in items:
-            nm, _id = extract_name_id(it)
+            nm = it.get("name") or it.get("entityName")
+            _id = it.get("folderId") or it.get("id") or it.get("entityId")
             if nm:
-                idx[nm] = {"raw": it, "id": _id}
+                try: _id = int(_id) if _id is not None else None
+                except: _id = None
+                idx[nm] = {"id": _id, "raw": it}
         return idx
 
     def dfs(nodes: List[UINode], pid: Optional[int], ppath: str):
         idx = list_index(pid)
         for n in nodes:
-            fp = build_path(ppath, n.name)
+            if not n.name or not str(n.name).strip():
+                raise HTTPException(400, detail={"error": "Empty folder name in payload", "path": ppath})
+            fp = path_join(ppath, n.name)
+
+            # Existe déjà ?
             if n.name in idx:
                 fid = idx[n.name]["id"]
             else:
@@ -155,13 +233,17 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                     fid = -1
                 else:
                     fid = st.create_folder(n.name, pid)
-            if fid != -1:
+
+            if fid != -1 and fid is not None:
                 mapping[fp] = int(fid)
+
+            # Descendre
             if n.children:
-                dfs(n.children, None if fid == -1 else fid, fp)
+                dfs(n.children, None if fid in (-1, None) else int(fid), fp)
 
     dfs(payload.root, payload.parentId, "")
     return {"ok": True, "mapping": mapping}
+
 
 @app.post("/api/verify")
 def api_verify(payload: VerifyPayload):
@@ -197,42 +279,68 @@ def api_verify(payload: VerifyPayload):
     return {"ok": True, "missing": missing, "extra": extra}
 
 @app.get("/api/dump-structure")
-def api_dump(parentId: Optional[int] = None, token: Optional[str] = None,
-             user: Optional[str] = None, password: Optional[str] = None,
-             teamId: Optional[int] = None, base: Optional[str] = "https://public.stonly.com/api/v3"):
+def api_dump(
+    token: str,
+    user: str,
+    password: str,
+    teamId: int,
+    parentId: Optional[int] = None,
+    base: str = "https://public.stonly.com/api/v3",
+):
     ensure_admin(f"Bearer {token}")
-    if not all([user, password, teamId]):
-        raise HTTPException(400, "user, password, teamId are required")
     st = Stonly(base=base, user=user, password=password, team_id=int(teamId))
-    items = st.get_structure_flat(parentId)
-    # ... reconstruction de l’arbre comme avant, puis return {"root": roots}
 
+    try:
+        items = st.get_structure_flat(parentId)
+        if not isinstance(items, list):
+            # Fallback: essaye /folder si structure est atypique
+            items = st.list_children(parentId)
+            if not isinstance(items, list):
+                raise HTTPException(502, detail={"error": "Unexpected payload from Stonly", "payload_type": type(items).__name__})
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("dump-structure upstream/parse error")
+        raise HTTPException(502, detail={"error": "Upstream/parse error", "msg": str(e)})
 
-    # Reconstituer l'arbre [ {name, children} ]
-    by_id: Dict[int, Dict[str, Any]] = {}
-    children_map: Dict[int, list] = {}
+    # Reconstituer l'arbre
+    by_id, children_map = {}, {}
     for it in items:
+        if not isinstance(it, dict):
+            continue
         _id = it.get("id") or it.get("entityId")
         _nm = it.get("name") or it.get("entityName")
         _pid = it.get("parentId")
-        if _id is None: continue
-        _id = int(_id)
+        if _id is None:
+            continue
+        try:
+            _id = int(_id)
+        except Exception:
+            continue
         by_id[_id] = {"name": _nm, "children": []}
         if _pid is not None:
-            children_map.setdefault(int(_pid), []).append(_id)
+            try:
+                children_map.setdefault(int(_pid), []).append(_id)
+            except Exception:
+                pass
 
     for pid, kids in children_map.items():
         parent_node = by_id.get(pid)
-        if not parent_node: continue
+        if not parent_node: 
+            continue
         for kid in kids:
             if kid in by_id:
                 parent_node["children"].append(by_id[kid])
 
-    roots = []
     if parentId is not None and int(parentId) in by_id:
         roots = by_id[int(parentId)].get("children", [])
     else:
-        parent_ids = {int(it["parentId"]) for it in items if it.get("parentId") is not None}
+        parent_ids = {int(it["parentId"]) for it in items if isinstance(it, dict) and it.get("parentId") is not None}
         roots = [by_id[i] for i in by_id.keys() if i not in parent_ids]
 
     return {"root": roots}
+
+
+@app.get("/api/ping")
+def ping():
+    return {"ok": True}
