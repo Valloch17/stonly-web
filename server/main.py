@@ -44,6 +44,23 @@ class Stonly:
         self.s.auth = (user, password)
         self.s.headers.update({"Content-Type": "application/json"})
 
+    def get_structure_flat(self, parent_id: Optional[int]):
+        """
+        Appelle GET /folder/structure (payload 'flat' observé : { items: [{id,name,parentId}, ...] }).
+        Retourne toujours une list (ou []).
+        """
+        params = {"folderId": parent_id} if parent_id is not None else None
+        data = self._req("GET", "/folder/structure", params=params)
+        # format attendu: dict { items: [...] }
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            return data["items"]
+        # certains tenants peuvent renvoyer directement une liste
+        if isinstance(data, list):
+            return data
+        # fallback: rien d'exploitable
+        return []
+
+
     def _req(self, method: str, path: str, *, params=None, json=None):
         url = f"{self.base}{path}"
         p = {**(params or {}), "teamId": self.team_id}
