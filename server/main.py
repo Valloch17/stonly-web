@@ -9,14 +9,14 @@ from pydantic import BaseModel
 import requests
 
 # ---- Config ----
-STONLY_BASE = os.getenv("STONLY_BASE", "https://public.stonly.com/api/v3").rstrip("/")
-STONLY_USER = os.getenv("STONLY_USER")
-STONLY_PASS = os.getenv("STONLY_PASS")
-TEAM_ID     = os.getenv("TEAM_ID")
-ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
 
-if not all([STONLY_USER, STONLY_PASS, TEAM_ID, ADMIN_TOKEN]):
-    raise RuntimeError("Missing env: STONLY_USER, STONLY_PASS, TEAM_ID, APP_ADMIN_TOKEN")
+ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
+if not ADMIN_TOKEN:
+    raise RuntimeError("Missing env: APP_ADMIN_TOKEN")
+
+# IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
+# Ils arrivent depuis le frontend dans chaque requête (payload ou query).
+
 
 app = FastAPI(title="Stonly Web Backend")
 app.add_middleware(
