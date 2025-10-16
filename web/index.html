@@ -157,6 +157,17 @@
         const STORAGE_KEY_NODES = "stonly_ui_nodes";
         const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
 
+        // Depth-based styling
+        function depthBgClass(depth) {
+            // even levels = white, odd = light gray
+            return (depth % 2 === 0) ? "bg-white" : "bg-gray-50";
+        }
+        function depthBorderClass(depth) {
+            // slightly darker border on gray rows for contrast
+            return (depth % 2 === 0) ? "border-gray-200" : "border-gray-300";
+        }
+
+
         function normalizeNodes(nodes) {
             if (!Array.isArray(nodes)) return [];
             const norm = (n) => ({
@@ -239,9 +250,9 @@
     <script>
         const html = htm.bind(React.createElement);
 
-        function NodeEditor({ node, onChange, onRemove }) {
+        function NodeEditor({ node, onChange, onRemove, depth = 0 }) {
             const [local, setLocal] = React.useState(node);
-            const [showDesc, setShowDesc] = React.useState(Boolean(node?.description)); // show if exists
+            const [showDesc, setShowDesc] = React.useState(Boolean(node?.description));
 
             React.useEffect(() => setLocal(node), [node]);
 
@@ -263,14 +274,20 @@
                 update({ children: arr });
             };
 
+            const wrapperClasses = [
+                "rounded", "p-3",
+                depthBgClass(depth),
+                "border", depthBorderClass(depth)
+            ].join(" ");
+
             return html`
-                <div class="border rounded p-3">
+                <div class=${wrapperClasses}>
                 <div class="flex items-center gap-2">
                     <input class="border rounded p-2 flex-1" placeholder="Folder name"
                         value=${local.name || ""} onInput=${e => update({ name: e.target.value })} />
                     <button class="px-2 py-1 rounded bg-black text-white" type="button" onClick=${addChild}>+ Child</button>
                     <button class="px-2 py-1 rounded border" type="button" onClick=${() => setShowDesc(v => !v)}>
-                    ${showDesc ? 'Hide description' : '+ Desc'}
+                    ${showDesc ? 'Hide description' : '+ Description'}
                     </button>
                     <button class="px-2 py-1 rounded border border-red-300 text-red-600" type="button" onClick=${onRemove}>Remove</button>
                 </div>
@@ -286,11 +303,12 @@
                 `}
 
                 ${(local.children || []).length > 0 && html`
-                    <div class="pl-4 mt-3 space-y-2 border-l">
+                    <div class="pl-4 mt-3 space-y-2 border-l ${depthBorderClass(depth)}">
                     ${(local.children || []).map((c, i) => html`
                         <${NodeEditor}
                         key=${i}
                         node=${c}
+                        depth=${depth + 1}          // <- pass depth + 1 to children
                         onChange=${nv => {
                             const arr = (local.children || []).slice();
                             arr[i] = nv;
@@ -304,6 +322,7 @@
                 </div>
             `;
         }
+
 
         function getRoot(nodesFromUI) {
             const fromYaml = getRootFromYamlOrNull();
@@ -472,14 +491,16 @@
 
             return html`<div class="space-y-2">
                 ${nodes.map((n, i) => html`
-                <${NodeEditor}
+                    <${NodeEditor}
                     key=${i}
                     node=${n}
+                    depth=${0}               // <- start at depth 0
                     onChange=${nv => updateRoot(i, nv)}
                     onRemove=${() => removeRoot(i)}
-                />
+                    />
                 `)}
-            </div>`;
+                </div>`;
+
         }
 
         ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`);
