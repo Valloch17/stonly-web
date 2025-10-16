@@ -62,12 +62,101 @@
             height: 14px;
             display: block;
         }
+
+        /* Theme tokens */
+        :root {
+            --bg: #f6f7fb;
+            /* light page bg */
+            --card: #ffffff;
+            /* light card bg */
+            --text: #0f172a;
+            /* slate-900 */
+            --muted: #475569;
+            /* slate-600 */
+            --border: #e2e8f0;
+            /* slate-200 */
+        }
+
+        html[data-theme="dark"] {
+            --bg: #0b1220;
+            /* dark page bg */
+            --card: #0f172a;
+            /* dark card bg */
+            --text: #e5e7eb;
+            /* slate-200 */
+            --muted: #94a3b8;
+            /* slate-400 */
+            --border: #1f2937;
+            /* slate-800/700 */
+        }
+
+        /* Apply tokens to page + common elements */
+        body {
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        .bg-white,
+        .bg-gray-50 {
+            background: var(--card) !important;
+        }
+
+        .border {
+            border-color: var(--border) !important;
+        }
+
+        input,
+        textarea,
+        select {
+            background: var(--card);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        /* Response pre/code area */
+        #out {
+            background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important;
+        }
+
+        /* Toggle button (top-right) */
+        .theme-toggle {
+            position: fixed;
+            top: 12px;
+            right: 12px;
+            z-index: 60;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            line-height: 1;
+            color: var(--muted);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+        }
+
+        .theme-toggle:hover {
+            filter: brightness(1.05);
+        }
+
+        .theme-toggle svg {
+            width: 16px;
+            height: 16px;
+        }
     </style>
+
 
 
 </head>
 
 <body class="bg-gray-50">
+    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <span id="themeIcon" aria-hidden="true"></span>
+        <span id="themeLabel">Dark</span>
+      </button>
+      
     <div id="app" class="max-w-4xl mx-auto p-6">
         <h1 class="text-2xl font-bold mb-4">Stonly KB Builder</h1>
 
@@ -646,6 +735,45 @@
             <span>GitHub</span>
         </a>
     </div>
+    <script>
+        // ---- Dark mode: init + toggle ----
+        (function initTheme() {
+            const STORAGE_KEY = "stonly_theme";
+            const root = document.documentElement;
+            const saved = localStorage.getItem(STORAGE_KEY);
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            const current = saved || (prefersDark ? "dark" : "light");
+            root.setAttribute("data-theme", current);
+            updateToggleUI(current);
+
+            document.getElementById("themeToggle")?.addEventListener("click", () => {
+                const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+                root.setAttribute("data-theme", next);
+                localStorage.setItem(STORAGE_KEY, next);
+                updateToggleUI(next);
+            });
+
+            function updateToggleUI(mode) {
+                const icon = document.getElementById("themeIcon");
+                const label = document.getElementById("themeLabel");
+                if (!icon || !label) return;
+                if (mode === "dark") {
+                    icon.innerHTML = `
+                <!-- Moon -->
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+              `;
+                    label.textContent = "Light";
+                } else {
+                    icon.innerHTML = `
+                <!-- Sun -->
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>
+              `;
+                    label.textContent = "Dark";
+                }
+            }
+        })();
+    </script>
+
 
 
 </body>
