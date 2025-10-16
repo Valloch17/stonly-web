@@ -203,26 +203,37 @@
             const text = (el?.value || "").trim();
             if (!text) return null;
 
+            // Parse YAML separately, so only YAML errors are labeled as such
+            let data;
             try {
-                const data = jsyaml.load(text); // nécessite <script js-yaml> dans <head>
-                // formats acceptés : {root: [...] } ou directement [...]
-                let root = Array.isArray(data) ? data : (Array.isArray(data?.root) ? data.root : null);
-                if (!root) throw new Error("YAML must contain a key 'root' (list) or be a root level list.");
-                root = normalizeNodes(root);
-                // validate names non vides
-                const invalid = [];
-                const walk = (list, p = "") => list.forEach(n => {
-                    if (!n.name || !n.name.trim()) invalid.push((p ? p + "/" : " /") + "<empty-name>");
-                    if (n.children?.length) walk(n.children, (p ? p + "/" : "") + n.name);
-                });
-                walk(root);
-                if (invalid.length) throw new Error("Missing names in: " + invalid.slice(0, 3).join(", ") + (invalid.length > 3 ? "…" : ""));
-                return root;
+                data = jsyaml.load(text);
             } catch (e) {
                 err.textContent = "Invalid YAML: " + (e?.message || e);
                 return null;
             }
+
+            try {
+                let root = Array.isArray(data) ? data : (Array.isArray(data?.root) ? data.root : null);
+                if (!root) throw new Error("YAML must contain a top-level list or a 'root' list.");
+
+                root = normalizeNodes(root);
+
+                // basic validation: names present
+                const invalid = [];
+                const walk = (list, p = "") => list.forEach(n => {
+                    if (!n.name || !n.name.trim()) invalid.push((p ? p + "/" : "/") + "<empty-name>");
+                    if (n.children?.length) walk(n.children, (p ? p + "/" : "") + n.name);
+                });
+                walk(root);
+                if (invalid.length) throw new Error("Missing names at: " + invalid.slice(0, 3).join(", ") + (invalid.length > 3 ? "…" : ""));
+
+                return root;
+            } catch (e) {
+                err.textContent = (e?.message || String(e));
+                return null;
+            }
         }
+
     </script>
 
     <script>
