@@ -167,16 +167,26 @@
             return (depth % 2 === 0) ? "border-gray-200" : "border-gray-300";
         }
 
+        // --- Stable IDs for tree nodes ---
+        function genId() {
+            return (Date.now().toString(36) + Math.random().toString(36).slice(2, 8));
+        }
 
+        function ensureId(n) {
+            return {
+                _id: n?._id || genId(),
+                name: String(n?.name ?? ""),
+                description: (n?.description ?? "") ? String(n.description) : undefined,
+                children: Array.isArray(n?.children) ? n.children.map(ensureId) : []
+            };
+        }
+
+        // If you already had normalizeNode/normalizeNodes, replace them with ensureId(*) equivalents:
         function normalizeNodes(nodes) {
             if (!Array.isArray(nodes)) return [];
-            const norm = (n) => ({
-                name: (n?.name ?? "").toString(),
-                description: (n?.description ?? "") ? String(n.description) : undefined,
-                children: Array.isArray(n?.children) ? n.children.map(norm) : []
-            });
-            return nodes.map(norm);
+            return nodes.map(ensureId);
         }
+
 
         function loadNodesFromStorage() {
             try {
@@ -353,28 +363,21 @@
             // ⬇️ sauve à chaque changement
             React.useEffect(() => { saveNodesToStorage(nodes); }, [nodes]);
 
-            // Use functional updates everywhere to avoid stale state:
+            // ADD root using stable ID
             const addRoot = React.useCallback(() => {
-                setNodes(prev => [...prev, { name: "", description: undefined, children: [] }]);
+                setNodes(prev => [...prev, { _id: genId(), name: "", description: undefined, children: [] }]);
             }, []);
 
-            const updateRoot = React.useCallback((i, n) => {
-                setNodes(prev => {
-                    const arr = prev.slice();
-                    arr[i] = n;               // n includes description from NodeEditor
-                    return arr;
-                });
+            // UPDATE root by id (not index)
+            const updateRoot = React.useCallback((id, n) => {
+                setNodes(prev => prev.map(x => x._id === id ? n : x));
             }, []);
 
-            const removeRoot = React.useCallback((i) => {
-                setNodes(prev => {
-                    const arr = prev.slice();
-                    arr.splice(i, 1);
-                    return arr;
-                });
+            // REMOVE root by id
+            const removeRoot = React.useCallback((id) => {
+                setNodes(prev => prev.filter(x => x._id !== id));
             }, []);
 
-            // ✅ Rebranche proprement le bouton hors-React, sans capturer nodes
             React.useEffect(() => {
                 const btn = document.getElementById('addRoot');
                 if (btn) btn.onclick = addRoot;
@@ -490,16 +493,17 @@
             }, []);
 
             return html`<div class="space-y-2">
-                ${nodes.map((n, i) => html`
-                    <${NodeEditor}
-                    key=${i}
+                ${nodes.map(n => html`
+                <${NodeEditor}
+                    key=${n._id}
                     node=${n}
-                    depth=${0}               // <- start at depth 0
-                    onChange=${nv => updateRoot(i, nv)}
-                    onRemove=${() => removeRoot(i)}
-                    />
+                    depth=${0}
+                    onChange=${nv => updateRoot(n._id, nv)}
+                    onRemove=${() => removeRoot(n._id)}
+                />
                 `)}
-                </div>`;
+            </div>`;
+
 
         }
 
