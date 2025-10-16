@@ -178,7 +178,7 @@
                         res = await fetch(url, { method: 'GET' });
                     }
                     else {
-                        res = await fetch(base + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyOrParams) });
+                        res = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyOrParams) });
                     }
                     const data = await res.json();
                     out.textContent = JSON.stringify(data, null, 2);
