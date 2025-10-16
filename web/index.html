@@ -5,7 +5,13 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <!-- Modern browsers -->
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml" color="green">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+
+    <!-- Fallbacks for older browsers / platforms -->
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="icon" href="/favicon-192.png" sizes="192x192" type="image/png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+
 
     <title>Stonly Folders UI</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
@@ -155,8 +161,8 @@
     <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
         <span id="themeIcon" aria-hidden="true"></span>
         <span id="themeLabel">Dark</span>
-      </button>
-      
+    </button>
+
     <div id="app" class="max-w-4xl mx-auto p-6">
         <h1 class="text-2xl font-bold mb-4">Stonly KB Builder</h1>
 
