@@ -221,16 +221,7 @@
                 return () => { if (btn) btn.onclick = null; };
             }, [addRoot]);
 
-            return html`<div class="space-y-2">
-                ${nodes.map((n, i) => html`
-                <${NodeEditor}
-                    key=${i}
-                    node=${n}
-                    onChange=${nv => updateRoot(i, nv)}
-                    onRemove=${() => removeRoot(i)}
-                />
-                `)}
-            </div>`;
+
 
 
             const getCommon = () => ({
@@ -301,8 +292,15 @@
             }, []);
 
             return html`<div class="space-y-2">
-    ${nodes.map((n, i) => html`<${NodeEditor} key=${i} node=${n} onChange=${nv => updateRoot(i, nv)} onRemove=${() => removeRoot(i)} />`)}
-  </div>`;
+                ${nodes.map((n, i) => html`
+                <${NodeEditor}
+                    key=${i}
+                    node=${n}
+                    onChange=${nv => updateRoot(i, nv)}
+                    onRemove=${() => removeRoot(i)}
+                />
+                `)}
+            </div>`;
         }
 
         ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`)
