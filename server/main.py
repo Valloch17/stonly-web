@@ -287,7 +287,8 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
         for n in nodes:
             if not n.name or not str(n.name).strip():
                 raise HTTPException(400, detail={"error": "Empty folder name in payload", "path": ppath})
-            fp = path_join(ppath, n.name)
+
+            fp = f"{ppath}/{n.name}" if ppath else f"/{n.name}"
 
             if n.name in idx:
                 fid = idx[n.name]["id"]
@@ -295,20 +296,29 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                 if payload.dryRun:
                     fid = -1
                 else:
-                    fid = st.create_folder(
-                        n.name, pid,
-                        public_access=s.publicAccess,
-                        language=s.language,
-                        description=n.description  # <-- NEW
-                    )
+                    try:
+                        fid = st.create_folder(
+                            n.name, pid,
+                            public_access=s.publicAccess,
+                            language=s.language,
+                            description=n.description
+                        )
+                    except HTTPException as e:
+                        # bubble up with extra context
+                        raise HTTPException(e.status_code, detail={
+                            "error": "create_folder failed",
+                            "path": fp,
+                            "name": n.name,
+                            "upstream": getattr(e, "detail", str(e)),
+                        })
 
-
-            if fid != -1 and fid is not None:
+            if fid not in (-1, None):
                 mapping[fp] = int(fid)
 
             next_pid = -1 if fid == -1 else fid
             if n.children:
                 dfs(n.children, next_pid, fp)
+
 
     dfs(payload.root, payload.parentId, "")
     return {"ok": True, "mapping": mapping}

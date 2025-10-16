@@ -263,9 +263,9 @@
                     <div class="mt-2">
                     <input class="border rounded p-2 w-full" placeholder="Description (optional)"
                             value=${local.description || ""} onInput=${e => {
-                                    const val = e.target.value;
-                                    update({ description: val?.trim() ? val : undefined });
-                                }} />
+                        const val = e.target.value;
+                        update({ description: val?.trim() ? val : undefined });
+                    }} />
                     </div>
                 `}
 
@@ -276,10 +276,10 @@
                         key=${i}
                         node=${c}
                         onChange=${nv => {
-                                        const arr = (local.children || []).slice();
-                                        arr[i] = nv;
-                                        update({ children: arr });
-                                    }}
+                            const arr = (local.children || []).slice();
+                            arr[i] = nv;
+                            update({ children: arr });
+                        }}
                         onRemove=${() => removeChild(i)}
                         />
                     `)}
@@ -369,8 +369,10 @@
             async function call(path, bodyOrParams) {
                 const out = document.getElementById('out');
                 out.textContent = '...';
+
                 try {
                     let res;
+
                     if (path === '/api/dump-structure') {
                         const url = new URL(BASE + path);
                         const c = bodyOrParams.creds;
@@ -385,19 +387,23 @@
                         res = await fetch(BASE + path, {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(bodyOrParams)
+                            body: JSON.stringify(bodyOrParams),
                         });
                     }
+
+                    const statusLine = `HTTP ${res.status} ${res.statusText}`;
                     const text = await res.text();
+
+                    // Try parse JSON, else show raw text + status
                     try {
                         const data = JSON.parse(text);
                         out.textContent = JSON.stringify(data, null, 2);
                     } catch {
-                        // réponse non-JSON (ou JSON invalide) -> montre le texte brut + status
-                        out.textContent = `HTTP ${res.status} ${res.statusText}\n` + text;
+                        out.textContent = `${statusLine}\n${text}`;
                     }
                 } catch (e) {
-                    out.textContent = String(e);
+                    // True network issues (CORS/mixed content/offline) end up here
+                    document.getElementById('out').textContent = String(e);
                 }
             }
 
