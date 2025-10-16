@@ -5,7 +5,7 @@ import os, time
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import requests
 
 
@@ -196,9 +196,12 @@ class Stonly:
 # ---- modèles ----
 class UINode(BaseModel):
     name: str
-    description: Optional[str] = None  # <-- NEW
-    children: list["UINode"] = []
+    description: Optional[str] = None           # <-- NEW
+    children: List["UINode"] = Field(default_factory=list)  # safe default list
+
+# Rebuild les refs récursives (Pydantic v2)
 UINode.model_rebuild()
+
 
 
 class Settings(BaseModel):
@@ -210,8 +213,9 @@ class ApplyPayload(BaseModel):
     creds: Creds
     parentId: Optional[int] = None
     dryRun: bool = False
-    root: list[UINode]
-    settings: Optional[Settings] = None   # <-- AJOUT
+    root: List[UINode]                               # <--
+    settings: Optional[Settings] = None
+
 
 class Creds(BaseModel):
     user: str
@@ -297,11 +301,12 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                     fid = -1
                 else:
                     try:
+                        desc = getattr(n, "description", None)
                         fid = st.create_folder(
                             n.name, pid,
                             public_access=s.publicAccess,
                             language=s.language,
-                            description=n.description
+                            description=desc,   # <-- utilise la description si fournie
                         )
                     except HTTPException as e:
                         # bubble up with extra context
