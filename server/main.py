@@ -304,7 +304,10 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                             "upstream": getattr(e, "detail", str(e)),
                         })
 
-            if fid not in (-1, None):
+            # ✅ Renseigner le mapping même en dry-run
+            if fid == -1:
+                mapping[fp] = "(dry-run)"   # ou None si tu préfères
+            elif fid is not None:
                 mapping[fp] = int(fid)
 
             next_pid = -1 if fid == -1 else fid
