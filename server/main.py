@@ -137,45 +137,59 @@ class Stonly:
 
         raise HTTPException(502, detail={"error": "Too many retries", "url": url})
 
+    def create_folder(
+        self,
+        name: str,
+        parent_id: Optional[int],
+        *,
+        public_access: Optional[int] = None,
+        language: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> int:
+        """
+        Crée un dossier. Supporte parentFolderId, publicAccess, language, description.
+        Essaie d'abord le payload 'canonique', puis fallback si besoin.
+        """
+        def _make_body(var_name_for_parent: str):
+            body = {"name": name}
+            if parent_id is not None:
+                body[var_name_for_parent] = int(parent_id)  # "parentFolderId" ou "parentId"
+            if public_access in (0, 1):
+                body["publicAccess"] = int(public_access)
+            if language:
+                body["language"] = str(language)
+            if description:
+                body["description"] = str(description)
+            return body
 
-    def create_folder(self, name: str, parent_id: Optional[int]) -> int:
-        """
-        Crée un dossier en essayant plusieurs variantes de payload observées sur différents tenants.
-        Retourne l'id du dossier créé.
-        """
-        # Essai 1 : body {"name": ..., "parentFolderId": ...}
-        body = {"name": name}
-        if parent_id is not None:
-            body["parentFolderId"] = int(parent_id)
+        # Variante 1: parentFolderId (spec canonique)
         try:
-            data = self._req("POST", "/folder", json=body)
+            data = self._req("POST", "/folder", json=_make_body("parentFolderId"))
             fid = data.get("folderId") or data.get("id") or data.get("entityId")
             return int(fid)
         except HTTPException as e1:
-            # Essai 2 : body {"folderName": ..., "parentId": ...}
-            body2 = {"folderName": name}
-            if parent_id is not None:
-                body2["parentId"] = int(parent_id)
+            # Variante 2: parentId
             try:
-                data = self._req("POST", "/folder", json=body2)
+                data = self._req("POST", "/folder", json=_make_body("parentId"))
                 fid = data.get("folderId") or data.get("id") or data.get("entityId")
                 return int(fid)
             except HTTPException as e2:
-                # Essai 3 : body {"name": ...} + parentId en query
+                # Variante 3: parentId en query
                 params3 = {"parentId": int(parent_id)} if parent_id is not None else None
+                body3 = _make_body("parentFolderId")
+                body3.pop("parentFolderId", None)
                 try:
-                    data = self._req("POST", "/folder", params=params3, json={"name": name})
+                    data = self._req("POST", "/folder", params=params3, json=body3)
                     fid = data.get("folderId") or data.get("id") or data.get("entityId")
                     return int(fid)
                 except HTTPException as e3:
-                    # On renvoie l’erreur amont la plus récente avec détails
                     raise HTTPException(e3.status_code, detail={
-                        "error": "create_folder failed (all variants)",
+                        "error": "create_folder failed",
                         "attempts": [
-                            {"variant": "name+parentFolderId", "detail": getattr(e1, "detail", str(e1))},
-                            {"variant": "folderName+parentId", "detail": getattr(e2, "detail", str(e2))},
-                            {"variant": "name + parentId(query)", "detail": getattr(e3, "detail", str(e3))},
-                        ],
+                            {"variant": "parentFolderId", "detail": getattr(e1, "detail", str(e1))},
+                            {"variant": "parentId", "detail": getattr(e2, "detail", str(e2))},
+                            {"variant": "parentId(query)", "detail": getattr(e3, "detail", str(e3))}
+                        ]
                     })
 
 
@@ -185,6 +199,18 @@ class UINode(BaseModel):
     children: list["UINode"] = []
 
 UINode.model_rebuild()
+
+class Settings(BaseModel):
+    publicAccess: int = 1   # 1 = visible (public), 0 = privé
+    language: str = "en"    # code langue (ex: "en", "fr", ...)
+
+class ApplyPayload(BaseModel):
+    token: str
+    creds: Creds
+    parentId: Optional[int] = None
+    dryRun: bool = False
+    root: list[UINode]
+    settings: Optional[Settings] = None   # <-- AJOUT
 
 class Creds(BaseModel):
     user: str
@@ -237,6 +263,9 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                 password=payload.creds.password, team_id=payload.creds.teamId)
     mapping: Dict[str, int] = {}
 
+    # valeurs globales
+    s = payload.settings or Settings()   # defaults: publicAccess=1, language="en"
+
     def path_join(p, n): return f"{p}/{n}" if p else f"/{n}"
 
     def list_index(pid: Optional[int]) -> Dict[str, dict]:
@@ -254,31 +283,32 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
     def dfs(nodes: List[UINode], pid: Optional[int], ppath: str):
         idx = list_index(pid)
         for n in nodes:
-            if not n.name or not str(n.name).strip():
+            if not n.name or not str(n.name).trim():
                 raise HTTPException(400, detail={"error": "Empty folder name in payload", "path": ppath})
             fp = path_join(ppath, n.name)
 
-            # Existe déjà ?
             if n.name in idx:
                 fid = idx[n.name]["id"]
             else:
                 if payload.dryRun:
                     fid = -1
                 else:
-                    fid = st.create_folder(n.name, pid)
+                    fid = st.create_folder(
+                        n.name, pid,
+                        public_access=s.publicAccess,
+                        language=s.language,
+                        # description=None  # à implémenter plus tard
+                    )
 
             if fid != -1 and fid is not None:
                 mapping[fp] = int(fid)
 
-            # Descendre
             next_pid = -1 if fid == -1 else fid
             if n.children:
                 dfs(n.children, next_pid, fp)
 
-
     dfs(payload.root, payload.parentId, "")
     return {"ok": True, "mapping": mapping}
-
 
 @app.post("/api/verify")
 def api_verify(payload: VerifyPayload):

@@ -47,6 +47,26 @@
                 <input id="dryRun" type="checkbox" /> Dry-run
             </label>
 
+            <!-- Réglages globaux de création -->
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium">
+                        Visibility (publicAccess) <span class="text-red-600">*</span>
+                    </label>
+                    <select id="publicAccess" class="mt-1 w-full border rounded p-2">
+                        <option value="1" selected>Visible (1)</option>
+                        <option value="0">Privé (0)</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">
+                        Language <span class="text-red-600">*</span>
+                    </label>
+                    <input id="lang" class="mt-1 w-full border rounded p-2" value="en" placeholder="en" />
+                </div>
+            </div>
+
+
             <!-- Creds Stonly -->
             <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
@@ -269,8 +289,13 @@
                     }
                     const common = getCommon();
                     const root = getRoot(window.__UI_NODES__ || []);
-                    call('/api/apply', { ...common, dryRun: document.getElementById('dryRun').checked, root });
+                    const settings = {
+                        publicAccess: parseInt(document.getElementById('publicAccess').value, 10),
+                        language: (document.getElementById('lang').value || "en").trim() || "en",
+                    };
+                    call('/api/apply', { ...common, dryRun: document.getElementById('dryRun').checked, root, settings });
                 };
+
 
                 document.getElementById('btnVerify').onclick = () => {
                     if (!validateRequired()) {
