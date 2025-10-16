@@ -291,34 +291,41 @@
                 update({ children: arr });
             };
 
-            const wrapperClasses = [
-                "rounded", "p-3", depthBgClass(depth), "border", depthBorderClass(depth)
-            ].join(" ");
+            const wrapperClasses =
+                ["rounded", "p-2", depthBgClass(depth), "border", depthBorderClass(depth)].join(" ");
 
             return html`
                 <div class=${wrapperClasses}>
-                <div class="flex items-center gap-2">
-                    <input class="border rounded p-2 flex-1" placeholder="Folder name"
-                        value=${local.name || ""} onInput=${e => update({ name: e.target.value })} />
-                    <button class="px-2 py-1 rounded bg-black text-white" type="button" onClick=${addChild}>+ Child</button>
-                    <button class="px-2 py-1 rounded border" type="button" onClick=${() => setShowDesc(v => !v)}>
+                <div class="flex items-center gap-1.5">
+                    <input
+                    class="border rounded p-1 text-sm flex-1"
+                    placeholder="Folder name"
+                    value=${local.name || ""}
+                    onInput=${e => update({ name: e.target.value })}
+                    />
+                    <button class="px-2 py-1 text-xs md:text-sm rounded bg-black text-white" type="button" onClick=${addChild}>+ Child</button>
+                    <button class="px-2 py-1 text-xs md:text-sm rounded border" type="button" onClick=${() => setShowDesc(v => !v)}>
                     ${showDesc ? 'Hide description' : '+ Description'}
                     </button>
-                    <button class="px-2 py-1 rounded border border-red-300 text-red-600" type="button" onClick=${onRemove}>Remove</button>
+                    <button class="px-2 py-1 text-xs md:text-sm rounded border border-red-300 text-red-600" type="button" onClick=${onRemove}>Remove</button>
                 </div>
 
                 ${showDesc && html`
                     <div class="mt-2">
-                    <input class="border rounded p-2 w-full" placeholder="Description (optional)"
-                            value=${local.description || ""} onInput=${e => {
+                    <input
+                        class="border rounded p-1 text-sm w-full"
+                        placeholder="Description (optional)"
+                        value=${local.description || ""}
+                        onInput=${e => {
                                     const val = e.target.value;
                                     update({ description: val?.trim() ? val : undefined });
-                                }} />
+                                }}
+                    />
                     </div>
                 `}
 
                 ${(local.children || []).length > 0 && html`
-                    <div class="pl-4 mt-3 space-y-2 border-l ${depthBorderClass(depth)}">
+                    <div class="pl-3 mt-2 space-y-1.5 border-l ${depthBorderClass(depth)}">
                     ${(local.children || []).map((c) => html`
                         <${NodeEditor}
                         key=${c._id}
