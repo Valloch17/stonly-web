@@ -157,12 +157,14 @@
         const STORAGE_KEY_NODES = "stonly_ui_nodes";
         const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
 
-        function normalizeNode(n) {
-            return {
-                name: String(n?.name ?? ""),
+        function normalizeNodes(nodes) {
+            if (!Array.isArray(nodes)) return [];
+            const norm = (n) => ({
+                name: (n?.name ?? "").toString(),
                 description: (n?.description ?? "") ? String(n.description) : undefined,
-                children: Array.isArray(n?.children) ? n.children.map(normalizeNode) : []
-            };
+                children: Array.isArray(n?.children) ? n.children.map(norm) : []
+            });
+            return nodes.map(norm);
         }
 
         function loadNodesFromStorage() {
@@ -172,7 +174,7 @@
                 const arr = JSON.parse(raw);
                 if (!Array.isArray(arr)) return [];
                 // migration-safe: ensure description is preserved/added
-                return arr.map(normalizeNode);
+                return arr.map(normalizeNodes);
             } catch {
                 return [];
             }
