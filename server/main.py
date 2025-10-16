@@ -284,7 +284,7 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
     def dfs(nodes: List[UINode], pid: Optional[int], ppath: str):
         idx = list_index(pid)
         for n in nodes:
-            if not n.name or not str(n.name).trim():
+            if not n.name or not str(n.name).strip():
                 raise HTTPException(400, detail={"error": "Empty folder name in payload", "path": ppath})
             fp = path_join(ppath, n.name)
 
