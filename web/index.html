@@ -198,7 +198,7 @@
                 const arr = JSON.parse(raw);
                 if (!Array.isArray(arr)) return [];
                 // migration-safe: ensure description is preserved/added
-                return arr.map(normalizeNodes);
+                return normalizeNodes(arr);
             } catch {
                 return [];
             }
@@ -285,9 +285,12 @@
             };
 
             const updateChildById = (id, nv) => {
-                const arr = (local.children || []).map(c => c._id === id ? nv : c);
+                const arr = (local.children || []).map(c =>
+                    c._id === id ? { ...nv, _id: id } : c
+                );
                 update({ children: arr });
             };
+
 
             const removeChildById = (id) => {
                 const arr = (local.children || []).filter(c => c._id !== id);
