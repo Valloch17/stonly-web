@@ -24,7 +24,7 @@
             <input id="token" type="password" required aria-required="true" class="mt-1 w-full border rounded p-2"
                 placeholder="APP_ADMIN_TOKEN" />
 
-                <!-- Creds Stonly -->
+            <!-- Creds Stonly -->
             <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium">
@@ -111,12 +111,45 @@
             <button id="btnApply" class="px-4 py-2 rounded bg-emerald-600 text-white">Apply</button>
             <button id="btnVerify" class="px-4 py-2 rounded bg-blue-600 text-white">Verify</button>
             <button id="btnDump" class="px-4 py-2 rounded bg-gray-700 text-white">Dump structure</button>
+            <button id="resetTree" class="px-2 py-1 rounded bg-gray-200">Reset arbo</button>
+            <script>
+                document.getElementById('resetTree')?.addEventListener('click', () => {
+                    localStorage.removeItem(STORAGE_KEY_NODES);
+                    window.location.reload();
+                });
+            </script>
+
         </div>
 
         <pre id="out" class="mt-4 p-4 bg-white rounded-xl shadow text-sm whitespace-pre-wrap"></pre>
     </div>
     <script>
         const BASE = "https://stonly-web.onrender.com"; // <-- corrige le ReferenceError (voir §2)
+        // --- Persistence helpers ---
+        const STORAGE_KEY_NODES = "stonly_ui_nodes";
+        const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
+
+        function loadNodesFromStorage() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY_NODES);
+                if (!raw) return [];
+                const arr = JSON.parse(raw);
+                // sécurité basique: s'assurer de la forme {name, children[]}
+                const norm = (n) => ({ name: String(n?.name ?? ""), children: Array.isArray(n?.children) ? n.children.map(norm) : [] });
+                return Array.isArray(arr) ? arr.map(norm) : [];
+            } catch { return []; }
+        }
+
+        function saveNodesToStorage(nodes) {
+            try { localStorage.setItem(STORAGE_KEY_NODES, JSON.stringify(nodes)); } catch { }
+        }
+
+        function loadYamlFromStorage() {
+            try { return localStorage.getItem(STORAGE_KEY_YAML) || ""; } catch { return ""; }
+        }
+        function saveYamlToStorage(text) {
+            try { localStorage.setItem(STORAGE_KEY_YAML, text || ""); } catch { }
+        }
 
         /** Convertit un objet {name, children[]} récursif en tableau normalisé */
         function normalizeNodes(nodes) {
@@ -208,31 +241,25 @@
 
 
         function App() {
-            const [nodes, setNodes] = React.useState([]);
-            // expose l'état UI pour les handlers extérieurs
+            const [nodes, setNodes] = React.useState(() => loadNodesFromStorage());
 
+            // expose l'état pour Apply/Verify si tu l'utilises ailleurs
+            React.useEffect(() => { window.__UI_NODES__ = nodes; }, [nodes]);
+
+            // ⬇️ sauve à chaque changement
+            React.useEffect(() => { saveNodesToStorage(nodes); }, [nodes]);
+
+            // addRoot / updateRoot / removeRoot (versions "fonctionnelles" pour éviter stale closures)
             const addRoot = React.useCallback(() => {
                 setNodes(prev => [...prev, { name: "", children: [] }]);
             }, []);
-
-            // ✅ 2) updates fonctionnelles pour éviter d'écraser l'état
             const updateRoot = React.useCallback((i, n) => {
-                setNodes(prev => {
-                    const arr = prev.slice();
-                    arr[i] = n;
-                    return arr;
-                });
+                setNodes(prev => { const arr = prev.slice(); arr[i] = n; return arr; });
             }, []);
             const removeRoot = React.useCallback((i) => {
-                setNodes(prev => {
-                    const arr = prev.slice();
-                    arr.splice(i, 1);
-                    return arr;
-                });
+                setNodes(prev => { const arr = prev.slice(); arr.splice(i, 1); return arr; });
             }, []);
 
-            // Expose l'état pour Apply/Verify (si tu l'utilises)
-            React.useEffect(() => { window.__UI_NODES__ = nodes; }, [nodes]);
             // ✅ Rebranche proprement le bouton hors-React, sans capturer nodes
             React.useEffect(() => {
                 const btn = document.getElementById('addRoot');
@@ -253,6 +280,21 @@
                     base: document.getElementById('st_base').value || "https://public.stonly.com/api/v3"
                 }
             });
+            // --- Init + bind YAML persistence (ajoute ce bloc ici) ---
+            (function initYamlPersistence() {
+                const y = document.getElementById('yaml');
+                if (!y) return;
+
+                // Remplit depuis localStorage si le champ est vide
+                const prev = loadYamlFromStorage();
+                if (prev && !y.value) y.value = prev;
+
+                // Sauvegarde à chaque saisie
+                y.addEventListener('input', () => saveYamlToStorage(y.value));
+            })();
+
+            // ... le reste de ton script: composant App(), NodeEditor, handlers boutons, etc.
+
 
 
             const call = async (path, bodyOrParams) => {
