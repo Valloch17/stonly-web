@@ -121,7 +121,30 @@
 
         </div>
 
-        <pre id="out" class="mt-4 p-4 bg-white rounded-xl shadow text-sm whitespace-pre-wrap"></pre>
+        <div class="p-4 bg-white rounded-xl shadow mt-4">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-lg font-semibold">Réponse</h2>
+                <!-- Bouton copy -->
+                <button id="copyOut"
+                    class="inline-flex items-center gap-2 px-2 py-1 rounded border hover:bg-gray-50 active:scale-[0.98]"
+                    type="button" aria-label="Copier la réponse" title="Copier la réponse">
+                    <!-- Icône clipboard (SVG) -->
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none"
+                        stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2"></rect>
+                        <path d="M5 15V5a2 2 0 0 1 2-2h10" />
+                    </svg>
+                    <span class="text-sm">Copier</span>
+                </button>
+            </div>
+
+            <!-- Bloc réponse -->
+            <div class="relative">
+                <pre id="out"
+                    class="whitespace-pre-wrap text-sm bg-gray-50 border rounded p-3 max-h-96 overflow-auto"></pre>
+            </div>
+        </div>
+
     </div>
     <script>
         const BASE = "https://stonly-web.onrender.com"; // <-- corrige le ReferenceError (voir §2)
@@ -381,7 +404,54 @@
             </div>`;
         }
 
-        ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`)
+        ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`);
+
+        // Bouton "Copier la réponse"
+        (function setupCopyOut() {
+            const btn = document.getElementById('copyOut');
+            const out = document.getElementById('out');
+            if (!btn || !out) return;
+
+            const setFlash = (ok = true) => {
+                const original = btn.innerHTML;
+                btn.innerHTML = ok ? '✓ Copié' : '⚠️ Échec';
+                btn.classList.toggle('bg-green-100', ok);
+                btn.classList.toggle('bg-red-100', !ok);
+                setTimeout(() => {
+                    btn.innerHTML = original;
+                    btn.classList.remove('bg-green-100', 'bg-red-100');
+                }, 1200);
+            };
+
+            btn.addEventListener('click', async () => {
+                const text = (out.innerText || out.textContent || '').trim();
+                if (!text) { setFlash(false); return; }
+                try {
+                    if (navigator.clipboard?.writeText) {
+                        await navigator.clipboard.writeText(text);
+                    } else {
+                        // Fallback execCommand
+                        const ta = document.createElement('textarea');
+                        ta.value = text;
+                        ta.style.position = 'fixed';
+                        ta.style.opacity = '0';
+                        document.body.appendChild(ta);
+                        ta.select();
+                        document.execCommand('copy');
+                        document.body.removeChild(ta);
+                    }
+                    setFlash(true);
+                } catch {
+                    setFlash(false);
+                }
+            });
+        })();
+        const updateDisabled = () => btn.disabled = !(out.textContent || '').trim();
+        updateDisabled();
+        const mo = new MutationObserver(updateDisabled);
+        mo.observe(out, { childList: true, characterData: true, subtree: true });
+
+
     </script>
 </body>
 
