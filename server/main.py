@@ -194,52 +194,39 @@ class Stonly:
 
 
 # ---- modèles ----
-class UINode(BaseModel):
-    name: str
-    description: Optional[str] = None           # <-- NEW
-    children: List["UINode"] = Field(default_factory=list)  # safe default list
-
-# Rebuild les refs récursives (Pydantic v2)
-UINode.model_rebuild()
-
-
-
-class Settings(BaseModel):
-    publicAccess: int = 1   # 1 = visible (public), 0 = privé
-    language: str = "en"    # code langue (ex: "en", "fr", ...)
-
-class ApplyPayload(BaseModel):
-    token: str
-    creds: Creds
-    parentId: Optional[int] = None
-    dryRun: bool = False
-    root: List[UINode]                               # <--
-    settings: Optional[Settings] = None
-
 
 class Creds(BaseModel):
     user: str
     password: str
     teamId: int
-    base: Optional[str] = "https://public.stonly.com/api/v3"  # optionnel
+    base: Optional[str] = "https://public.stonly.com/api/v3"
 
 class UINode(BaseModel):
     name: str
-    children: list["UINode"] = []
+    description: Optional[str] = None
+    children: List["UINode"] = Field(default_factory=list)
+
+# Rebuild recursive refs
 UINode.model_rebuild()
+
+class Settings(BaseModel):
+    publicAccess: int = 1   # 1 = public (visible), 0 = private
+    language: str = "en"    # e.g., "en", "fr", ...
 
 class ApplyPayload(BaseModel):
     token: str
     creds: Creds
     parentId: Optional[int] = None
     dryRun: bool = False
-    root: list[UINode]
+    root: List[UINode]
+    settings: Optional[Settings] = None
 
 class VerifyPayload(BaseModel):
     token: str
     creds: Creds
     parentId: Optional[int] = None
-    root: list[UINode]
+    root: List[UINode]
+
 
 
 # ---- util ----
