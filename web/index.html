@@ -191,11 +191,47 @@
         function App() {
             const [nodes, setNodes] = React.useState([]);
             // expose l'état UI pour les handlers extérieurs
-            React.useEffect(() => { window.__UI_NODES__ = nodes; }, [nodes]);
 
-            const addRoot = () => setNodes([...nodes, { name: "", children: [] }]);
-            const updateRoot = (i, n) => { const arr = [...nodes]; arr[i] = n; setNodes(arr); };
-            const removeRoot = (i) => { const arr = [...nodes]; arr.splice(i, 1); setNodes(arr); };
+            const addRoot = React.useCallback(() => {
+                setNodes(prev => [...prev, { name: "", children: [] }]);
+            }, []);
+
+            // ✅ 2) updates fonctionnelles pour éviter d'écraser l'état
+            const updateRoot = React.useCallback((i, n) => {
+                setNodes(prev => {
+                    const arr = prev.slice();
+                    arr[i] = n;
+                    return arr;
+                });
+            }, []);
+            const removeRoot = React.useCallback((i) => {
+                setNodes(prev => {
+                    const arr = prev.slice();
+                    arr.splice(i, 1);
+                    return arr;
+                });
+            }, []);
+
+            // Expose l'état pour Apply/Verify (si tu l'utilises)
+            React.useEffect(() => { window.__UI_NODES__ = nodes; }, [nodes]);
+            // ✅ Rebranche proprement le bouton hors-React, sans capturer nodes
+            React.useEffect(() => {
+                const btn = document.getElementById('addRoot');
+                if (btn) btn.onclick = addRoot;
+                return () => { if (btn) btn.onclick = null; };
+            }, [addRoot]);
+
+            return html`<div class="space-y-2">
+                ${nodes.map((n, i) => html`
+                <${NodeEditor}
+                    key=${i}
+                    node=${n}
+                    onChange=${nv => updateRoot(i, nv)}
+                    onRemove=${() => removeRoot(i)}
+                />
+                `)}
+            </div>`;
+
 
             const getCommon = () => ({
                 token: document.getElementById('token').value,   // APP_ADMIN_TOKEN
@@ -267,7 +303,7 @@
             return html`<div class="space-y-2">
     ${nodes.map((n, i) => html`<${NodeEditor} key=${i} node=${n} onChange=${nv => updateRoot(i, nv)} onRemove=${() => removeRoot(i)} />`)}
   </div>`;
-            }
+        }
 
         ReactDOM.createRoot(document.getElementById('tree')).render(html`<${App}/>`)
     </script>
