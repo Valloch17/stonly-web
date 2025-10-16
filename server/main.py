@@ -77,6 +77,35 @@ class Stonly:
         # fallback: rien d'exploitable
         return []
 
+    def list_children(self, parent_id: Optional[int]) -> list[dict]:
+        """
+        Liste les dossiers enfants.
+        - Si parent_id est None : on utilise /folder/structure (format plat sur certains tenants)
+        - Sinon : on pagine /folder?folderId=... (les items ont souvent entityName/entityId)
+        Retourne toujours une liste de dict.
+        """
+        # Racine : /folder/structure
+        if parent_id is None:
+            items = self.get_structure_flat(None)
+            return items if isinstance(items, list) else []
+
+        # Enfants du parent : /folder paginé
+        page, limit, acc = 1, 100, []
+        while True:
+            data = self._req("GET", "/folder", params={"folderId": int(parent_id), "page": page, "limit": limit})
+            if isinstance(data, dict):
+                items = data.get("items") or []
+            elif isinstance(data, list):
+                items = data
+            else:
+                items = []
+            acc.extend(items)
+            if len(items) < limit:
+                break
+            page += 1
+        return acc
+
+
     def _req(self, method: str, path: str, *, params=None, json=None):
         url = f"{self.base}{path}"
         p = {**(params or {}), "teamId": self.team_id}
