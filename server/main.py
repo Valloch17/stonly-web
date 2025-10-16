@@ -196,9 +196,10 @@ class Stonly:
 # ---- modèles ----
 class UINode(BaseModel):
     name: str
+    description: Optional[str] = None  # <-- NEW
     children: list["UINode"] = []
-
 UINode.model_rebuild()
+
 
 class Settings(BaseModel):
     publicAccess: int = 1   # 1 = visible (public), 0 = privé
@@ -298,8 +299,9 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                         n.name, pid,
                         public_access=s.publicAccess,
                         language=s.language,
-                        # description=None  # à implémenter plus tard
+                        description=n.description  # <-- NEW
                     )
+
 
             if fid != -1 and fid is not None:
                 mapping[fp] = int(fid)

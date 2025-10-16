@@ -91,10 +91,18 @@
             <!-- YAML (optionnel) -->
             <label class="block text-sm font-medium mt-3">structure.yaml <i>(optional)</i></label>
             <textarea id="yaml" class="mt-1 w-full border rounded p-2 h-40" placeholder="root:
-          - name: Support
-            children:
-              - name: FAQs
-                children: []"></textarea>
+            - name: Support
+              description: 'Public info & help center'     # optional
+              children:
+                - name: FAQs
+                  description: 'Common questions'          # optional
+                  children: []
+                - name: Tutorials
+                  children:
+                    - name: Web
+                      children: []
+                    - name: Mobile
+                      children: []"></textarea>
             <small id="yamlError" class="text-red-600"></small>
         </div>
 
@@ -176,6 +184,7 @@
             if (!Array.isArray(nodes)) return [];
             const norm = (n) => ({
                 name: (n?.name ?? "").toString(),
+                description: (n?.description ?? "")?.toString() || undefined, // <- NEW
                 children: Array.isArray(n?.children) ? n.children.map(norm) : []
             });
             return nodes.map(norm);
@@ -215,31 +224,71 @@
         const html = htm.bind(React.createElement);
 
         function NodeEditor({ node, onChange, onRemove }) {
+            const [local, setLocal] = React.useState(node);
+            const [showDesc, setShowDesc] = React.useState(Boolean(node?.description)); // show if exists
+
+            React.useEffect(() => setLocal(node), [node]);
+
+            const update = (patch) => {
+                const next = { ...local, ...patch };
+                setLocal(next);
+                onChange(next);
+            };
+
             const addChild = () => {
-                const children = node.children ? [...node.children] : [];
-                children.push({ name: "", children: [] });
-                onChange({ ...node, children });
+                const next = { ...local, children: [...(local.children || []), { name: "", children: [] }] };
+                setLocal(next);
+                onChange(next);
             };
-            const updateName = (e) => onChange({ ...node, name: e.target.value });
-            const updateChild = (i, newChild) => {
-                const children = [...(node.children || [])];
-                children[i] = newChild; onChange({ ...node, children });
+
+            const removeChild = (idx) => {
+                const arr = (local.children || []).slice();
+                arr.splice(idx, 1);
+                update({ children: arr });
             };
-            const removeChild = (i) => {
-                const children = [...(node.children || [])];
-                children.splice(i, 1); onChange({ ...node, children });
-            };
-            return html`<div class="border rounded p-3">
-    <div class="flex items-center gap-2">
-      <input class="flex-1 border rounded p-2" placeholder="Folder name" value=${node.name || ""} onInput=${updateName} />
-      <button class="px-2 py-1 bg-red-500 text-white rounded" onClick=${onRemove}>Delete</button>
-      <button class="px-2 py-1 bg-black text-white rounded" onClick=${addChild}>+ Child</button>
-    </div>
-    <div class="mt-2 pl-4 space-y-2">
-      ${(node.children || []).map((c, i) => html`<${NodeEditor} key=${i} node=${c} onChange=${nc => updateChild(i, nc)} onRemove=${() => removeChild(i)} />`)}
-    </div>
-  </div>`;
+
+            return html`
+                <div class="border rounded p-3">
+                <div class="flex items-center gap-2">
+                    <input class="border rounded p-2 flex-1" placeholder="Folder name"
+                        value=${local.name || ""} onInput=${e => update({ name: e.target.value })} />
+                    <button class="px-2 py-1 rounded bg-black text-white" type="button" onClick=${addChild}>+ Child</button>
+                    <button class="px-2 py-1 rounded border" type="button" onClick=${() => setShowDesc(v => !v)}>
+                    ${showDesc ? 'Hide description' : '+ Description'}
+                    </button>
+                    <button class="px-2 py-1 rounded border border-red-300 text-red-600" type="button" onClick=${onRemove}>Remove</button>
+                </div>
+
+                ${showDesc && html`
+                    <div class="mt-2">
+                    <input class="border rounded p-2 w-full" placeholder="Description (optional)"
+                            value=${local.description || ""} onInput=${e => {
+                                    const val = e.target.value;
+                                    update({ description: val?.trim() ? val : undefined });
+                                }} />
+                    </div>
+                `}
+
+                ${(local.children || []).length > 0 && html`
+                    <div class="pl-4 mt-3 space-y-2 border-l">
+                    ${(local.children || []).map((c, i) => html`
+                        <${NodeEditor}
+                        key=${i}
+                        node=${c}
+                        onChange=${nv => {
+                                        const arr = (local.children || []).slice();
+                                        arr[i] = nv;
+                                        update({ children: arr });
+                                    }}
+                        onRemove=${() => removeChild(i)}
+                        />
+                    `)}
+                    </div>
+                `}
+                </div>
+            `;
         }
+
         function getRoot(nodesFromUI) {
             const fromYaml = getRootFromYamlOrNull();
             return fromYaml ?? normalizeNodes(nodesFromUI);
