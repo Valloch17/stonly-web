@@ -254,7 +254,7 @@
                         value=${local.name || ""} onInput=${e => update({ name: e.target.value })} />
                     <button class="px-2 py-1 rounded bg-black text-white" type="button" onClick=${addChild}>+ Child</button>
                     <button class="px-2 py-1 rounded border" type="button" onClick=${() => setShowDesc(v => !v)}>
-                    ${showDesc ? 'Hide description' : '+ Description'}
+                    ${showDesc ? 'Hide description' : '+ Desc'}
                     </button>
                     <button class="px-2 py-1 rounded border border-red-300 text-red-600" type="button" onClick=${onRemove}>Remove</button>
                 </div>
