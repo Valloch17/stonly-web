@@ -79,17 +79,20 @@ class Stonly:
 
     def list_children(self, parent_id: Optional[int]) -> list[dict]:
         """
-        Liste les dossiers enfants.
-        - Si parent_id est None : on utilise /folder/structure (format plat sur certains tenants)
-        - Sinon : on pagine /folder?folderId=... (les items ont souvent entityName/entityId)
-        Retourne toujours une liste de dict.
+        Liste les enfants d'un dossier.
+        - parent_id == -1  : sentinel dry-run -> aucun appel réseau, retourne []
+        - parent_id is None: (tenant qui exige folderId) -> retourne [] pour éviter 400
+        - sinon            : /folder paginé avec ?folderId=...
         """
-        # Racine : /folder/structure
-        if parent_id is None:
-            items = self.get_structure_flat(None)
-            return items if isinstance(items, list) else []
+        # ✅ dry-run sentinel : pas d'appel API
+        if parent_id == -1:
+            return []
 
-        # Enfants du parent : /folder paginé
+        # ⚠️ ton tenant exige folderId -> pas d'appel /folder/structure ici
+        if parent_id is None:
+            return []
+
+        # enfants du parent via /folder
         page, limit, acc = 1, 100, []
         while True:
             data = self._req("GET", "/folder", params={"folderId": int(parent_id), "page": page, "limit": limit})
@@ -104,6 +107,7 @@ class Stonly:
                 break
             page += 1
         return acc
+
 
 
     def _req(self, method: str, path: str, *, params=None, json=None):
@@ -267,8 +271,10 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
                 mapping[fp] = int(fid)
 
             # Descendre
+            next_pid = -1 if fid == -1 else fid
             if n.children:
-                dfs(n.children, None if fid in (-1, None) else int(fid), fp)
+                dfs(n.children, next_pid, fp)
+
 
     dfs(payload.root, payload.parentId, "")
     return {"ok": True, "mapping": mapping}
