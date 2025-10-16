@@ -178,6 +178,37 @@
         html[data-theme="dark"] #resetTree {
             box-shadow: 0 2px 6px rgba(0, 0, 0, .25);
         }
+
+        /* Alternating layer tokens (light & dark) */
+        :root {
+            /* light: white / very light gray */
+            --layer-0: #ffffff;
+            --layer-1: #f8fafc;
+            /* tailwind slate-50 */
+        }
+
+        html[data-theme="dark"] {
+            /* dark: two close shades for subtle banding */
+            /* Option A: fixed tones 
+            --layer-0: #0f172a;
+            slate-900-ish card 
+            --layer-1: #111827;*/
+            /* slate-900 slightly different */
+
+            /* Option B (comment A out, use this instead) — dynamic from your tokens: */
+            --layer-0: color-mix(in srgb, var(--card) 92%, var(--bg) 8%);
+            --layer-1: color-mix(in srgb, var(--card) 85%, var(--bg) 15%);
+           
+        }
+
+        /* Utility classes used by the tree nodes */
+        .layer-0 {
+            background: var(--layer-0) !important;
+        }
+
+        .layer-1 {
+            background: var(--layer-1) !important;
+        }
     </style>
 
 
@@ -344,9 +375,10 @@
 
         // Depth-based styling
         function depthBgClass(depth) {
-            // even levels = white, odd = light gray
-            return (depth % 2 === 0) ? "bg-white" : "bg-gray-50";
-        }
+  // even levels = layer-0, odd = layer-1
+  return (depth % 2 === 0) ? "layer-0" : "layer-1";
+}
+
         function depthBorderClass(depth) {
             // slightly darker border on gray rows for contrast
             return (depth % 2 === 0) ? "border-gray-200" : "border-gray-300";
