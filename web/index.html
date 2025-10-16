@@ -157,19 +157,32 @@
         const STORAGE_KEY_NODES = "stonly_ui_nodes";
         const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
 
+        function normalizeNode(n) {
+            return {
+                name: String(n?.name ?? ""),
+                description: (n?.description ?? "") ? String(n.description) : undefined,
+                children: Array.isArray(n?.children) ? n.children.map(normalizeNode) : []
+            };
+        }
+
         function loadNodesFromStorage() {
             try {
                 const raw = localStorage.getItem(STORAGE_KEY_NODES);
                 if (!raw) return [];
                 const arr = JSON.parse(raw);
-                // sécurité basique: s'assurer de la forme {name, children[]}
-                const norm = (n) => ({ name: String(n?.name ?? ""), children: Array.isArray(n?.children) ? n.children.map(norm) : [] });
-                return Array.isArray(arr) ? arr.map(norm) : [];
-            } catch { return []; }
+                if (!Array.isArray(arr)) return [];
+                // migration-safe: ensure description is preserved/added
+                return arr.map(normalizeNode);
+            } catch {
+                return [];
+            }
         }
 
         function saveNodesToStorage(nodes) {
-            try { localStorage.setItem(STORAGE_KEY_NODES, JSON.stringify(nodes)); } catch { }
+            try {
+                // store exactly what UI has, including `description`
+                localStorage.setItem(STORAGE_KEY_NODES, JSON.stringify(nodes));
+            } catch { }
         }
 
         function loadYamlFromStorage() {
@@ -179,16 +192,6 @@
             try { localStorage.setItem(STORAGE_KEY_YAML, text || ""); } catch { }
         }
 
-        /** Convertit un objet {name, children[]} récursif en tableau normalisé */
-        function normalizeNodes(nodes) {
-            if (!Array.isArray(nodes)) return [];
-            const norm = (n) => ({
-                name: (n?.name ?? "").toString(),
-                description: (n?.description ?? "")?.toString() || undefined, // <- NEW
-                children: Array.isArray(n?.children) ? n.children.map(norm) : []
-            });
-            return nodes.map(norm);
-        }
 
         /** Essaie de lire le textarea YAML et renvoie root[] si valide, sinon null */
         function getRootFromYamlOrNull() {
@@ -318,15 +321,25 @@
             // ⬇️ sauve à chaque changement
             React.useEffect(() => { saveNodesToStorage(nodes); }, [nodes]);
 
-            // addRoot / updateRoot / removeRoot (versions "fonctionnelles" pour éviter stale closures)
+            // Use functional updates everywhere to avoid stale state:
             const addRoot = React.useCallback(() => {
-                setNodes(prev => [...prev, { name: "", children: [] }]);
+                setNodes(prev => [...prev, { name: "", description: undefined, children: [] }]);
             }, []);
+
             const updateRoot = React.useCallback((i, n) => {
-                setNodes(prev => { const arr = prev.slice(); arr[i] = n; return arr; });
+                setNodes(prev => {
+                    const arr = prev.slice();
+                    arr[i] = n;               // n includes description from NodeEditor
+                    return arr;
+                });
             }, []);
+
             const removeRoot = React.useCallback((i) => {
-                setNodes(prev => { const arr = prev.slice(); arr.splice(i, 1); return arr; });
+                setNodes(prev => {
+                    const arr = prev.slice();
+                    arr.splice(i, 1);
+                    return arr;
+                });
             }, []);
 
             // ✅ Rebranche proprement le bouton hors-React, sans capturer nodes
