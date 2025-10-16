@@ -85,11 +85,11 @@
             </div>
 
             <!-- Base API (optionnel) -->
-            <label class="block text-sm font-medium mt-3">API Base (optionnel)</label>
+            <label class="block text-sm font-medium mt-3">API Base <i>(optional)</i></label>
             <input id="st_base" class="mt-1 w-full border rounded p-2" placeholder="https://public.stonly.com/api/v3" />
 
             <!-- YAML (optionnel) -->
-            <label class="block text-sm font-medium mt-3">structure.yaml (optionnel)</label>
+            <label class="block text-sm font-medium mt-3">structure.yaml <i>(optional)</i></label>
             <textarea id="yaml" class="mt-1 w-full border rounded p-2 h-40" placeholder="root:
           - name: Support
             children:
@@ -101,8 +101,8 @@
 
         <div class="mb-4 p-4 bg-white rounded-xl shadow">
             <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Arborescence</h2>
-                <button id="addRoot" class="px-3 py-1 rounded bg-black text-white">+ Racine</button>
+                <h2 class="text-lg font-semibold">Tree</h2>
+                <button id="addRoot" class="px-3 py-1 rounded bg-black text-white">+ Root</button>
             </div>
             <div id="tree" class="space-y-2"></div>
         </div>
@@ -111,7 +111,7 @@
             <button id="btnApply" class="px-4 py-2 rounded bg-emerald-600 text-white">Apply</button>
             <button id="btnVerify" class="px-4 py-2 rounded bg-blue-600 text-white">Verify</button>
             <button id="btnDump" class="px-4 py-2 rounded bg-gray-700 text-white">Dump structure</button>
-            <button id="resetTree" class="px-2 py-1 rounded bg-gray-200">Reset arbo</button>
+            <button id="resetTree" class="px-2 py-1 rounded bg-gray-200">Reset tree</button>
             <script>
                 document.getElementById('resetTree')?.addEventListener('click', () => {
                     localStorage.removeItem(STORAGE_KEY_NODES);
@@ -123,27 +123,24 @@
 
         <div class="p-4 bg-white rounded-xl shadow mt-4">
             <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Réponse</h2>
-                <!-- Bouton copy -->
+                <h2 class="text-lg font-semibold">Response</h2>
                 <button id="copyOut"
                     class="inline-flex items-center gap-2 px-2 py-1 rounded border hover:bg-gray-50 active:scale-[0.98]"
-                    type="button" aria-label="Copier la réponse" title="Copier la réponse">
-                    <!-- Icône clipboard (SVG) -->
+                    type="button" aria-label="Copy response" title="Copy response">
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none"
                         stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2"></rect>
                         <path d="M5 15V5a2 2 0 0 1 2-2h10" />
                     </svg>
-                    <span class="text-sm">Copier</span>
+                    <span class="text-sm">Copy</span>
                 </button>
             </div>
-
-            <!-- Bloc réponse -->
             <div class="relative">
                 <pre id="out"
                     class="whitespace-pre-wrap text-sm bg-gray-50 border rounded p-3 max-h-96 overflow-auto"></pre>
             </div>
         </div>
+
 
     </div>
     <script>
@@ -196,19 +193,19 @@
                 const data = jsyaml.load(text); // nécessite <script js-yaml> dans <head>
                 // formats acceptés : {root: [...] } ou directement [...]
                 let root = Array.isArray(data) ? data : (Array.isArray(data?.root) ? data.root : null);
-                if (!root) throw new Error("YAML doit contenir une clé 'root' (liste) ou être une liste au niveau racine.");
+                if (!root) throw new Error("YAML must contain a key 'root' (list) or be a root level list.");
                 root = normalizeNodes(root);
                 // validate names non vides
                 const invalid = [];
                 const walk = (list, p = "") => list.forEach(n => {
-                    if (!n.name || !n.name.trim()) invalid.push((p ? p + "/" : " /") + "<nom-vide>");
+                    if (!n.name || !n.name.trim()) invalid.push((p ? p + "/" : " /") + "<empty-name>");
                     if (n.children?.length) walk(n.children, (p ? p + "/" : "") + n.name);
                 });
                 walk(root);
-                if (invalid.length) throw new Error("Noms manquants dans: " + invalid.slice(0, 3).join(", ") + (invalid.length > 3 ? "…" : ""));
+                if (invalid.length) throw new Error("Missing names in: " + invalid.slice(0, 3).join(", ") + (invalid.length > 3 ? "…" : ""));
                 return root;
             } catch (e) {
-                err.textContent = "YAML invalide : " + (e?.message || e);
+                err.textContent = "Invalid YAML: " + (e?.message || e);
                 return null;
             }
         }
@@ -234,9 +231,9 @@
             };
             return html`<div class="border rounded p-3">
     <div class="flex items-center gap-2">
-      <input class="flex-1 border rounded p-2" placeholder="Nom du dossier" value=${node.name || ""} onInput=${updateName} />
-      <button class="px-2 py-1 bg-red-500 text-white rounded" onClick=${onRemove}>Supprimer</button>
-      <button class="px-2 py-1 bg-black text-white rounded" onClick=${addChild}>+ Enfant</button>
+      <input class="flex-1 border rounded p-2" placeholder="Folder name" value=${node.name || ""} onInput=${updateName} />
+      <button class="px-2 py-1 bg-red-500 text-white rounded" onClick=${onRemove}>Delete</button>
+      <button class="px-2 py-1 bg-black text-white rounded" onClick=${addChild}>+ Child</button>
     </div>
     <div class="mt-2 pl-4 space-y-2">
       ${(node.children || []).map((c, i) => html`<${NodeEditor} key=${i} node=${c} onChange=${nc => updateChild(i, nc)} onRemove=${() => removeChild(i)} />`)}
@@ -360,7 +357,7 @@
                 document.getElementById('addRoot').onclick = addRoot;
                 document.getElementById('btnApply').onclick = () => {
                     if (!validateRequired()) {
-                        document.getElementById('out').textContent = "Veuillez remplir tous les champs requis (*).";
+                        document.getElementById('out').textContent = "Please fill all required fields (*).";
                         return;
                     }
                     const common = getCommon();
@@ -375,7 +372,7 @@
 
                 document.getElementById('btnVerify').onclick = () => {
                     if (!validateRequired()) {
-                        document.getElementById('out').textContent = "Veuillez remplir tous les champs requis (*).";
+                        document.getElementById('out').textContent = "Please fill all required fields (*).";
                         return;
                     }
                     const common = getCommon();
@@ -414,7 +411,7 @@
 
             const setFlash = (ok = true) => {
                 const original = btn.innerHTML;
-                btn.innerHTML = ok ? '✓ Copié' : '⚠️ Échec';
+                btn.innerHTML = ok ? '✓ Copied' : '⚠️ Failed';
                 btn.classList.toggle('bg-green-100', ok);
                 btn.classList.toggle('bg-red-100', !ok);
                 setTimeout(() => {
@@ -422,6 +419,7 @@
                     btn.classList.remove('bg-green-100', 'bg-red-100');
                 }, 1200);
             };
+
 
             btn.addEventListener('click', async () => {
                 const text = (out.innerText || out.textContent || '').trim();
