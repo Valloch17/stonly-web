@@ -264,7 +264,8 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
     mapping: Dict[str, int] = {}
 
     # valeurs globales
-    s = payload.settings or Settings()   # defaults: publicAccess=1, language="en"
+    s = getattr(payload, "settings", None) or Settings()
+
 
     def path_join(p, n): return f"{p}/{n}" if p else f"/{n}"
 

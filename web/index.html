@@ -297,29 +297,41 @@
 
 
 
-            const call = async (path, bodyOrParams) => {
+            async function call(path, bodyOrParams) {
                 const out = document.getElementById('out');
                 out.textContent = '...';
                 try {
                     let res;
                     if (path === '/api/dump-structure') {
                         const url = new URL(BASE + path);
-                        url.searchParams.set('token', bodyOrParams.token);
                         const c = bodyOrParams.creds;
+                        url.searchParams.set('token', bodyOrParams.token);
                         url.searchParams.set('user', c.user);
                         url.searchParams.set('password', c.password);
                         url.searchParams.set('teamId', c.teamId);
-                        url.searchParams.set('base', c.base);
+                        url.searchParams.set('base', c.base || "https://public.stonly.com/api/v3");
                         if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
                         res = await fetch(url, { method: 'GET' });
+                    } else {
+                        res = await fetch(BASE + path, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(bodyOrParams)
+                        });
                     }
-                    else {
-                        res = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyOrParams) });
+                    const text = await res.text();
+                    try {
+                        const data = JSON.parse(text);
+                        out.textContent = JSON.stringify(data, null, 2);
+                    } catch {
+                        // réponse non-JSON (ou JSON invalide) -> montre le texte brut + status
+                        out.textContent = `HTTP ${res.status} ${res.statusText}\n` + text;
                     }
-                    const data = await res.json();
-                    out.textContent = JSON.stringify(data, null, 2);
-                } catch (e) { out.textContent = String(e); }
-            };
+                } catch (e) {
+                    out.textContent = String(e);
+                }
+            }
+
 
             React.useEffect(() => {
                 document.getElementById('addRoot').onclick = addRoot;
