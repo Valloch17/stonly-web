@@ -723,8 +723,9 @@
                 btn.disabled = true;
                 btn.textContent = settings.dryRun ? 'Simulating...' : 'Creating...';
             }
-            let responseBody = null;
             let status = null;
+            let rawText = null;
+            let parsed = null;
             try {
                 const response = await fetch('/api/guides/build', {
                     method: 'POST',
@@ -732,37 +733,44 @@
                     body: JSON.stringify(buildGuidePayload(settings, yamlText))
                 });
                 status = response.status;
-                try {
-                    responseBody = await response.json();
-                } catch {
-                    responseBody = null;
+                rawText = await response.text();
+                if (rawText) {
+                    try {
+                        parsed = JSON.parse(rawText);
+                    } catch {
+                        parsed = null;
+                    }
                 }
                 if (!response.ok) {
-                    const error = new Error(describeError(responseBody, response.status));
+                    const error = new Error(describeError(parsed || rawText, response.status));
                     error.status = response.status;
-                    error.payload = responseBody;
+                    error.payload = parsed ?? rawText;
                     throw error;
                 }
-                if (!responseBody?.ok) {
-                    const error = new Error(describeError(responseBody, response.status));
+                if (!parsed?.ok) {
+                    const error = new Error(describeError(parsed || rawText, response.status));
                     error.status = response.status;
-                    error.payload = responseBody;
+                    error.payload = parsed ?? rawText;
                     throw error;
                 }
-                return { status: response.status, body: responseBody };
+                return { status: response.status, body: parsed, rawText };
             } catch (err) {
                 if (err instanceof Error) {
                     if (err.payload === undefined) {
-                        err.payload = responseBody;
+                        err.payload = parsed ?? rawText;
                     }
                     if (err.status === undefined && status !== null) {
                         err.status = status;
                     }
+                    if (!err.rawText && rawText !== null) {
+                        err.rawText = rawText;
+                    }
                     throw err;
                 }
                 const generic = new Error(String(err));
-                generic.payload = responseBody;
+                generic.payload = parsed ?? rawText;
                 generic.status = status;
+                generic.rawText = rawText;
                 throw generic;
             } finally {
                 if (btn) {
@@ -801,9 +809,9 @@
             const plan = collectPlan(parsed, settings);
             updateOut({ dryRun: settings.dryRun, plan });
             try {
-                const { body, status } = await buildGuideRequest(settings, yamlText);
+                const { body, status, rawText } = await buildGuideRequest(settings, yamlText);
                 if (body) {
-                    updateOut({ dryRun: settings.dryRun, status, plan, response: body });
+                    updateOut({ dryRun: settings.dryRun, status, plan, response: body, raw: rawText });
                     if (settings.dryRun) {
                         alert('Dry-run complete. See the response panel for the simulated steps.');
                     } else {
@@ -814,12 +822,14 @@
                 const message = err?.message || 'Guide build failed';
                 const errorPayload = err && typeof err === 'object' ? err.payload : null;
                 const status = err && typeof err === 'object' && 'status' in err ? err.status : null;
+                const rawText = err && typeof err === 'object' && 'rawText' in err ? err.rawText : null;
                 updateOut({
                     dryRun: settings.dryRun,
                     status,
                     plan,
                     error: message,
-                    errorPayload
+                    errorPayload,
+                    raw: rawText
                 });
                 alert(`Guide build failed: ${message}`);
             }
