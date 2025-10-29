@@ -35,6 +35,13 @@ import traceback, logging
 logger = logging.getLogger("stonly")
 logging.basicConfig(level=logging.INFO)
 
+def mask_secret(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    if len(value) <= 4:
+        return "*" * len(value)
+    return f"{value[:3]}***{value[-2:]}"
+
 @app.exception_handler(Exception)
 async def unhandled_exc(_, exc: Exception):
     # Evite les 500 silencieux : log + payload JSON simple
@@ -497,6 +504,20 @@ def api_build_guide(payload: GuideBuildPayload):
     ensure_admin(f"Bearer {payload.token}")
     definition = parse_guide_yaml(payload.yaml, payload.defaults)
 
+    logger.info(
+        "GUIDE build start dryRun=%s team=%s folder=%s contentTitle=%s firstStep=%s",
+        payload.dryRun,
+        payload.creds.teamId,
+        payload.folderId,
+        definition.contentTitle,
+        definition.firstStep.title,
+    )
+    logger.debug(
+        "GUIDE creds user=%s base=%s",
+        mask_secret(payload.creds.user),
+        payload.creds.base,
+    )
+
     st = Stonly(
         base=payload.creds.base,
         user=payload.creds.user,
@@ -518,15 +539,23 @@ def api_build_guide(payload: GuideBuildPayload):
             "choiceLabel": None,
         })
     else:
-        created = st.create_guide(
-            folder_id=folder_id,
-            content_type=definition.contentType,
-            content_title=definition.contentTitle,
-            first_step_title=definition.firstStep.title,
-            content=definition.firstStep.content,
-            language=definition.firstStep.language or definition.language,
-            media=definition.firstStep.media or None,
-        )
+        try:
+            created = st.create_guide(
+                folder_id=folder_id,
+                content_type=definition.contentType,
+                content_title=definition.contentTitle,
+                first_step_title=definition.firstStep.title,
+                content=definition.firstStep.content,
+                language=definition.firstStep.language or definition.language,
+                media=definition.firstStep.media or None,
+            )
+        except Exception:
+            logger.exception(
+                "GUIDE create failed folder=%s title=%s",
+                folder_id,
+                definition.contentTitle,
+            )
+            raise
         guide_id = created["guideId"]
         first_step_id = created["firstStepId"]
         steps_created.append({
@@ -535,6 +564,11 @@ def api_build_guide(payload: GuideBuildPayload):
             "parent": None,
             "choiceLabel": None,
         })
+        logger.info(
+            "GUIDE created guideId=%s firstStepId=%s",
+            guide_id,
+            first_step_id,
+        )
 
     counter = len(steps_created)
     queue: List[Tuple[GuideStepChoice, str, str, Any]] = []
@@ -550,16 +584,25 @@ def api_build_guide(payload: GuideBuildPayload):
             counter += 1
             step_id = f"dry-step-{counter}"
         else:
-            appended = st.append_step(
-                guide_id=guide_id,
-                parent_step_id=parent_step_id,
-                title=step.title,
-                content=step.content,
-                language=language,
-                choice_label=choice.label,
-                position=choice.position if choice.position is not None else step.position,
-                media=step.media or None,
-            )
+            try:
+                appended = st.append_step(
+                    guide_id=guide_id,
+                    parent_step_id=parent_step_id,
+                    title=step.title,
+                    content=step.content,
+                    language=language,
+                    choice_label=choice.label,
+                    position=choice.position if choice.position is not None else step.position,
+                    media=step.media or None,
+                )
+            except Exception:
+                logger.exception(
+                    "GUIDE append failed guideId=%s parentStepId=%s title=%s",
+                    guide_id,
+                    parent_step_id,
+                    step.title,
+                )
+                raise
             step_id = appended["stepId"]
 
         steps_created.append({
@@ -569,9 +612,24 @@ def api_build_guide(payload: GuideBuildPayload):
             "parentPath": path,
             "choiceLabel": choice.label,
         })
+        logger.info(
+            "GUIDE step appended guideId=%s parent=%s step=%s stepId=%s dryRun=%s",
+            guide_id,
+            parent_title,
+            step.title,
+            step_id,
+            dry_run,
+        )
 
         for idx, child in enumerate(step.choices):
             queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id))
+
+    logger.info(
+        "GUIDE build complete guideId=%s dryRun=%s steps=%s",
+        guide_id,
+        dry_run,
+        len(steps_created),
+    )
 
     return {
         "ok": True,
