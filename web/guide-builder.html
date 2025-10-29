@@ -105,41 +105,58 @@
             height: 14px;
             display: block;
         }
+
+        .theme-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            line-height: 1;
+            color: var(--muted);
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 999px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+        }
+
+        .theme-toggle:hover {
+            filter: brightness(1.05);
+        }
+
+        .theme-toggle svg {
+            width: 16px;
+            height: 16px;
+        }
     </style>
 </head>
 
-<body class="min-h-screen">
-    <header class="sticky top-0 backdrop-blur bg-[color:var(--bg)/0.7] border-b border-neutral">
-        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-                <h1 class="text-2xl font-semibold">Stonly Guide Builder</h1>
-                <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly
-                    API.</p>
-            </div>
-            <div class="flex items-center gap-3 self-end md:self-auto">
-                <a href="/index.html"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral bg-card text-sm font-medium shadow hover:bg-slate-50/80 transition">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                        <path stroke-linecap="round" stroke-linejoin="round"
-                            d="M9 15l-3-3m0 0l3-3m-3 3h12M5 12a7 7 0 0 1 7-7h4" />
-                    </svg>
-                    KB Builder
-                </a>
-                <button id="themeToggle"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral bg-card text-sm"
-                    type="button" aria-label="Toggle theme">
-                    <span id="themeIcon">
-                        <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
-                            <path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
-                        </svg>
-                    </span>
-                    <span id="themeLabel">Dark</span>
-                </button>
-            </div>
-        </div>
-    </header>
+<body class="bg-gray-50">
+    <div class="max-w-5xl mx-auto flex items-center justify-end gap-3 px-4 pt-6">
+        <a href="/index.html"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+            </svg>
+            KB Builder
+        </a>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+            <span id="themeIcon">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+                </svg>
+            </span>
+            <span id="themeLabel">Dark</span>
+        </button>
+    </div>
 
     <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <div>
+            <h1 class="text-2xl font-semibold">Stonly Guide Builder</h1>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly API.</p>
+        </div>
+
         <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
             <div class="flex flex-col md:flex-row md:items-end md:gap-3">
                 <div class="flex-1">
@@ -154,28 +171,33 @@
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                    <label class="block text-sm font-medium">Stonly base URL</label>
-                    <input id="base" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
-                        value="https://public.stonly.com/api/v3" />
+                    <label class="block text-sm font-medium">Stonly username <span class="text-red-600">*</span></label>
+                    <input id="user" type="text" required aria-required="true"
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="your.name@company.com" autocomplete="off" />
                 </div>
+                <div>
+                    <label class="block text-sm font-medium">Stonly password <span class="text-red-600">*</span></label>
+                    <input id="password" type="password" required aria-required="true"
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="Your Stonly password" autocomplete="off" />
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium">Stonly base URL</label>
+                <input id="base" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
                     <input id="teamId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="123456" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium">Stonly username</label>
-                    <input id="user" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium">Stonly password</label>
-                    <input id="password" type="password" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
-                        autocomplete="off" />
-                </div>
-                <div>
                     <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
                     <input id="folderId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
-                        placeholder="Existing folder where the guide will live" />
+                        placeholder="Destination folder ID" />
                 </div>
             </div>
         </section>
@@ -593,6 +615,8 @@
         function warnMissingSettings(settings) {
             const missing = [];
             if (!settings.token) missing.push('Admin token');
+            if (!settings.user) missing.push('Stonly username');
+            if (!settings.password) missing.push('Stonly password');
             if (!settings.teamId) missing.push('Team ID');
             if (!settings.folderId) missing.push('Folder ID');
             if (missing.length) {
