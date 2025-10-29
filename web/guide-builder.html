@@ -1,0 +1,622 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+    <link rel="icon" href="/favicon-192.png" sizes="192x192" type="image/png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" sizes="180x180">
+    <title>Stonly Guide Builder</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <style>
+        :root {
+            --bg: #f6f7fb;
+            --card: #ffffff;
+            --text: #0f172a;
+            --muted: #475569;
+            --border: #e2e8f0;
+        }
+
+        html[data-theme="dark"] {
+            --bg: #0b1220;
+            --card: #0f172a;
+            --text: #e5e7eb;
+            --muted: #94a3b8;
+            --border: #1f2937;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+
+        .bg-card {
+            background: var(--card) !important;
+        }
+
+        .border-neutral {
+            border-color: var(--border) !important;
+        }
+
+        input,
+        textarea,
+        select {
+            background: var(--card);
+            color: var(--text);
+            border-color: var(--border);
+        }
+
+        #out {
+            background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important;
+        }
+
+        .contact-badge {
+            position: fixed;
+            right: 14px;
+            bottom: 12px;
+            z-index: 50;
+            font-size: 12px;
+            line-height: 1;
+            color: #334155;
+            background: rgba(248, 250, 252, .95);
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 8px 10px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        html[data-theme="dark"] .contact-badge {
+            color: #e2e8f0;
+            background: rgba(15, 23, 42, .95);
+            border-color: #1f2937;
+        }
+
+        .contact-badge a {
+            color: inherit;
+            text-decoration: none;
+            border-bottom: 1px dotted currentColor;
+        }
+
+        .contact-badge a:hover {
+            text-decoration: underline;
+        }
+
+        .contact-badge .sep {
+            opacity: .5;
+            user-select: none;
+        }
+
+        .contact-badge .gh {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: none;
+        }
+
+        .contact-badge .gh svg {
+            width: 14px;
+            height: 14px;
+            display: block;
+        }
+    </style>
+</head>
+
+<body class="min-h-screen">
+    <header class="sticky top-0 backdrop-blur bg-[color:var(--bg)/0.7] border-b border-neutral">
+        <div class="max-w-5xl mx-auto px-4 py-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+                <h1 class="text-2xl font-semibold">Stonly Guide Builder</h1>
+                <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly
+                    API.</p>
+            </div>
+            <button id="themeToggle"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-neutral bg-card text-sm"
+                type="button" aria-label="Toggle theme">
+                <span id="themeIcon">
+                    <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                        <path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+                    </svg>
+                </span>
+                <span id="themeLabel">Dark</span>
+            </button>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+            <div class="flex flex-col md:flex-row md:items-end md:gap-3">
+                <div class="flex-1">
+                    <label class="block text-sm font-medium">Admin token <span class="text-red-600">*</span></label>
+                    <input id="token" type="password" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="APP_ADMIN_TOKEN" autocomplete="off" />
+                </div>
+                <label class="mt-3 md:mt-0 inline-flex items-center gap-2 text-sm whitespace-nowrap">
+                    <input id="dryRun" type="checkbox" class="h-4 w-4" />
+                    Dry-run
+                </label>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium">Stonly base URL</label>
+                    <input id="base" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        value="https://public.stonly.com/api/v3" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+                    <input id="teamId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="123456" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Stonly username</label>
+                    <input id="user" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Stonly password</label>
+                    <input id="password" type="password" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        autocomplete="off" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
+                    <input id="folderId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="Existing folder where the guide will live" />
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+            <header>
+                <h2 class="text-lg font-semibold">Guide defaults</h2>
+                <p class="text-sm text-slate-500">These values pre-fill the payload. YAML values override them when
+                    provided.</p>
+            </header>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div class="md:col-span-2">
+                    <label class="block text-sm font-medium">Content title</label>
+                    <input id="contentTitle" type="text"
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="Onboarding walkthrough" />
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Content type</label>
+                    <select id="contentType"
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm bg-card">
+                        <option value="GUIDE">GUIDE</option>
+                        <option value="ARTICLE">ARTICLE</option>
+                        <option value="GUIDED_TOUR">GUIDED_TOUR</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium">Language</label>
+                    <input id="language" type="text"
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="en-US" value="en-US" />
+                </div>
+            </div>
+        </section>
+
+        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+            <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">Guide YAML</h2>
+                    <p class="text-sm text-slate-500">Describe the guide structure using nested steps and choices.</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button id="parseYamlBtn"
+                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                        Parse YAML
+                    </button>
+                    <button id="createGuideBtn"
+                        class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                        type="button">Create guide</button>
+                </div>
+            </header>
+
+            <div>
+                <textarea id="guideYaml"
+                    class="mt-1 w-full border border-neutral rounded-lg p-3 text-sm h-64 font-mono"
+                    placeholder="guide:
+  contentTitle: Getting Started Guide
+  language: en-US
+  firstStep:
+    title: Welcome to the product
+    content: &quot;&lt;p&gt;Thanks for joining us!&lt;/p&gt;&quot;
+    choices:
+      - label: Continue
+        step:
+          title: Configure workspace
+          content: &quot;&lt;p&gt;Let's set up your workspace.&lt;/p&gt;&quot;
+          choices:
+            - label: Skip setup
+              step:
+                title: Explore features
+                content: &quot;&lt;p&gt;Here is what you can do next.&lt;/p&gt;&quot;
+      - label: Need help
+        step:
+          title: Contact support
+          content: &quot;&lt;p&gt;We're here to help anytime.&lt;/p&gt;&quot;">
+                </textarea>
+                <small id="yamlError" class="text-red-600 text-xs"></small>
+            </div>
+            <div class="border border-dashed border-neutral rounded-lg p-4 bg-slate-50 dark:bg-slate-900/40">
+                <h3 class="text-sm font-semibold mb-2">YAML format</h3>
+                <ul class="list-disc pl-5 space-y-1 text-sm text-slate-600">
+                    <li>Top-level <code class="font-mono">guide</code> object must include <code
+                            class="font-mono">contentTitle</code>,
+                        <code class="font-mono">language</code>, and <code class="font-mono">firstStep</code>.</li>
+                    <li>Each step defines a <code class="font-mono">title</code>, <code class="font-mono">content</code>
+                        (HTML allowed), and optional <code class="font-mono">choices</code> array.</li>
+                    <li>Choices accept <code class="font-mono">label</code>, optional <code
+                            class="font-mono">position</code>, and a nested <code class="font-mono">step</code>.</li>
+                    <li>Optional step fields: <code class="font-mono">media</code> (up to 3 URLs), <code
+                            class="font-mono">position</code>, <code class="font-mono">language</code>.</li>
+                </ul>
+            </div>
+        </section>
+
+        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+            <header class="flex items-center justify-between gap-3">
+                <h2 class="text-lg font-semibold">Preview</h2>
+                <span id="previewStatus"
+                    class="inline-flex items-center gap-2 text-sm text-slate-500">Waiting for YAML.</span>
+            </header>
+            <div id="previewTree" class="space-y-3 text-sm"></div>
+        </section>
+
+        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+            <header class="flex items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">Execution plan</h2>
+                    <p class="text-sm text-slate-500">Review the payloads before hitting the API.</p>
+                </div>
+                <button id="copyOut"
+                    class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                    Copy plan
+                </button>
+            </header>
+            <pre id="out" class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
+        </section>
+    </main>
+
+    <div class="contact-badge">
+        <span>Contact:
+            <a href="mailto:valentin.bourrelier@stonly.com">valentin.bourrelier@stonly.com</a>
+        </span>
+        <span class="sep">|</span>
+        <a class="gh" href="https://github.com/Valloch17/stonly-web" target="_blank" rel="noopener noreferrer"
+            aria-label="Open GitHub repository">
+            <svg viewBox="0 0 24 24" aria-hidden="true" fill="currentColor">
+                <path
+                    d="M12 .5a11.5 11.5 0 0 0-3.64 22.42c.58.1.79-.25.79-.56v-2c-3.2.7-3.87-1.54-3.87-1.54-.53-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.23-1.28-5.23-5.7 0-1.26.45-2.3 1.2-3.12-.12-.29-.52-1.46.11-3.04 0 0 .98-.31 3.2 1.19a11.1 11.1 0 0 1 5.82 0c2.22-1.5 3.2-1.19 3.2-1.19.63 1.58.23 2.75.11 3.04.75.82 1.2 1.86 1.2 3.12 0 4.43-2.68 5.4-5.24 5.69.41.35.77 1.04.77 2.11v3.13c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z" />
+            </svg>
+            <span>GitHub</span>
+        </a>
+    </div>
+
+    <script>
+        (function initTheme() {
+            const STORAGE_KEY = "stonly_theme";
+            const root = document.documentElement;
+            const saved = localStorage.getItem(STORAGE_KEY);
+            const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+            const current = saved || (prefersDark ? "dark" : "light");
+            root.setAttribute("data-theme", current);
+            updateToggleUI(current);
+
+            document.getElementById("themeToggle")?.addEventListener("click", () => {
+                const next = root.getAttribute("data-theme") === "dark" ? "light" : "dark";
+                root.setAttribute("data-theme", next);
+                localStorage.setItem(STORAGE_KEY, next);
+                updateToggleUI(next);
+            });
+
+            function updateToggleUI(mode) {
+                const icon = document.getElementById("themeIcon");
+                const label = document.getElementById("themeLabel");
+                if (!icon || !label) return;
+                if (mode === "dark") {
+                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+                    label.textContent = "Light";
+                } else {
+                    icon.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z"/></svg>';
+                    label.textContent = "Dark";
+                }
+            }
+        })();
+
+        const el = (id) => document.getElementById(id);
+
+        function collectSettings() {
+            return {
+                token: (el('token')?.value || '').trim(),
+                dryRun: !!el('dryRun')?.checked,
+                base: (el('base')?.value || '').trim(),
+                teamId: el('teamId')?.value ? Number(el('teamId').value) : null,
+                user: (el('user')?.value || '').trim(),
+                password: (el('password')?.value || '').trim(),
+                folderId: el('folderId')?.value ? Number(el('folderId').value) : null,
+                contentTitle: (el('contentTitle')?.value || '').trim(),
+                contentType: (el('contentType')?.value || 'GUIDE').trim(),
+                language: (el('language')?.value || '').trim() || null,
+            };
+        }
+
+        function normalizeStep(step, path) {
+            if (!step || typeof step !== 'object') {
+                throw new Error(`${path} must be an object`);
+            }
+            const title = typeof step.title === 'string' && step.title.trim();
+            if (!title) {
+                throw new Error(`${path}.title is required`);
+            }
+            const content = typeof step.content === 'string';
+            if (!content) {
+                throw new Error(`${path}.content is required and must be a string`);
+            }
+            const node = {
+                title: step.title.trim(),
+                content: step.content,
+                language: typeof step.language === 'string' && step.language.trim() ? step.language.trim() : null,
+                media: Array.isArray(step.media) ? step.media.map(String) : [],
+                position: Number.isFinite(step.position) ? Number(step.position) : null,
+                choices: []
+            };
+            if (node.media.length > 3) {
+                throw new Error(`${path}.media accepts up to 3 URLs`);
+            }
+            if (step.choices === undefined || step.choices === null) {
+                return node;
+            }
+            if (!Array.isArray(step.choices)) {
+                throw new Error(`${path}.choices must be an array`);
+            }
+            node.choices = step.choices.map((choice, idx) => {
+                if (!choice || typeof choice !== 'object') {
+                    throw new Error(`${path}.choices[${idx}] must be an object`);
+                }
+                const nested = choice.step || choice.nextStep;
+                if (!nested) {
+                    throw new Error(`${path}.choices[${idx}] is missing a nested step`);
+                }
+                const label = choice.label != null ? String(choice.label) : null;
+                const position = choice.position != null ? Number(choice.position) : null;
+                return {
+                    label,
+                    position: Number.isFinite(position) ? position : null,
+                    step: normalizeStep(nested, `${path}.choices[${idx}].step`)
+                };
+            });
+            return node;
+        }
+
+        function parseGuideYaml() {
+            const text = (el('guideYaml')?.value || '').trim();
+            const err = el('yamlError');
+            err.textContent = '';
+            if (!text) {
+                err.textContent = 'YAML input is required.';
+                return null;
+            }
+            let doc;
+            try {
+                doc = jsyaml.load(text);
+            } catch (e) {
+                err.textContent = e.message || 'Unable to parse YAML.';
+                return null;
+            }
+            if (!doc || typeof doc !== 'object') {
+                err.textContent = 'YAML root must be an object.';
+                return null;
+            }
+            const guide = doc.guide || doc;
+            if (!guide || typeof guide !== 'object') {
+                err.textContent = 'Missing "guide" object.';
+                return null;
+            }
+            const info = {
+                contentTitle: typeof guide.contentTitle === 'string' ? guide.contentTitle.trim() : '',
+                contentType: typeof guide.contentType === 'string' ? guide.contentType.trim() : '',
+                language: typeof guide.language === 'string' ? guide.language.trim() : ''
+            };
+            if (!guide.firstStep) {
+                err.textContent = 'guide.firstStep is required.';
+                return null;
+            }
+            let firstStep;
+            try {
+                firstStep = normalizeStep(guide.firstStep, 'guide.firstStep');
+            } catch (e) {
+                err.textContent = e.message;
+                return null;
+            }
+            return { info, firstStep };
+        }
+
+        function renderPreviewStep(step, depth) {
+            const container = document.createElement('div');
+            container.className = depth === 0 ? '' : 'pl-4 border-l border-dashed border-neutral space-y-2';
+
+            const heading = document.createElement('div');
+            heading.className = 'flex items-start justify-between gap-3';
+            heading.innerHTML = `
+                <div>
+                    <div class="font-medium">${step.title}</div>
+                    <div class="text-xs text-slate-500">Content length: ${step.content.length} chars</div>
+                </div>
+                ${step.language ? `<span class="text-xs text-slate-500 uppercase">${step.language}</span>` : ''}
+            `;
+            container.appendChild(heading);
+
+            if (step.choices.length) {
+                const list = document.createElement('div');
+                list.className = 'space-y-3 mt-2';
+                step.choices.forEach((choice, idx) => {
+                    const choiceBlock = document.createElement('div');
+                    choiceBlock.className = 'rounded-md border border-dashed border-neutral p-3 bg-white/60 dark:bg-slate-900/40 space-y-2';
+                    const label = choice.label ? choice.label : `Choice ${idx + 1}`;
+                    const pos = choice.position != null ? `· position ${choice.position}` : '';
+                    choiceBlock.innerHTML = `<div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label} ${pos}</div>`;
+                    choiceBlock.appendChild(renderPreviewStep(choice.step, depth + 1));
+                    list.appendChild(choiceBlock);
+                });
+                container.appendChild(list);
+            }
+            return container;
+        }
+
+        function renderPreview(parsed) {
+            const tree = el('previewTree');
+            const status = el('previewStatus');
+            if (!parsed) {
+                tree.innerHTML = '';
+                status.textContent = 'Waiting for YAML.';
+                return;
+            }
+            tree.innerHTML = '';
+            tree.appendChild(renderPreviewStep(parsed.firstStep, 0));
+            status.textContent = 'Preview ready. Review before creating the guide.';
+        }
+
+        function collectPlan(parsed, settings) {
+            if (!parsed) {
+                return null;
+            }
+            const merged = {
+                token: settings.token,
+                dryRun: settings.dryRun,
+                base: settings.base,
+                teamId: settings.teamId,
+                user: settings.user,
+                password: settings.password,
+                folderId: settings.folderId,
+                contentTitle: parsed.info.contentTitle || settings.contentTitle || parsed.firstStep.title,
+                contentType: parsed.info.contentType || settings.contentType || 'GUIDE',
+                language: (parsed.info.language || settings.language || parsed.firstStep.language || 'en-US'),
+            };
+            const plan = [];
+            plan.push({
+                action: 'Create guide',
+                endpoint: 'POST /guide',
+                payload: {
+                    folderId: merged.folderId,
+                    contentType: merged.contentType,
+                    contentTitle: merged.contentTitle,
+                    firstStepTitle: parsed.firstStep.title,
+                    content: parsed.firstStep.content,
+                    language: parsed.firstStep.language || merged.language,
+                    media: parsed.firstStep.media
+                }
+            });
+
+            const queue = [...parsed.firstStep.choices.map(choice => ({
+                parentTitle: parsed.firstStep.title,
+                parentPath: 'firstStep',
+                choice
+            }))];
+
+            while (queue.length) {
+                const { parentTitle, parentPath, choice } = queue.shift();
+                plan.push({
+                    action: `Append step: ${choice.step.title}`,
+                    endpoint: 'POST /guide/step',
+                    note: `Parent step: ${parentTitle} (${parentPath})`,
+                    payload: {
+                        guideId: '<from create guide response>',
+                        parentStepId: `<stepId for "${parentTitle}">`,
+                        title: choice.step.title,
+                        choiceLabel: choice.label || null,
+                        content: choice.step.content,
+                        language: choice.step.language || merged.language,
+                        position: choice.position,
+                        media: choice.step.media
+                    }
+                });
+                choice.step.choices.forEach((child, idx) => {
+                    queue.push({
+                        parentTitle: choice.step.title,
+                        parentPath: `${parentPath}.choices[${idx}]`,
+                        choice: child
+                    });
+                });
+            }
+
+            return { settings: merged, plan };
+        }
+
+        function updateOut(result) {
+            const out = el('out');
+            if (!result) {
+                out.textContent = '';
+                return;
+            }
+            out.textContent = JSON.stringify(result, null, 2);
+        }
+
+        function setupCopyOut() {
+            const btn = el('copyOut');
+            const out = el('out');
+            if (!btn || !out) return;
+            btn.addEventListener('click', async () => {
+                const text = (out.innerText || out.textContent || '').trim();
+                if (!text) {
+                    btn.textContent = 'Nothing to copy';
+                    setTimeout(() => btn.textContent = 'Copy plan', 1200);
+                    return;
+                }
+                try {
+                    await navigator.clipboard.writeText(text);
+                    btn.textContent = 'Copied';
+                    setTimeout(() => btn.textContent = 'Copy plan', 1200);
+                } catch (err) {
+                    btn.textContent = 'Copy failed';
+                    setTimeout(() => btn.textContent = 'Copy plan', 1200);
+                }
+            });
+        }
+
+        function warnMissingSettings(settings) {
+            const missing = [];
+            if (!settings.token) missing.push('Admin token');
+            if (!settings.teamId) missing.push('Team ID');
+            if (!settings.folderId) missing.push('Folder ID');
+            if (missing.length) {
+                return `Missing required settings: ${missing.join(', ')}`;
+            }
+            return null;
+        }
+
+        el('parseYamlBtn')?.addEventListener('click', () => {
+            const parsed = parseGuideYaml();
+            renderPreview(parsed);
+            const plan = collectPlan(parsed, collectSettings());
+            updateOut(plan);
+        });
+
+        el('createGuideBtn')?.addEventListener('click', () => {
+            const settings = collectSettings();
+            const warning = warnMissingSettings(settings);
+            if (warning) {
+                alert(warning);
+                return;
+            }
+            const parsed = parseGuideYaml();
+            if (!parsed) {
+                return;
+            }
+            renderPreview(parsed);
+            const plan = collectPlan(parsed, settings);
+            updateOut(plan);
+            alert('API integration pending. Review the plan above before wiring requests.');
+        });
+
+        setupCopyOut();
+    </script>
+</body>
+
+</html>
