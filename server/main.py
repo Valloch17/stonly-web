@@ -552,15 +552,15 @@ def api_build_guide(payload: GuideBuildPayload):
         })
     else:
         try:
-        created = st.create_guide(
-            folder_id=folder_id,
-            content_type=definition.contentType,
-            content_title=definition.contentTitle,
-            first_step_title=definition.firstStep.title,
-            content=definition.firstStep.content,
-            language=definition.firstStep.language or definition.language,
-            media=definition.firstStep.media,
-        )
+            created = st.create_guide(
+                folder_id=folder_id,
+                content_type=definition.contentType,
+                content_title=definition.contentTitle,
+                first_step_title=definition.firstStep.title,
+                content=definition.firstStep.content,
+                language=definition.firstStep.language or definition.language,
+                media=definition.firstStep.media,
+            )
         except Exception:
             logger.exception(
                 "GUIDE create failed folder=%s title=%s",
