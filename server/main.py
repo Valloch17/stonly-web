@@ -67,7 +67,10 @@ class Stonly:
         self.team_id = int(team_id)
         self.s = requests.Session()
         self.s.auth = (user, password)
-        self.s.headers.update({"Content-Type": "application/json"})
+        self.s.headers.update({
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        })
 
     def get_structure_flat(self, parent_id: Optional[int]):
         """
@@ -140,7 +143,14 @@ class Stonly:
 
             # OK
             if r.headers.get("content-type", "").startswith("application/json"):
-                return r.json()
+                try:
+                    data = r.json()
+                    logger.debug("RESP %s %s -> %s", method, r.url, data)
+                    return data
+                except Exception:
+                    logger.debug("RESP %s %s -> <invalid json> %s", method, r.url, r.text[:500])
+                    raise
+            logger.debug("RESP %s %s (non-json) -> %s", method, r.url, r.text[:500])
             return r.text
 
         raise HTTPException(502, detail={"error": "Too many retries", "url": url})
@@ -164,8 +174,9 @@ class Stonly:
             "content": content,
             "language": language,
         }
-        if media:
+        if media is not None:
             body["media"] = media
+        logger.info("GUIDE create payload=%s", body)
         data = self._req("POST", "/guide", json=body)
         if not isinstance(data, dict):
             raise HTTPException(502, detail={"error": "Unexpected response creating guide", "payload": data})
@@ -199,12 +210,13 @@ class Stonly:
             "content": content,
             "language": language,
         }
-        if choice_label:
+        if choice_label is not None:
             body["choiceLabel"] = choice_label
         if position is not None:
             body["position"] = position
-        if media:
+        if media is not None:
             body["media"] = media
+        logger.info("GUIDE append payload=%s", body)
         data = self._req("POST", "/guide/step", json=body)
         if not isinstance(data, dict):
             raise HTTPException(502, detail={"error": "Unexpected response appending step", "payload": data})
@@ -540,15 +552,15 @@ def api_build_guide(payload: GuideBuildPayload):
         })
     else:
         try:
-            created = st.create_guide(
-                folder_id=folder_id,
-                content_type=definition.contentType,
-                content_title=definition.contentTitle,
-                first_step_title=definition.firstStep.title,
-                content=definition.firstStep.content,
-                language=definition.firstStep.language or definition.language,
-                media=definition.firstStep.media or None,
-            )
+        created = st.create_guide(
+            folder_id=folder_id,
+            content_type=definition.contentType,
+            content_title=definition.contentTitle,
+            first_step_title=definition.firstStep.title,
+            content=definition.firstStep.content,
+            language=definition.firstStep.language or definition.language,
+            media=definition.firstStep.media,
+        )
         except Exception:
             logger.exception(
                 "GUIDE create failed folder=%s title=%s",
@@ -596,7 +608,7 @@ def api_build_guide(payload: GuideBuildPayload):
                     language=language,
                     choice_label=choice.label,
                     position=position_value,
-                    media=step.media or None,
+                    media=step.media,
                 )
             except Exception:
                 logger.exception(
