@@ -133,7 +133,7 @@
 
 <body class="bg-gray-50">
     <div class="max-w-5xl mx-auto flex items-center justify-end gap-3 px-4 pt-6">
-        <a href="/index.html"
+        <a href="/"
             class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -254,25 +254,20 @@
                 <textarea id="guideYaml"
                     class="mt-1 w-full border border-neutral rounded-lg p-3 text-sm h-64 font-mono"
                     placeholder="guide:
-  contentTitle: Getting Started Guide
+  contentTitle: Product Walkthrough
   language: en-US
   firstStep:
-    title: Welcome to the product
+    title: Welcome aboard
     content: &quot;&lt;p&gt;Thanks for joining us!&lt;/p&gt;&quot;
     choices:
-      - label: Continue
+      - label: Explore setup
         step:
-          title: Configure workspace
-          content: &quot;&lt;p&gt;Let's set up your workspace.&lt;/p&gt;&quot;
-          choices:
-            - label: Skip setup
-              step:
-                title: Explore features
-                content: &quot;&lt;p&gt;Here is what you can do next.&lt;/p&gt;&quot;
-      - label: Need help
+          title: Configure basics
+          content: &quot;&lt;p&gt;Let's configure your workspace.&lt;/p&gt;&quot;
+      - label: Watch tour
         step:
-          title: Contact support
-          content: &quot;&lt;p&gt;We're here to help anytime.&lt;/p&gt;&quot;">
+          title: Product tour
+          content: &quot;&lt;p&gt;Watch a short overview.&lt;/p&gt;&quot;">
                 </textarea>
                 <small id="yamlError" class="text-red-600 text-xs"></small>
             </div>
@@ -364,6 +359,10 @@
 
         const el = (id) => document.getElementById(id);
 
+        function getGuideYamlText() {
+            return (el('guideYaml')?.value || '').trim();
+        }
+
         function collectSettings() {
             return {
                 token: (el('token')?.value || '').trim(),
@@ -427,10 +426,10 @@
             return node;
         }
 
-        function parseGuideYaml() {
-            const text = (el('guideYaml')?.value || '').trim();
+        function parseGuideYaml(source) {
             const err = el('yamlError');
             err.textContent = '';
+            const text = (typeof source === 'string' ? source : getGuideYamlText()).trim();
             if (!text) {
                 err.textContent = 'YAML input is required.';
                 return null;
@@ -625,28 +624,125 @@
             return null;
         }
 
+        function describeError(payload, status) {
+            if (!payload) return `HTTP ${status}`;
+            if (typeof payload === 'string') return payload;
+            if (payload.error) return payload.error;
+            if (payload.message) return payload.message;
+            if (payload.detail) {
+                if (typeof payload.detail === 'string') return payload.detail;
+                try {
+                    return JSON.stringify(payload.detail, null, 2);
+                } catch {
+                    return String(payload.detail);
+                }
+            }
+            try {
+                return JSON.stringify(payload, null, 2);
+            } catch {
+                return String(payload);
+            }
+        }
+
+        function buildGuidePayload(settings, yamlText) {
+            return {
+                token: settings.token,
+                dryRun: settings.dryRun,
+                folderId: settings.folderId,
+                yaml: yamlText,
+                defaults: {
+                    contentTitle: settings.contentTitle,
+                    contentType: settings.contentType,
+                    language: settings.language
+                },
+                creds: {
+                    user: settings.user,
+                    password: settings.password,
+                    teamId: settings.teamId,
+                    base: settings.base || 'https://public.stonly.com/api/v3'
+                }
+            };
+        }
+
+        async function buildGuideRequest(settings, yamlText) {
+            const btn = el('createGuideBtn');
+            const original = btn?.textContent || 'Create guide';
+            if (btn) {
+                btn.disabled = true;
+                btn.textContent = settings.dryRun ? 'Simulating...' : 'Creating...';
+            }
+            try {
+                const response = await fetch('/api/guides/build', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(buildGuidePayload(settings, yamlText))
+                });
+                let data = null;
+                try {
+                    data = await response.json();
+                } catch {
+                    data = null;
+                }
+                if (!response.ok) {
+                    throw new Error(describeError(data, response.status));
+                }
+                if (!data?.ok) {
+                    throw new Error(describeError(data, response.status));
+                }
+                return data;
+            } catch (err) {
+                throw err instanceof Error ? err : new Error(String(err));
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = original;
+                }
+            }
+        }
+
         el('parseYamlBtn')?.addEventListener('click', () => {
-            const parsed = parseGuideYaml();
+            const yamlText = getGuideYamlText();
+            const parsed = parseGuideYaml(yamlText);
             renderPreview(parsed);
-            const plan = collectPlan(parsed, collectSettings());
-            updateOut(plan);
+            if (!parsed) {
+                updateOut(null);
+                return;
+            }
+            const settings = collectSettings();
+            const plan = collectPlan(parsed, settings);
+            updateOut({ dryRun: settings.dryRun, plan });
         });
 
-        el('createGuideBtn')?.addEventListener('click', () => {
+        el('createGuideBtn')?.addEventListener('click', async () => {
             const settings = collectSettings();
             const warning = warnMissingSettings(settings);
             if (warning) {
                 alert(warning);
                 return;
             }
-            const parsed = parseGuideYaml();
+            const yamlText = getGuideYamlText();
+            const parsed = parseGuideYaml(yamlText);
             if (!parsed) {
                 return;
             }
             renderPreview(parsed);
             const plan = collectPlan(parsed, settings);
-            updateOut(plan);
-            alert('API integration pending. Review the plan above before wiring requests.');
+            updateOut({ dryRun: settings.dryRun, plan });
+            try {
+                const response = await buildGuideRequest(settings, yamlText);
+                if (response) {
+                    updateOut({ dryRun: settings.dryRun, plan, response });
+                    if (settings.dryRun) {
+                        alert('Dry-run complete. See the response panel for the simulated steps.');
+                    } else {
+                        alert(`Guide ${response.guideId} created with ${response.summary.stepCount} steps.`);
+                    }
+                }
+            } catch (err) {
+                const message = err?.message || 'Guide build failed';
+                updateOut({ dryRun: settings.dryRun, plan, error: message });
+                alert(`Guide build failed: ${message}`);
+            }
         });
 
         setupCopyOut();

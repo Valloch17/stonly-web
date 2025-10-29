@@ -1,12 +1,13 @@
 from __future__ import annotations
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from dataclasses import dataclass, field
 import os, time
 
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 import requests
+import yaml
 
 
 # ---- Config ----
@@ -137,6 +138,74 @@ class Stonly:
 
         raise HTTPException(502, detail={"error": "Too many retries", "url": url})
 
+    def create_guide(
+        self,
+        *,
+        folder_id: int,
+        content_type: str,
+        content_title: str,
+        first_step_title: str,
+        content: str,
+        language: str,
+        media: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        body = {
+            "folderId": int(folder_id),
+            "contentType": content_type,
+            "contentTitle": content_title,
+            "firstStepTitle": first_step_title,
+            "content": content,
+            "language": language,
+        }
+        if media:
+            body["media"] = media
+        data = self._req("POST", "/guide", json=body)
+        if not isinstance(data, dict):
+            raise HTTPException(502, detail={"error": "Unexpected response creating guide", "payload": data})
+        guide_id = data.get("guideId") or data.get("id") or data.get("entityId") or data.get("guid")
+        first_step_id = data.get("firstStepId") or data.get("stepId")
+        if first_step_id is None and isinstance(data.get("firstStep"), (int, str)):
+            first_step_id = data.get("firstStep")
+        if guide_id is None or first_step_id is None:
+            raise HTTPException(502, detail={
+                "error": "Missing identifiers from create guide response",
+                "payload": data
+            })
+        return {"guideId": guide_id, "firstStepId": first_step_id, "raw": data}
+
+    def append_step(
+        self,
+        *,
+        guide_id: str,
+        parent_step_id: Any,
+        title: str,
+        content: str,
+        language: str,
+        choice_label: Optional[str] = None,
+        position: Optional[int] = None,
+        media: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        body = {
+            "guideId": guide_id,
+            "parentStepId": parent_step_id,
+            "title": title,
+            "content": content,
+            "language": language,
+        }
+        if choice_label:
+            body["choiceLabel"] = choice_label
+        if position is not None:
+            body["position"] = position
+        if media:
+            body["media"] = media
+        data = self._req("POST", "/guide/step", json=body)
+        if not isinstance(data, dict):
+            raise HTTPException(502, detail={"error": "Unexpected response appending step", "payload": data})
+        step_id = data.get("stepId") or data.get("id") or data.get("entityId")
+        if step_id is None:
+            raise HTTPException(502, detail={"error": "Missing stepId from append step response", "payload": data})
+        return {"stepId": step_id, "raw": data}
+
     def create_folder(
         self,
         name: str,
@@ -213,6 +282,41 @@ class Settings(BaseModel):
     publicAccess: int = 1   # 1 = public (visible), 0 = private
     language: str = "en"    # e.g., "en", "fr", ...
 
+class GuideDefaults(BaseModel):
+    contentTitle: Optional[str] = None
+    contentType: str = "GUIDE"
+    language: str = "en-US"
+
+class GuideStepChoice(BaseModel):
+    label: Optional[str] = None
+    position: Optional[int] = None
+    step: "GuideStep"
+
+class GuideStep(BaseModel):
+    title: str
+    content: str
+    language: Optional[str] = None
+    media: List[str] = Field(default_factory=list)
+    position: Optional[int] = None
+    choices: List["GuideStepChoice"] = Field(default_factory=list)
+
+    @field_validator("media")
+    @classmethod
+    def media_limit(cls, v: List[str]):
+        if len(v) > 3:
+            raise ValueError("media accepts up to 3 URLs")
+        return v
+
+class GuideDefinition(BaseModel):
+    contentTitle: str
+    contentType: str = "GUIDE"
+    language: str = "en-US"
+    firstStep: GuideStep
+
+GuideStepChoice.model_rebuild()
+GuideStep.model_rebuild()
+GuideDefinition.model_rebuild()
+
 class ApplyPayload(BaseModel):
     token: str
     creds: Creds
@@ -226,6 +330,14 @@ class VerifyPayload(BaseModel):
     creds: Creds
     parentId: Optional[int] = None
     root: List[UINode]
+
+class GuideBuildPayload(BaseModel):
+    token: str
+    creds: Creds
+    folderId: int
+    yaml: str
+    dryRun: bool = False
+    defaults: GuideDefaults = GuideDefaults()
 
 
 
@@ -246,6 +358,35 @@ def extract_name_id(obj: dict) -> tuple[Optional[str], Optional[int]]:
 
 def build_path(parent: str, name: str) -> str:
     return f"{parent}/{name}" if parent else f"/{name}"
+
+def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
+    text = (source or "").strip()
+    if not text:
+        raise HTTPException(400, detail={"error": "YAML payload is required"})
+    try:
+        data = yaml.safe_load(text)
+    except Exception as e:
+        raise HTTPException(400, detail={"error": "Invalid YAML", "message": str(e)})
+    if not isinstance(data, dict):
+        raise HTTPException(400, detail={"error": "YAML root must be a mapping"})
+    guide_data = data.get("guide") if isinstance(data.get("guide"), dict) else data
+    if not isinstance(guide_data, dict):
+        raise HTTPException(400, detail={"error": "Missing guide object"})
+    first_step_raw = guide_data.get("firstStep")
+    if not isinstance(first_step_raw, dict):
+        raise HTTPException(400, detail={"error": "guide.firstStep must be an object"})
+    first_step = GuideStep.model_validate(first_step_raw)
+    content_title = guide_data.get("contentTitle") or defaults.contentTitle or first_step.title
+    if not content_title:
+        raise HTTPException(400, detail={"error": "Missing contentTitle for guide"})
+    content_type = guide_data.get("contentType") or defaults.contentType or "GUIDE"
+    language = guide_data.get("language") or defaults.language or first_step.language or "en-US"
+    return GuideDefinition(
+        contentTitle=content_title,
+        contentType=content_type,
+        language=language,
+        firstStep=first_step,
+    )
 
 # ---- endpoints ----
 @app.post("/api/apply")
@@ -350,6 +491,99 @@ def api_verify(payload: VerifyPayload):
     missing = sorted(set(expected) - set(real))
     extra   = sorted(set(real) - set(expected))
     return {"ok": True, "missing": missing, "extra": extra}
+
+@app.post("/api/guides/build")
+def api_build_guide(payload: GuideBuildPayload):
+    ensure_admin(f"Bearer {payload.token}")
+    definition = parse_guide_yaml(payload.yaml, payload.defaults)
+
+    st = Stonly(
+        base=payload.creds.base,
+        user=payload.creds.user,
+        password=payload.creds.password,
+        team_id=payload.creds.teamId
+    )
+
+    dry_run = bool(payload.dryRun)
+    folder_id = int(payload.folderId)
+
+    steps_created: List[Dict[str, Any]] = []
+    if dry_run:
+        guide_id: Any = "dry-run-guide"
+        first_step_id: Any = "dry-step-1"
+        steps_created.append({
+            "title": definition.firstStep.title,
+            "stepId": first_step_id,
+            "parent": None,
+            "choiceLabel": None,
+        })
+    else:
+        created = st.create_guide(
+            folder_id=folder_id,
+            content_type=definition.contentType,
+            content_title=definition.contentTitle,
+            first_step_title=definition.firstStep.title,
+            content=definition.firstStep.content,
+            language=definition.firstStep.language or definition.language,
+            media=definition.firstStep.media or None,
+        )
+        guide_id = created["guideId"]
+        first_step_id = created["firstStepId"]
+        steps_created.append({
+            "title": definition.firstStep.title,
+            "stepId": first_step_id,
+            "parent": None,
+            "choiceLabel": None,
+        })
+
+    counter = len(steps_created)
+    queue: List[Tuple[GuideStepChoice, str, str, Any]] = []
+    for idx, choice in enumerate(definition.firstStep.choices):
+        queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id))
+
+    while queue:
+        choice, path, parent_title, parent_step_id = queue.pop(0)
+        step = choice.step
+        language = step.language or definition.language
+
+        if dry_run:
+            counter += 1
+            step_id = f"dry-step-{counter}"
+        else:
+            appended = st.append_step(
+                guide_id=guide_id,
+                parent_step_id=parent_step_id,
+                title=step.title,
+                content=step.content,
+                language=language,
+                choice_label=choice.label,
+                position=choice.position if choice.position is not None else step.position,
+                media=step.media or None,
+            )
+            step_id = appended["stepId"]
+
+        steps_created.append({
+            "title": step.title,
+            "stepId": step_id,
+            "parent": parent_title,
+            "parentPath": path,
+            "choiceLabel": choice.label,
+        })
+
+        for idx, child in enumerate(step.choices):
+            queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id))
+
+    return {
+        "ok": True,
+        "dryRun": dry_run,
+        "guideId": guide_id,
+        "firstStepId": first_step_id,
+        "steps": steps_created,
+        "summary": {
+            "stepCount": len(steps_created),
+            "branchCount": max(len(steps_created) - 1, 0),
+        }
+    }
 
 @app.get("/api/dump-structure")
 def api_dump(
