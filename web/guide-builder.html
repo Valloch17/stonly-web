@@ -267,8 +267,7 @@
       - label: Watch tour
         step:
           title: Product tour
-          content: &quot;&lt;p&gt;Watch a short overview.&lt;/p&gt;&quot;">
-                </textarea>
+          content: &quot;&lt;p&gt;Watch a short overview.&lt;/p&gt;&quot;"></textarea>
                 <small id="yamlError" class="text-red-600 text-xs"></small>
             </div>
             <div class="border border-dashed border-neutral rounded-lg p-4 bg-slate-50 dark:bg-slate-900/40">
@@ -358,6 +357,59 @@
         })();
 
         const el = (id) => document.getElementById(id);
+        const STORAGE_KEYS = {
+            teamId: "guide_builder_team",
+            folderId: "guide_builder_folder",
+            user: "guide_builder_user",
+            yaml: "guide_builder_yaml"
+        };
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPersisted('teamId', STORAGE_KEYS.teamId);
+            loadPersisted('folderId', STORAGE_KEYS.folderId);
+            loadPersisted('user', STORAGE_KEYS.user);
+            loadPersisted('guideYaml', STORAGE_KEYS.yaml, (value) => value);
+
+            ['teamId', 'folderId'].forEach(id => {
+                const input = el(id);
+                if (input) {
+                    input.addEventListener('input', () => {
+                        persistValue(STORAGE_KEYS[id], input.value.trim());
+                    });
+                }
+            });
+            const userInput = el('user');
+            if (userInput) {
+                userInput.addEventListener('input', () => {
+                    persistValue(STORAGE_KEYS.user, userInput.value.trim());
+                });
+            }
+            const yamlInput = el('guideYaml');
+            if (yamlInput) {
+                yamlInput.addEventListener('input', () => {
+                    persistValue(STORAGE_KEYS.yaml, yamlInput.value);
+                });
+            }
+        });
+
+        function loadPersisted(id, key, parser) {
+            try {
+                const value = localStorage.getItem(key);
+                if (value !== null && el(id)) {
+                    el(id).value = parser ? parser(value) : value;
+                }
+            } catch {
+                /* ignore storage errors */
+            }
+        }
+
+        function persistValue(key, value) {
+            try {
+                localStorage.setItem(key, value ?? "");
+            } catch {
+                /* ignore storage errors */
+            }
+        }
 
         function getGuideYamlText() {
             return (el('guideYaml')?.value || '').trim();
