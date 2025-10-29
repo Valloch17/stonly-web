@@ -227,10 +227,20 @@
 </head>
 
 <body class="bg-gray-50">
-    <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
-        <span id="themeIcon" aria-hidden="true"></span>
-        <span id="themeLabel">Dark</span>
-    </button>
+    <div class="max-w-4xl mx-auto flex items-center justify-end gap-3 px-6 pt-6">
+        <a href="/guide-builder.html"
+            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M12 6v6l3 3m6-3a9 9 0 1 1-18 0 9 9 0 0 1 18 0z" />
+            </svg>
+            Guide Builder
+        </a>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+            <span id="themeIcon" aria-hidden="true"></span>
+            <span id="themeLabel">Dark</span>
+        </button>
+    </div>
 
     <div id="app" class="max-w-4xl mx-auto p-6">
         <h1 class="text-2xl font-bold mb-4">Stonly KB Builder</h1>
