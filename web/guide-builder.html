@@ -723,27 +723,47 @@
                 btn.disabled = true;
                 btn.textContent = settings.dryRun ? 'Simulating...' : 'Creating...';
             }
+            let responseBody = null;
+            let status = null;
             try {
                 const response = await fetch('/api/guides/build', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(buildGuidePayload(settings, yamlText))
                 });
-                let data = null;
+                status = response.status;
                 try {
-                    data = await response.json();
+                    responseBody = await response.json();
                 } catch {
-                    data = null;
+                    responseBody = null;
                 }
                 if (!response.ok) {
-                    throw new Error(describeError(data, response.status));
+                    const error = new Error(describeError(responseBody, response.status));
+                    error.status = response.status;
+                    error.payload = responseBody;
+                    throw error;
                 }
-                if (!data?.ok) {
-                    throw new Error(describeError(data, response.status));
+                if (!responseBody?.ok) {
+                    const error = new Error(describeError(responseBody, response.status));
+                    error.status = response.status;
+                    error.payload = responseBody;
+                    throw error;
                 }
-                return data;
+                return { status: response.status, body: responseBody };
             } catch (err) {
-                throw err instanceof Error ? err : new Error(String(err));
+                if (err instanceof Error) {
+                    if (err.payload === undefined) {
+                        err.payload = responseBody;
+                    }
+                    if (err.status === undefined && status !== null) {
+                        err.status = status;
+                    }
+                    throw err;
+                }
+                const generic = new Error(String(err));
+                generic.payload = responseBody;
+                generic.status = status;
+                throw generic;
             } finally {
                 if (btn) {
                     btn.disabled = false;
@@ -781,18 +801,26 @@
             const plan = collectPlan(parsed, settings);
             updateOut({ dryRun: settings.dryRun, plan });
             try {
-                const response = await buildGuideRequest(settings, yamlText);
-                if (response) {
-                    updateOut({ dryRun: settings.dryRun, plan, response });
+                const { body, status } = await buildGuideRequest(settings, yamlText);
+                if (body) {
+                    updateOut({ dryRun: settings.dryRun, status, plan, response: body });
                     if (settings.dryRun) {
                         alert('Dry-run complete. See the response panel for the simulated steps.');
                     } else {
-                        alert(`Guide ${response.guideId} created with ${response.summary.stepCount} steps.`);
+                        alert(`Guide ${body.guideId} created with ${body.summary.stepCount} steps.`);
                     }
                 }
             } catch (err) {
                 const message = err?.message || 'Guide build failed';
-                updateOut({ dryRun: settings.dryRun, plan, error: message });
+                const errorPayload = err && typeof err === 'object' ? err.payload : null;
+                const status = err && typeof err === 'object' && 'status' in err ? err.status : null;
+                updateOut({
+                    dryRun: settings.dryRun,
+                    status,
+                    plan,
+                    error: message,
+                    errorPayload
+                });
                 alert(`Guide build failed: ${message}`);
             }
         });
