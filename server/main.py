@@ -571,14 +571,17 @@ def api_build_guide(payload: GuideBuildPayload):
         )
 
     counter = len(steps_created)
-    queue: List[Tuple[GuideStepChoice, str, str, Any]] = []
+    queue: List[Tuple[GuideStepChoice, str, str, Any, int]] = []
     for idx, choice in enumerate(definition.firstStep.choices):
-        queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id))
+        queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id, idx))
 
     while queue:
-        choice, path, parent_title, parent_step_id = queue.pop(0)
+        choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
         step = choice.step
         language = step.language or definition.language
+        position_value = choice.position if choice.position is not None else (
+            step.position if step.position is not None else choice_index
+        )
 
         if dry_run:
             counter += 1
@@ -592,7 +595,7 @@ def api_build_guide(payload: GuideBuildPayload):
                     content=step.content,
                     language=language,
                     choice_label=choice.label,
-                    position=choice.position if choice.position is not None else step.position,
+                    position=position_value,
                     media=step.media or None,
                 )
             except Exception:
@@ -611,18 +614,20 @@ def api_build_guide(payload: GuideBuildPayload):
             "parent": parent_title,
             "parentPath": path,
             "choiceLabel": choice.label,
+            "position": position_value,
         })
         logger.info(
-            "GUIDE step appended guideId=%s parent=%s step=%s stepId=%s dryRun=%s",
+            "GUIDE step appended guideId=%s parent=%s step=%s stepId=%s dryRun=%s position=%s",
             guide_id,
             parent_title,
             step.title,
             step_id,
             dry_run,
+            position_value,
         )
 
         for idx, child in enumerate(step.choices):
-            queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id))
+            queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id, idx))
 
     logger.info(
         "GUIDE build complete guideId=%s dryRun=%s steps=%s",

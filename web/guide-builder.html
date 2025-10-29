@@ -597,14 +597,16 @@
                 }
             });
 
-            const queue = [...parsed.firstStep.choices.map(choice => ({
+            const queue = [...parsed.firstStep.choices.map((choice, index) => ({
                 parentTitle: parsed.firstStep.title,
                 parentPath: 'firstStep',
-                choice
+                choice,
+                index
             }))];
 
             while (queue.length) {
-                const { parentTitle, parentPath, choice } = queue.shift();
+                const { parentTitle, parentPath, choice, index } = queue.shift();
+                const defaultPosition = choice.position ?? choice.step?.position ?? index ?? 0;
                 plan.push({
                     action: `Append step: ${choice.step.title}`,
                     endpoint: 'POST /guide/step',
@@ -616,7 +618,7 @@
                         choiceLabel: choice.label || null,
                         content: choice.step.content,
                         language: choice.step.language || merged.language,
-                        position: choice.position,
+                        position: defaultPosition,
                         media: choice.step.media
                     }
                 });
@@ -624,7 +626,8 @@
                     queue.push({
                         parentTitle: choice.step.title,
                         parentPath: `${parentPath}.choices[${idx}]`,
-                        choice: child
+                        choice: child,
+                        index: idx
                     });
                 });
             }
