@@ -308,6 +308,19 @@
             </header>
             <pre id="out" class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
         </section>
+
+        <div class="card">
+            <div class="card-header">
+              <div class="title">Logs</div>
+              <div>
+                <button id="btnFetchLogs" class="button">Fetch backend logs</button>
+              </div>
+            </div>
+            <div class="card-content">
+              <textarea id="logBox" style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
+            </div>
+          </div>
+          
     </main>
 
     <div class="contact-badge">
@@ -324,8 +337,30 @@
             <span>GitHub</span>
         </a>
     </div>
-
     <script>
+        function logLine(msg) {
+          const ta = document.getElementById('logBox');
+          const ts = new Date().toISOString().slice(11, 23);
+          ta.value += `[${ts}] ${msg}\n`;
+          ta.scrollTop = ta.scrollHeight;
+        }
+        
+        async function fetchLogs() {
+          try {
+            const res = await fetch('/api/debug/logs?lines=400');
+            const text = await res.text();
+            logLine('--- backend logs (tail) ---');
+            logLine(text);
+            logLine('--- end logs ---');
+          } catch (e) {
+            logLine('Fetch logs failed: ' + (e?.message || e));
+          }
+        }
+        document.getElementById('btnFetchLogs').addEventListener('click', fetchLogs);
+        </script>
+        
+    <script>
+        
         (function initTheme() {
             const STORAGE_KEY = "stonly_theme";
             const root = document.documentElement;
@@ -840,6 +875,72 @@
 
         setupCopyOut();
     </script>
+    <script>
+        async function createGuide() {
+          const settings = collectSettings();   // your existing function
+          const parsed = parseYamlOrThrow();    // your existing function that sets the execution plan preview
+        
+          const body = {
+            token    : settings.adminToken,
+            creds    : { user: settings.user, password: settings.pass, teamId: Number(settings.teamId) },
+            folderId : Number(settings.folderId),
+            yaml     : document.getElementById('yaml').value,
+            dryRun   : !!settings.dryRun,
+            defaults : {
+              contentTitle: settings.defaultTitle || undefined,
+              language    : settings.defaultLanguage || undefined,
+              contentType : settings.contentType || undefined
+            }
+          };
+        
+          // Log the outgoing payload
+          logLine('POST /api/guides/build');
+          logLine('payload: ' + JSON.stringify(body));
+        
+          let res, json;
+          try {
+            res = await fetch('/api/guides/build', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(body)
+            });
+          } catch (err) {
+            logLine('Network error: ' + (err?.message || err));
+            throw err;
+          }
+        
+          const text = await res.text();
+          try { json = JSON.parse(text); } catch { /* leave as text */ }
+        
+          logLine(`status: ${res.status} ${res.statusText}`);
+          logLine('response: ' + (json ? JSON.stringify(json) : text));
+        
+          // Treat non-2xx as errors
+          if (!res.ok) {
+            alert(`Build failed (${res.status}). See Logs panel.`);
+            return;
+          }
+        
+          // Also treat "200-with-error-body" as error (server might have normalized this already)
+          if (json && json.detail && json.detail.upstream) {
+            alert('Upstream error (see Logs).');
+            return;
+          }
+        
+          // Success UX
+          if (json && json.guideId) {
+            logLine(`Guide created: guideId=${json.guideId}, firstStepId=${json.firstStepId}`);
+            alert(`Guide created: ${json.guideId}`);
+          } else {
+            // Still show something meaningful
+            alert('Build completed. See Logs panel and response.');
+          }
+        }
+        
+        // wire up the button
+        document.getElementById('btnCreate').addEventListener('click', createGuide);
+        </script>
+        
 </body>
 
 </html>

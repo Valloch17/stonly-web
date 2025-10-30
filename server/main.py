@@ -8,6 +8,32 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 import requests
 import yaml
+import uuid
+
+
+
+import logging, logging.handlers, os
+
+LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
+os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+
+logger = logging.getLogger("stonly")
+logger.setLevel(logging.DEBUG)
+
+fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s :: %(message)s")
+fh = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+fh.setFormatter(fmt)
+sh = logging.StreamHandler()
+sh.setFormatter(fmt)
+
+# Avoid duplicate handlers when hot-reloading
+if not logger.handlers:
+    logger.addHandler(fh)
+    logger.addHandler(sh)
+
+# Turn up HTTP client logging when HTTP_DEBUG=1
+logging.getLogger("urllib3").setLevel(logging.DEBUG if os.getenv("HTTP_DEBUG") == "1" else logging.INFO)
+
 
 
 # ---- Config ----
@@ -29,11 +55,24 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-from fastapi.responses import JSONResponse
-import traceback, logging
+from fastapi import Query
+from fastapi.responses import PlainTextResponse
+import os, itertools, collections
 
-logger = logging.getLogger("stonly")
-logging.basicConfig(level=logging.INFO)
+LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
+
+@app.get("/api/debug/logs", response_class=PlainTextResponse)
+def tail_logs(lines: int = Query(300, ge=1, le=5000)):
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            buf = collections.deque(f, maxlen=lines)
+        return "".join(buf)
+    except FileNotFoundError:
+        return "No log file yet."
+
+
+from fastapi.responses import JSONResponse
+import traceback
 
 def mask_secret(value: Optional[str]) -> Optional[str]:
     if value is None:
@@ -128,30 +167,35 @@ class Stonly:
         for _ in range(5):
             r = self.s.request(method, url, params=p, json=json, timeout=30)
             # log minimal
-            logger.info("REQ %s %s params=%s status=%s", method, r.url, p, r.status_code)
-
-            if r.status_code in (429, 500, 502, 503, 504):
-                time.sleep(backoff); backoff = min(backoff*2, 10); continue
+            # Just before returning/raising inside _req(...)
+            logger.info("REQ %s %s params=%s status=%s json=%s",
+                        method, r.url, p, r.status_code,
+                        json if method in ("POST","PUT","PATCH") else None)
 
             if not r.ok:
-                # renvoyer le corps d'erreur Stonly pour debug
                 try:
                     detail = r.json()
                 except Exception:
                     detail = {"text": r.text[:2000]}
+                logger.error("UPSTREAM ERROR %s %s -> %s", method, r.url, detail)
                 raise HTTPException(r.status_code, detail={"upstream": detail, "url": str(r.url)})
 
-            # OK
+            # Also guard the 200-with-error-body edge case:
             if r.headers.get("content-type", "").startswith("application/json"):
-                try:
-                    data = r.json()
-                    logger.debug("RESP %s %s -> %s", method, r.url, data)
-                    return data
-                except Exception:
-                    logger.debug("RESP %s %s -> <invalid json> %s", method, r.url, r.text[:500])
-                    raise
+                data = r.json()
+                if isinstance(data, dict) and (
+                    str(data.get("status", "")).lower().startswith("bad request")
+                    or data.get("error") is True
+                    or str(data.get("message", "")).lower().startswith("bad request")
+                ):
+                    logger.error("UPSTREAM LOGICAL ERROR %s %s -> %s", method, r.url, data)
+                    raise HTTPException(400, detail={"upstream": data, "url": str(r.url)})
+                logger.debug("RESP %s %s -> %s", method, r.url, data)
+                return data
+
             logger.debug("RESP %s %s (non-json) -> %s", method, r.url, r.text[:500])
             return r.text
+
 
         raise HTTPException(502, detail={"error": "Too many retries", "url": url})
 
@@ -511,8 +555,15 @@ def api_verify(payload: VerifyPayload):
     extra   = sorted(set(real) - set(expected))
     return {"ok": True, "missing": missing, "extra": extra}
 
+
 @app.post("/api/guides/build")
 def api_build_guide(payload: GuideBuildPayload):
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/guides/build", request_id)
+    def _log(prefix, msg):
+        logger.info("%s %s :: %s", prefix, request_id, msg)
+
+
     ensure_admin(f"Bearer {payload.token}")
     definition = parse_guide_yaml(payload.yaml, payload.defaults)
 
@@ -726,3 +777,38 @@ def api_dump(
 @app.get("/api/ping")
 def ping():
     return {"ok": True}
+
+
+if __name__ == "__main__":
+    import argparse, json
+    from pathlib import Path
+
+    parser = argparse.ArgumentParser(description="Build a Stonly guide from YAML (local runner).")
+    parser.add_argument("yaml_file", help="Path to guide YAML")
+    parser.add_argument("--dry-run", action="store_true", help="Do not call Stonly, just parse/show payloads")
+    args = parser.parse_args()
+
+    # Pull creds/config from env
+    admin_token = os.getenv("APP_ADMIN_TOKEN")
+    user = os.getenv("STONLY_USER")
+    password = os.getenv("STONLY_PASSWORD")
+    team_id = int(os.getenv("TEAM_ID", "0") or "0")
+    folder_id = int(os.getenv("FOLDER_ID", "0") or "0")
+
+    if not all([admin_token, user, password, team_id, folder_id]):
+        raise SystemExit("Missing one of: APP_ADMIN_TOKEN, STONLY_USER, STONLY_PASSWORD, TEAM_ID, FOLDER_ID")
+
+    yaml_text = Path(args.yaml_file).read_text(encoding="utf-8")
+
+    payload = GuideBuildPayload(
+        token=admin_token,
+        creds=Creds(user=user, password=password, teamId=team_id),
+        folderId=folder_id,
+        yaml=yaml_text,
+        dryRun=bool(args.dry_run),
+        defaults=GuideDefaults(),
+    )
+
+    # Call the same function the API uses so behavior matches /api/guides/build
+    out = api_build_guide(payload)
+    print(json.dumps(out, indent=2))

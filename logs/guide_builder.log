@@ -1,0 +1,22 @@
+2025-10-30 18:26:52,128 INFO stonly :: GUIDE build start dryRun=False team=39539 folder=497397 contentTitle=Product Walkthrough firstStep=Welcome aboard
+2025-10-30 18:26:52,128 DEBUG stonly :: GUIDE creds user=val***om base=https://public.stonly.com/api/v3
+2025-10-30 18:26:52,128 INFO stonly :: GUIDE create payload={'folderId': 497397, 'contentType': 'GUIDE', 'contentTitle': 'Product Walkthrough', 'firstStepTitle': 'Welcome aboard', 'content': '<p>Thanks for joining us!</p>', 'language': 'en-US', 'media': []}
+2025-10-30 18:26:52,697 INFO stonly :: REQ POST https://public.stonly.com/api/v3/guide?teamId=39539 params={'teamId': 39539} status=201 json={'folderId': 497397, 'contentType': 'GUIDE', 'contentTitle': 'Product Walkthrough', 'firstStepTitle': 'Welcome aboard', 'content': '<p>Thanks for joining us!</p>', 'language': 'en-US', 'media': []}
+2025-10-30 18:26:52,710 DEBUG stonly :: RESP POST https://public.stonly.com/api/v3/guide?teamId=39539 -> {'guideId': 'jwH2dHd59D', 'firstStepId': 4819323}
+2025-10-30 18:26:52,711 INFO stonly :: GUIDE created guideId=jwH2dHd59D firstStepId=4819323
+2025-10-30 18:26:52,711 INFO stonly :: GUIDE build complete guideId=jwH2dHd59D dryRun=False steps=1
+2025-10-30 18:32:04,643 INFO stonly :: GUIDE build start dryRun=False team=39539 folder=497397 contentTitle=Product Walkthrough firstStep=Welcome aboard
+2025-10-30 18:32:04,644 DEBUG stonly :: GUIDE creds user=val***om base=https://public.stonly.com/api/v3
+2025-10-30 18:32:04,644 INFO stonly :: GUIDE create payload={'folderId': 497397, 'contentType': 'GUIDE', 'contentTitle': 'Product Walkthrough', 'firstStepTitle': 'Welcome aboard', 'content': '<p>Thanks for joining us!</p>', 'language': 'en-US', 'media': []}
+2025-10-30 18:32:05,189 INFO stonly :: REQ POST https://public.stonly.com/api/v3/guide?teamId=39539 params={'teamId': 39539} status=201 json={'folderId': 497397, 'contentType': 'GUIDE', 'contentTitle': 'Product Walkthrough', 'firstStepTitle': 'Welcome aboard', 'content': '<p>Thanks for joining us!</p>', 'language': 'en-US', 'media': []}
+2025-10-30 18:32:05,189 DEBUG stonly :: RESP POST https://public.stonly.com/api/v3/guide?teamId=39539 -> {'guideId': '4ZiflU1WeY', 'firstStepId': 4819338}
+2025-10-30 18:32:05,190 INFO stonly :: GUIDE created guideId=4ZiflU1WeY firstStepId=4819338
+2025-10-30 18:32:05,190 INFO stonly :: GUIDE append payload={'guideId': '4ZiflU1WeY', 'parentStepId': 4819338, 'title': 'Configure basics', 'content': "<p>Let's configure your workspace.</p>", 'language': 'en-US', 'choiceLabel': 'Explore setup', 'position': 0, 'media': []}
+2025-10-30 18:32:05,682 INFO stonly :: REQ POST https://public.stonly.com/api/v3/guide/step?teamId=39539 params={'teamId': 39539} status=201 json={'guideId': '4ZiflU1WeY', 'parentStepId': 4819338, 'title': 'Configure basics', 'content': "<p>Let's configure your workspace.</p>", 'language': 'en-US', 'choiceLabel': 'Explore setup', 'position': 0, 'media': []}
+2025-10-30 18:32:05,683 DEBUG stonly :: RESP POST https://public.stonly.com/api/v3/guide/step?teamId=39539 -> {'stepId': 693303537}
+2025-10-30 18:32:05,683 INFO stonly :: GUIDE step appended guideId=4ZiflU1WeY parent=Welcome aboard step=Configure basics stepId=693303537 dryRun=False position=0
+2025-10-30 18:32:05,683 INFO stonly :: GUIDE append payload={'guideId': '4ZiflU1WeY', 'parentStepId': 4819338, 'title': 'Product tour', 'content': '<p>Watch a short overview.</p>', 'language': 'en-US', 'choiceLabel': 'Watch tour', 'position': 1, 'media': []}
+2025-10-30 18:32:06,076 INFO stonly :: REQ POST https://public.stonly.com/api/v3/guide/step?teamId=39539 params={'teamId': 39539} status=201 json={'guideId': '4ZiflU1WeY', 'parentStepId': 4819338, 'title': 'Product tour', 'content': '<p>Watch a short overview.</p>', 'language': 'en-US', 'choiceLabel': 'Watch tour', 'position': 1, 'media': []}
+2025-10-30 18:32:06,076 DEBUG stonly :: RESP POST https://public.stonly.com/api/v3/guide/step?teamId=39539 -> {'stepId': 1022183372}
+2025-10-30 18:32:06,077 INFO stonly :: GUIDE step appended guideId=4ZiflU1WeY parent=Welcome aboard step=Product tour stepId=1022183372 dryRun=False position=1
+2025-10-30 18:32:06,077 INFO stonly :: GUIDE build complete guideId=4ZiflU1WeY dryRun=False steps=3

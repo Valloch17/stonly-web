@@ -1,0 +1,15 @@
+guide:
+  contentTitle: Product Walkthrough
+  language: en-US
+  firstStep:
+    title: Welcome aboard
+    content: <p>Thanks for joining us!</p>
+    choices:
+      - label: Explore setup
+        step:
+          title: Configure basics
+          content: <p>Let's configure your workspace.</p>
+      - label: Watch tour
+        step:
+          title: Product tour
+          content: <p>Watch a short overview.</p>
