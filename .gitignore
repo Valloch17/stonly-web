@@ -1,4 +1,2 @@
-logs/*
-samples/*
-samples/guide.yaml
-logs/guide_builder.log
+logs/
+samples/
