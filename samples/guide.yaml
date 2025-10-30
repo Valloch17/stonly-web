@@ -1,0 +1,55 @@
+guide:
+  contentTitle: How to Cancel Your SoundCloud Subscription
+  language: en
+  firstStep:
+    title: How did you subscribe?
+    content: <p>To cancel your subscription, you first need to know where you originally purchased it. The steps are different depending on whether you subscribed on the website, the Apple App Store, or the Google Play Store.</p>
+    choices:
+      - label: On the SoundCloud website
+        step:
+          title: Cancel via the SoundCloud Website
+          content: <p>You must cancel your subscription from a computer. This cannot be done on the mobile app.</p><ol><li>Log in to your account on a computer and go to your <strong>Subscriptions page</strong> (at soundcloud.com/you/subscriptions).</li><li>Click the 'Edit' button next to your subscription.</li><li>Select the 'Opt-out of your current plan' option to finalize the cancellation.</li></ol>
+          choices:
+            - label: How do I know it's canceled?
+              step:
+                title: How to Confirm Your Cancellation
+                content: <p>After canceling, go back to your <strong>Subscriptions page</strong> on a computer. If the status of your plan says "EXPIRES", you have successfully canceled, and it will not auto-renew.</p>
+            - label: I'm done
+              step:
+                title: All set!
+                content: <p>Your subscription is now set to expire at the end of the current billing cycle. You can continue using the paid features until then.</p>
+      - label: On my iPhone or iPad (Apple App Store)
+        step:
+          title: Cancel via the Apple App Store
+          content: <p>Because your subscription was purchased through Apple, you must cancel it directly through your Apple ID settings. SoundCloud cannot manage this for you.</p><p><strong>To cancel on your iPhone/iPad:</strong></p><ol><li>Open the <strong>Settings</strong> app.</li><li>Tap your name at the top.</li><li>Tap on <strong>Subscriptions</strong>.</li><li>Find the SoundCloud subscription in the list and tap on it.</li><li>Tap <strong>Cancel Subscription</strong>.</li></ol>
+      - label: On my Android phone (Google Play Store)
+        step:
+          title: Cancel via the Google Play Store
+          content: <p>Because your subscription was purchased through Google, you must cancel it directly through the Google Play Store. SoundCloud cannot manage this for you.</p><p><strong>To cancel on your Android device:</strong></p><ol><li>Open the <strong>Google Play Store</strong> app.</li><li>Tap your profile icon in the top-right corner.</li><li>Tap on <strong>Payments & subscriptions</strong>.</li><li>Tap on <strong>Subscriptions</strong>.</li><li>Find the SoundCloud subscription and tap on it.</li><li>Tap <strong>Cancel subscription</strong> and follow the prompts.</li></ol>
+      - label: I'm not sure where I subscribed
+        step:
+          title: Let's find your subscription
+          content: <p>The easiest way to check is by logging into the SoundCloud website on a computer. If you can't do that, you'll need to check your phone's subscription settings.</p>
+          choices:
+            - label: I can check on a computer
+              step:
+                title: Check your account on a computer
+                content: <p>Log in to your account at <strong>soundcloud.com/you/subscriptions</strong> on a computer. What do you see?</p>
+                choices:
+                  - label: I see an active subscription!
+                    step:
+                      title: Cancel via the SoundCloud Website
+                      content: <p>You subscribed through the website. Please follow these steps:</p><ol><li>On that same <strong>Subscriptions page</strong>, click the 'Edit' button.</li><li>Select the 'Opt-out of your current plan' option to finalize the cancellation.</li><li>Your plan status should change to "EXPIRES".</li></ol>
+                  - label: I don't see any active subscription
+                    step:
+                      title: Check your phone's app store
+                      content: <p>If no subscription is listed on the website, you almost certainly subscribed through your phone's app store.</p>
+                      choices:
+                        - label: I have an iPhone/iPad
+                          step:
+                            title: Cancel via the Apple App Store
+                            content: <p>Your subscription is with Apple. You must cancel it through your Apple ID settings.</p><p><strong>To cancel on your iPhone/iPad:</strong></p><ol><li>Open the <strong>Settings</strong> app.</li><li>Tap your name at the top.</li><li>Tap on <strong>Subscriptions</strong>.</li><li>Find and tap the SoundCloud subscription.</li><li>Tap <strong>Cancel Subscription</strong>.</li></ol>
+                        - label: I have an Android
+                          step:
+                            title: Cancel via the Google Play Store
+                            content: <p>Your subscription is with Google. You must cancel it through the Play Store.</p><p><strong>To cancel on your Android device:</strong></p><ol><li>Open the <strong>Google Play Store</strong> app.</li><li>Tap your profile icon (top-right).</li><li>Tap <strong>Payments & subscriptions</strong>, then <strong>Subscriptions</strong>.</li><li>Find the SoundCloud subscription and tap it.</li><li>Tap <strong>Cancel subscription</strong>.</li></ol>
