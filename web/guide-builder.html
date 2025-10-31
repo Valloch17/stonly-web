@@ -377,13 +377,8 @@
 
         async function fetchLogs() {
             try {
-                const res = await fetch('/api/debug/logs?lines=400');
-                const text = await res.text();
-                if (ct.startsWith('text/html')) {
-                    throw new Error('Got HTML instead of JSON from /api/guides/build — this means the page was not served by the FastAPI app. Make sure guide-builder.html is served by the same service as the /api routes.');
-                }
-
-                const json = ct.includes('application/json') ? JSON.parse(text) : null;
+                const textOrJson = await apiFetch('/api/debug/logs?lines=400', { method: 'GET' });
+                const text = typeof textOrJson === 'string' ? textOrJson : JSON.stringify(textOrJson, null, 2);
                 logLine('--- backend logs (tail) ---');
                 logLine(text);
                 logLine('--- end logs ---');
@@ -392,6 +387,7 @@
             }
         }
         document.getElementById('btnFetchLogs').addEventListener('click', fetchLogs);
+
     </script>
 
     <script>
@@ -796,63 +792,38 @@
                 btn.disabled = true;
                 btn.textContent = settings.dryRun ? 'Simulating...' : 'Creating...';
             }
+
             let status = null;
             let rawText = null;
-            let parsed = null;
             try {
-                const response = await apiFetch('/api/guides/build', {
+                // ✅ Build the payload you intended to send
+                const body = buildGuidePayload(settings, yamlText);
+
+                // ✅ apiFetch returns parsed JSON (or throws on non-2xx); no need to re-parse
+                const data = await apiFetch('/api/guides/build', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
-                    body: JSON.stringify(payload)
+                    body: JSON.stringify(body),
                 });
-            const data = response;
-            status = response.status;
-            rawText = await response.text();
-            if (rawText) {
-                try {
-                    parsed = JSON.parse(rawText);
-                } catch {
-                    parsed = null;
+
+                // Keep the shape expected by the caller
+                status = 200;
+                rawText = JSON.stringify(data);
+                return { status, body: data, rawText };
+            } catch (err) {
+                const e = err instanceof Error ? err : new Error(String(err));
+                // Preserve what the caller prints into the “Execution plan / response” box
+                e.status = e.status ?? status;
+                e.rawText = e.rawText ?? rawText;
+                throw e;
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.textContent = original;
                 }
-            }
-            if (!response.ok) {
-                const error = new Error(describeError(parsed || rawText, response.status));
-                error.status = response.status;
-                error.payload = parsed ?? rawText;
-                throw error;
-            }
-            if (!parsed?.ok) {
-                const error = new Error(describeError(parsed || rawText, response.status));
-                error.status = response.status;
-                error.payload = parsed ?? rawText;
-                throw error;
-            }
-            return { status: response.status, body: parsed, rawText };
-        } catch (err) {
-            if (err instanceof Error) {
-                if (err.payload === undefined) {
-                    err.payload = parsed ?? rawText;
-                }
-                if (err.status === undefined && status !== null) {
-                    err.status = status;
-                }
-                if (!err.rawText && rawText !== null) {
-                    err.rawText = rawText;
-                }
-                throw err;
-            }
-            const generic = new Error(String(err));
-            generic.payload = parsed ?? rawText;
-            generic.status = status;
-            generic.rawText = rawText;
-            throw generic;
-        } finally {
-            if (btn) {
-                btn.disabled = false;
-                btn.textContent = original;
             }
         }
-        }
+
 
         el('parseYamlBtn')?.addEventListener('click', () => {
             const yamlText = getGuideYamlText();
