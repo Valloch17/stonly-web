@@ -190,6 +190,11 @@
                 <input id="base" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                     placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
             </div>
+            <div class="flex items-center gap-2 mt-2">
+                <input id="publishAfter" type="checkbox" class="h-4 w-4">
+                <label for="publishAfter" class="text-sm">Publish after build</label>
+            </div>
+
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
@@ -776,6 +781,7 @@
                     contentType: settings.contentType,
                     language: settings.language
                 },
+                publish: !!document.getElementById('publishAfter').checked,
                 creds: {
                     user: settings.user,
                     password: settings.password,
@@ -805,6 +811,11 @@
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify(body),
                 });
+                if (data?.guideId) {
+                    const pub = data.published ? " (published ✅)" : "";
+                    alert(`Guide created: ${data.guideId}${pub}`);
+                }
+
 
                 // Keep the shape expected by the caller
                 status = 200;

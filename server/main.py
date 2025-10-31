@@ -110,6 +110,15 @@ class Stonly:
             "Accept": "application/json",
         })
 
+    def publish_guides(self, guide_ids: list[str]):
+            payload = {"guideList": [{"guideId": gid} for gid in guide_ids]}
+            return self._req(
+                "POST",
+                f"{self.base}/guide/publish",
+                params={"teamId": self.teamId},
+                json=payload,
+            )
+
     def get_structure_flat(self, parent_id: Optional[int]):
         """
         Appelle GET /folder/structure (payload 'flat' observé : { items: [{id,name,parentId}, ...] }).
@@ -400,6 +409,7 @@ class GuideBuildPayload(BaseModel):
     yaml: str
     dryRun: bool = False
     defaults: GuideDefaults = GuideDefaults()
+    publish: bool = False
 
 
 
@@ -697,6 +707,27 @@ def api_build_guide(payload: GuideBuildPayload):
         dry_run,
         len(steps_created),
     )
+    # --- PUBLISH (new) ------------------------------------------------------
+    published = False
+    publish_resp = None
+    # Only publish when not a dry run and when the payload asks for it.
+    if not dry_run and bool(getattr(payload, "publish", False)):
+        try:
+            logger.info("GUIDE publish request guideId=%s", guide_id)
+            publish_resp = st._req(
+                "POST",
+                "/guide/publish",
+                params={"teamId": payload.creds.teamId},
+                json={"guideList": [{"guideId": guide_id}]},
+            )
+            published = True
+            logger.info("GUIDE published guideId=%s", guide_id)
+        except HTTPException:
+            # Bubble up upstream errors as-is so the UI can show details
+            raise
+        except Exception:
+            logger.exception("GUIDE publish failed guideId=%s", guide_id)
+            raise HTTPException(502, detail={"error": "Publish failed", "guideId": guide_id})
 
     return {
         "ok": True,
@@ -707,7 +738,8 @@ def api_build_guide(payload: GuideBuildPayload):
         "summary": {
             "stepCount": len(steps_created),
             "branchCount": max(len(steps_created) - 1, 0),
-        }
+        },
+        "published": published
     }
 
 @app.get("/api/dump-structure")
