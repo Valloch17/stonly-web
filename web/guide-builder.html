@@ -340,6 +340,34 @@
         </a>
     </div>
     <script>
+        // Prefer same-origin if we are on the API host; otherwise hard-code your backend
+        const DEFAULT_BACKEND = "https://stonly-web.onrender.com";
+        const BASE = (window.location.origin.includes("stonly-web.onrender.com")
+            ? window.location.origin
+            : DEFAULT_BACKEND).replace(/\/+$/, '');
+
+        async function apiFetch(path, init) {
+            const res = await fetch(BASE + path, init);
+            const ct = (res.headers.get('content-type') || '').toLowerCase();
+            const text = await res.text();
+
+            // Helpful guard: 200 HTML means you hit a static host/proxy, not the API
+            if (ct.startsWith('text/html')) {
+                throw new Error(`Got HTML from ${BASE + path}. Check BASE or routing.`);
+            }
+
+            let json;
+            try { if (ct.includes('application/json')) json = JSON.parse(text); } catch (_) { }
+            if (!res.ok) {
+                // Bubble up a readable error
+                const msg = json?.detail || json?.message || text || `HTTP ${res.status}`;
+                throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+            }
+            return json ?? text;
+        }
+    </script>
+
+    <script>
         function logLine(msg) {
             const ta = document.getElementById('logBox');
             const ts = new Date().toISOString().slice(11, 23);
@@ -772,57 +800,58 @@
             let rawText = null;
             let parsed = null;
             try {
-                const response = await fetch('/api/guides/build', {
+                const response = await apiFetch('/api/guides/build', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(buildGuidePayload(settings, yamlText))
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                status = response.status;
-                rawText = await response.text();
-                if (rawText) {
-                    try {
-                        parsed = JSON.parse(rawText);
-                    } catch {
-                        parsed = null;
-                    }
-                }
-                if (!response.ok) {
-                    const error = new Error(describeError(parsed || rawText, response.status));
-                    error.status = response.status;
-                    error.payload = parsed ?? rawText;
-                    throw error;
-                }
-                if (!parsed?.ok) {
-                    const error = new Error(describeError(parsed || rawText, response.status));
-                    error.status = response.status;
-                    error.payload = parsed ?? rawText;
-                    throw error;
-                }
-                return { status: response.status, body: parsed, rawText };
-            } catch (err) {
-                if (err instanceof Error) {
-                    if (err.payload === undefined) {
-                        err.payload = parsed ?? rawText;
-                    }
-                    if (err.status === undefined && status !== null) {
-                        err.status = status;
-                    }
-                    if (!err.rawText && rawText !== null) {
-                        err.rawText = rawText;
-                    }
-                    throw err;
-                }
-                const generic = new Error(String(err));
-                generic.payload = parsed ?? rawText;
-                generic.status = status;
-                generic.rawText = rawText;
-                throw generic;
-            } finally {
-                if (btn) {
-                    btn.disabled = false;
-                    btn.textContent = original;
+            const data = response;
+            status = response.status;
+            rawText = await response.text();
+            if (rawText) {
+                try {
+                    parsed = JSON.parse(rawText);
+                } catch {
+                    parsed = null;
                 }
             }
+            if (!response.ok) {
+                const error = new Error(describeError(parsed || rawText, response.status));
+                error.status = response.status;
+                error.payload = parsed ?? rawText;
+                throw error;
+            }
+            if (!parsed?.ok) {
+                const error = new Error(describeError(parsed || rawText, response.status));
+                error.status = response.status;
+                error.payload = parsed ?? rawText;
+                throw error;
+            }
+            return { status: response.status, body: parsed, rawText };
+        } catch (err) {
+            if (err instanceof Error) {
+                if (err.payload === undefined) {
+                    err.payload = parsed ?? rawText;
+                }
+                if (err.status === undefined && status !== null) {
+                    err.status = status;
+                }
+                if (!err.rawText && rawText !== null) {
+                    err.rawText = rawText;
+                }
+                throw err;
+            }
+            const generic = new Error(String(err));
+            generic.payload = parsed ?? rawText;
+            generic.status = status;
+            generic.rawText = rawText;
+            throw generic;
+        } finally {
+            if (btn) {
+                btn.disabled = false;
+                btn.textContent = original;
+            }
+        }
         }
 
         el('parseYamlBtn')?.addEventListener('click', () => {
@@ -882,7 +911,7 @@
 
         setupCopyOut();
     </script>
-    <script>
+    <!-- <script>
         async function createGuide() {
             const settings = collectSettings();   // your existing function
             const parsed = parseYamlOrThrow();    // your existing function that sets the execution plan preview
@@ -906,7 +935,7 @@
 
             let res, json;
             try {
-                res = await fetch('/api/guides/build', {
+                res = await apiFetch('/api/guides/build', {
                     method: 'POST',
                     headers: { 'content-type': 'application/json' },
                     body: JSON.stringify(body)
@@ -946,7 +975,7 @@
 
         // wire up the button
         document.getElementById('btnCreate').addEventListener('click', createGuide);
-    </script>
+    </script> -->
 
 </body>
 
