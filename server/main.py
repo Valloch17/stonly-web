@@ -10,9 +10,10 @@ import requests
 import yaml
 import uuid
 
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
-
-import logging, logging.handlers, os
+import logging, logging.handlers
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -777,6 +778,20 @@ def api_dump(
 @app.get("/api/ping")
 def ping():
     return {"ok": True}
+
+WEB_DIR = os.path.join(os.path.dirname(__file__), "web")
+
+@app.get("/guide-builder.html")
+def guide_builder_page():
+    return FileResponse(os.path.join(WEB_DIR, "guide-builder.html"))
+
+# Serve everything in /web at /static (if you add images/css later)
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+# If you want the UI at the root as well (optional)
+@app.get("/")
+def root():
+    return FileResponse(os.path.join(WEB_DIR, "guide-builder.html"))
 
 
 if __name__ == "__main__":

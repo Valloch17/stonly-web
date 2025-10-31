@@ -144,7 +144,8 @@
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
             <span id="themeIcon">
                 <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+                    <path
+                        d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
                 </svg>
             </span>
             <span id="themeLabel">Dark</span>
@@ -154,7 +155,8 @@
     <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
         <div>
             <h1 class="text-2xl font-semibold">Stonly Guide Builder</h1>
-            <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly API.</p>
+            <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly API.
+            </p>
         </div>
 
         <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
@@ -217,8 +219,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Content type</label>
-                    <select id="contentType"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm bg-card">
+                    <select id="contentType" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm bg-card">
                         <option value="GUIDE">GUIDE</option>
                         <option value="ARTICLE">ARTICLE</option>
                         <option value="GUIDED_TOUR">GUIDED_TOUR</option>
@@ -226,8 +227,7 @@
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Language</label>
-                    <input id="language" type="text"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="language" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="en-US" value="en-US" />
                 </div>
             </div>
@@ -251,8 +251,7 @@
             </header>
 
             <div>
-                <textarea id="guideYaml"
-                    class="mt-1 w-full border border-neutral rounded-lg p-3 text-sm h-64 font-mono"
+                <textarea id="guideYaml" class="mt-1 w-full border border-neutral rounded-lg p-3 text-sm h-64 font-mono"
                     placeholder="guide:
   contentTitle: Product Walkthrough
   language: en-US
@@ -275,7 +274,8 @@
                 <ul class="list-disc pl-5 space-y-1 text-sm text-slate-600">
                     <li>Top-level <code class="font-mono">guide</code> object must include <code
                             class="font-mono">contentTitle</code>,
-                        <code class="font-mono">language</code>, and <code class="font-mono">firstStep</code>.</li>
+                        <code class="font-mono">language</code>, and <code class="font-mono">firstStep</code>.
+                    </li>
                     <li>Each step defines a <code class="font-mono">title</code>, <code class="font-mono">content</code>
                         (HTML allowed), and optional <code class="font-mono">choices</code> array.</li>
                     <li>Choices accept <code class="font-mono">label</code>, optional <code
@@ -289,8 +289,8 @@
         <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
             <header class="flex items-center justify-between gap-3">
                 <h2 class="text-lg font-semibold">Preview</h2>
-                <span id="previewStatus"
-                    class="inline-flex items-center gap-2 text-sm text-slate-500">Waiting for YAML.</span>
+                <span id="previewStatus" class="inline-flex items-center gap-2 text-sm text-slate-500">Waiting for
+                    YAML.</span>
             </header>
             <div id="previewTree" class="space-y-3 text-sm"></div>
         </section>
@@ -301,26 +301,28 @@
                     <h2 class="text-lg font-semibold">Execution plan</h2>
                     <p class="text-sm text-slate-500">Review the payloads before hitting the API.</p>
                 </div>
-                <button id="copyOut"
-                    class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                <button id="copyOut" class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium"
+                    type="button">
                     Copy plan
                 </button>
             </header>
-            <pre id="out" class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
+            <pre id="out"
+                class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
         </section>
 
         <div class="card">
             <div class="card-header">
-              <div class="title">Logs</div>
-              <div>
-                <button id="btnFetchLogs" class="button">Fetch backend logs</button>
-              </div>
+                <div class="title">Logs</div>
+                <div>
+                    <button id="btnFetchLogs" class="button">Fetch backend logs</button>
+                </div>
             </div>
             <div class="card-content">
-              <textarea id="logBox" style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
+                <textarea id="logBox"
+                    style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
             </div>
-          </div>
-          
+        </div>
+
     </main>
 
     <div class="contact-badge">
@@ -339,28 +341,33 @@
     </div>
     <script>
         function logLine(msg) {
-          const ta = document.getElementById('logBox');
-          const ts = new Date().toISOString().slice(11, 23);
-          ta.value += `[${ts}] ${msg}\n`;
-          ta.scrollTop = ta.scrollHeight;
+            const ta = document.getElementById('logBox');
+            const ts = new Date().toISOString().slice(11, 23);
+            ta.value += `[${ts}] ${msg}\n`;
+            ta.scrollTop = ta.scrollHeight;
         }
-        
+
         async function fetchLogs() {
-          try {
-            const res = await fetch('/api/debug/logs?lines=400');
-            const text = await res.text();
-            logLine('--- backend logs (tail) ---');
-            logLine(text);
-            logLine('--- end logs ---');
-          } catch (e) {
-            logLine('Fetch logs failed: ' + (e?.message || e));
-          }
+            try {
+                const res = await fetch('/api/debug/logs?lines=400');
+                const text = await res.text();
+                if (ct.startsWith('text/html')) {
+                    throw new Error('Got HTML instead of JSON from /api/guides/build — this means the page was not served by the FastAPI app. Make sure guide-builder.html is served by the same service as the /api routes.');
+                }
+
+                const json = ct.includes('application/json') ? JSON.parse(text) : null;
+                logLine('--- backend logs (tail) ---');
+                logLine(text);
+                logLine('--- end logs ---');
+            } catch (e) {
+                logLine('Fetch logs failed: ' + (e?.message || e));
+            }
         }
         document.getElementById('btnFetchLogs').addEventListener('click', fetchLogs);
-        </script>
-        
+    </script>
+
     <script>
-        
+
         (function initTheme() {
             const STORAGE_KEY = "stonly_theme";
             const root = document.documentElement;
@@ -877,70 +884,70 @@
     </script>
     <script>
         async function createGuide() {
-          const settings = collectSettings();   // your existing function
-          const parsed = parseYamlOrThrow();    // your existing function that sets the execution plan preview
-        
-          const body = {
-            token    : settings.adminToken,
-            creds    : { user: settings.user, password: settings.pass, teamId: Number(settings.teamId) },
-            folderId : Number(settings.folderId),
-            yaml     : document.getElementById('yaml').value,
-            dryRun   : !!settings.dryRun,
-            defaults : {
-              contentTitle: settings.defaultTitle || undefined,
-              language    : settings.defaultLanguage || undefined,
-              contentType : settings.contentType || undefined
+            const settings = collectSettings();   // your existing function
+            const parsed = parseYamlOrThrow();    // your existing function that sets the execution plan preview
+
+            const body = {
+                token: settings.adminToken,
+                creds: { user: settings.user, password: settings.pass, teamId: Number(settings.teamId) },
+                folderId: Number(settings.folderId),
+                yaml: document.getElementById('yaml').value,
+                dryRun: !!settings.dryRun,
+                defaults: {
+                    contentTitle: settings.defaultTitle || undefined,
+                    language: settings.defaultLanguage || undefined,
+                    contentType: settings.contentType || undefined
+                }
+            };
+
+            // Log the outgoing payload
+            logLine('POST /api/guides/build');
+            logLine('payload: ' + JSON.stringify(body));
+
+            let res, json;
+            try {
+                res = await fetch('/api/guides/build', {
+                    method: 'POST',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+            } catch (err) {
+                logLine('Network error: ' + (err?.message || err));
+                throw err;
             }
-          };
-        
-          // Log the outgoing payload
-          logLine('POST /api/guides/build');
-          logLine('payload: ' + JSON.stringify(body));
-        
-          let res, json;
-          try {
-            res = await fetch('/api/guides/build', {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify(body)
-            });
-          } catch (err) {
-            logLine('Network error: ' + (err?.message || err));
-            throw err;
-          }
-        
-          const text = await res.text();
-          try { json = JSON.parse(text); } catch { /* leave as text */ }
-        
-          logLine(`status: ${res.status} ${res.statusText}`);
-          logLine('response: ' + (json ? JSON.stringify(json) : text));
-        
-          // Treat non-2xx as errors
-          if (!res.ok) {
-            alert(`Build failed (${res.status}). See Logs panel.`);
-            return;
-          }
-        
-          // Also treat "200-with-error-body" as error (server might have normalized this already)
-          if (json && json.detail && json.detail.upstream) {
-            alert('Upstream error (see Logs).');
-            return;
-          }
-        
-          // Success UX
-          if (json && json.guideId) {
-            logLine(`Guide created: guideId=${json.guideId}, firstStepId=${json.firstStepId}`);
-            alert(`Guide created: ${json.guideId}`);
-          } else {
-            // Still show something meaningful
-            alert('Build completed. See Logs panel and response.');
-          }
+
+            const text = await res.text();
+            try { json = JSON.parse(text); } catch { /* leave as text */ }
+
+            logLine(`status: ${res.status} ${res.statusText}`);
+            logLine('response: ' + (json ? JSON.stringify(json) : text));
+
+            // Treat non-2xx as errors
+            if (!res.ok) {
+                alert(`Build failed (${res.status}). See Logs panel.`);
+                return;
+            }
+
+            // Also treat "200-with-error-body" as error (server might have normalized this already)
+            if (json && json.detail && json.detail.upstream) {
+                alert('Upstream error (see Logs).');
+                return;
+            }
+
+            // Success UX
+            if (json && json.guideId) {
+                logLine(`Guide created: guideId=${json.guideId}, firstStepId=${json.firstStepId}`);
+                alert(`Guide created: ${json.guideId}`);
+            } else {
+                // Still show something meaningful
+                alert('Build completed. See Logs panel and response.');
+            }
         }
-        
+
         // wire up the button
         document.getElementById('btnCreate').addEventListener('click', createGuide);
-        </script>
-        
+    </script>
+
 </body>
 
 </html>
