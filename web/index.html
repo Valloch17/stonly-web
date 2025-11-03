@@ -191,14 +191,14 @@
             /* dark: two close shades for subtle banding */
             /* Option A: fixed tones */
             --layer-0: #0f172a;
-           /*  slate-900-ish card */
+            /*  slate-900-ish card */
             --layer-1: #1e2433;
             /* slate-900 slightly different */
 
             /* Option B (comment A out, use this instead) — dynamic from your tokens: 
             --layer-0: color-mix(in srgb, var(--card) 92%, var(--bg) 8%);
             --layer-1: color-mix(in srgb, var(--card) 85%, var(--bg) 15%);*/
-           
+
         }
 
         /* Utility classes used by the tree nodes */
@@ -210,18 +210,22 @@
             background: var(--layer-1) !important;
         }
     </style>
-<!-- Copy into the head of all HTML pages you wish to display the widget -->
+    <!-- Copy into the head of all HTML pages you wish to display the widget -->
 
-<!-- stonly-widget - copy into the head -->
-<script>window.STONLY_WID = "8fcc56d8-0450-11ee-a0af-0a52ff1ec764";</script>
-<script>
-!function(s,t,o,n,l,y,w,g,d,e){s.StonlyWidget||((d=s.StonlyWidget=function(){
-  d._api?d._api.apply(d,arguments):d.queue.push(arguments)}).scriptPath=n,d.apiPath=l,d.sPath=y,d.queue=[],
-  (g=t.createElement(o)).async=!0,(e=new XMLHttpRequest).open("GET",n+"version?v="+Date.now(),!0),
-  e.onreadystatechange=function(){4===e.readyState&&(g.src=n+"stonly-widget.js?v="+
-  (200===e.status?e.responseText:Date.now()),(w=t.getElementsByTagName(o)[0]).parentNode.insertBefore(g,w))},e.send())
-  }(window,document,"script","https://stonly.com/js/widget/v2/");
-</script>
+    <!-- stonly-widget - copy into the head -->
+    <script>window.STONLY_WID = "8fcc56d8-0450-11ee-a0af-0a52ff1ec764";</script>
+    <script>
+        !function (s, t, o, n, l, y, w, g, d, e) {
+            s.StonlyWidget || ((d = s.StonlyWidget = function () {
+                d._api ? d._api.apply(d, arguments) : d.queue.push(arguments)
+            }).scriptPath = n, d.apiPath = l, d.sPath = y, d.queue = [],
+                (g = t.createElement(o)).async = !0, (e = new XMLHttpRequest).open("GET", n + "version?v=" + Date.now(), !0),
+                e.onreadystatechange = function () {
+                    4 === e.readyState && (g.src = n + "stonly-widget.js?v=" +
+                        (200 === e.status ? e.responseText : Date.now()), (w = t.getElementsByTagName(o)[0]).parentNode.insertBefore(g, w))
+                }, e.send())
+        }(window, document, "script", "https://stonly.com/js/widget/v2/");
+    </script>
 
 
 </head>
@@ -240,7 +244,8 @@
             </svg>
             Guide Builder
         </a>
-        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode"
+            title="Toggle dark mode">
             <span id="themeIcon" aria-hidden="true"></span>
             <span id="themeLabel">Dark</span>
         </button>
@@ -397,12 +402,42 @@
         // --- Persistence helpers ---
         const STORAGE_KEY_NODES = "stonly_ui_nodes";
         const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
+        const STORAGE_KEYS_MISC = {
+            st_team: "kb_st_team",
+            parentId: "kb_parent_id",
+        };
+
+        function loadPersistedValue(id, key) {
+            try {
+                const v = localStorage.getItem(key);
+                if (v != null) {
+                    const el = document.getElementById(id);
+                    if (el) el.value = v;
+                }
+            } catch { }
+        }
+        function persistOnInput(id, key) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.addEventListener('input', () => {
+                try { localStorage.setItem(key, el.value.trim()); } catch { }
+            });
+        }
+
+        // Load on startup
+        document.addEventListener('DOMContentLoaded', () => {
+            loadPersistedValue('st_team', STORAGE_KEYS_MISC.st_team);
+            loadPersistedValue('parentId', STORAGE_KEYS_MISC.parentId);
+
+            persistOnInput('st_team', STORAGE_KEYS_MISC.st_team);
+            persistOnInput('parentId', STORAGE_KEYS_MISC.parentId);
+        });
 
         // Depth-based styling
         function depthBgClass(depth) {
-  // even levels = layer-0, odd = layer-1
-  return (depth % 2 === 0) ? "layer-0" : "layer-1";
-}
+            // even levels = layer-0, odd = layer-1
+            return (depth % 2 === 0) ? "layer-0" : "layer-1";
+        }
 
         function depthBorderClass(depth) {
             // slightly darker border on gray rows for contrast

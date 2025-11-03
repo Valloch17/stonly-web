@@ -326,13 +326,23 @@
                     <h2 class="text-lg font-semibold">Execution plan</h2>
                     <p class="text-sm text-slate-500">Review the payloads before hitting the API.</p>
                 </div>
-                <button id="copyOut" class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium"
-                    type="button">
-                    Copy plan
-                </button>
+                <div class="flex items-center gap-2">
+                    <button id="togglePlan"
+                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                        Hide
+                    </button>
+                    <button id="copyOut" class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium"
+                        type="button">
+                        Copy plan
+                    </button>
+                </div>
             </header>
-            <pre id="out"
-                class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
+
+            <div id="planContainer">
+                <pre id="out"
+                    class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
+            </div>
+
         </section>
 
         <div class="card">
@@ -343,8 +353,9 @@
                 </div>
             </div>
             <div class="card-content">
-                <textarea id="logBox"
+                <textarea id="logBox" class="text-xs"
                     style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
+
             </div>
         </div>
 
@@ -365,6 +376,16 @@
         </a>
     </div>
     <script>
+        // Execution plan show/hide
+        (function setupPlanToggle() {
+            const btn = document.getElementById('togglePlan');
+            const box = document.getElementById('planContainer');
+            if (!btn || !box) return;
+            btn.addEventListener('click', () => {
+                const hidden = box.classList.toggle('hidden');
+                btn.textContent = hidden ? 'Show' : 'Hide';
+            });
+        })();
         // Prefer same-origin if we are on the API host; otherwise hard-code your backend
         const DEFAULT_BACKEND = "https://stonly-web.onrender.com";
         const BASE = (window.location.origin.includes("stonly-web.onrender.com")
@@ -726,14 +747,46 @@
             return { settings: merged, plan };
         }
 
+        function maskSecretsDeep(obj) {
+            // returns a deep-cloned, masked copy
+            const SENSITIVE_KEYS = new Set(['token', 'password', 'pass', 'apiKey', 'authorization']);
+            const mask = (val) => {
+                if (typeof val !== 'string') return val;
+                const s = val.trim();
+                if (s.length <= 8) return '***';
+                return s.slice(0, 2) + '***' + s.slice(-4); // keep first 2 + last 4
+            };
+            const walk = (v) => {
+                if (Array.isArray(v)) return v.map(walk);
+                if (v && typeof v === 'object') {
+                    const out = {};
+                    for (const k of Object.keys(v)) {
+                        if (SENSITIVE_KEYS.has(k)) out[k] = mask(v[k]);
+                        else out[k] = walk(v[k]);
+                    }
+                    return out;
+                }
+                return v;
+            };
+            return walk(obj);
+        }
+
         function updateOut(result) {
-            const out = el('out');
+            const out = document.getElementById('out');
+            if (!out) return;
             if (!result) {
                 out.textContent = '';
                 return;
             }
-            out.textContent = JSON.stringify(result, null, 2);
+            try {
+                const safe = maskSecretsDeep(result);
+                out.textContent = JSON.stringify(safe, null, 2);
+            } catch {
+                // Fallback
+                out.textContent = JSON.stringify(result, null, 2);
+            }
         }
+
 
         function setupCopyOut() {
             const btn = el('copyOut');
