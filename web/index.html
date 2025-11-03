@@ -259,9 +259,10 @@
                 <h2 class="text-lg font-semibold">Settings</h2>
             </div>
 
-            <!-- Admin token + Dry-run on one line -->
-            <div class="flex flex-col md:flex-row md:items-end md:gap-3">
-                <div class="flex-1">
+            <!-- Admin token + Stonly API Base URL + Dry-run on one row -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <!-- Admin token -->
+                <div>
                     <label class="block text-sm font-medium">
                         Admin token <span class="text-red-600">*</span>
                     </label>
@@ -269,11 +270,24 @@
                         class="mt-1 w-full border rounded p-2 text-sm" placeholder="APP_ADMIN_TOKEN" />
                 </div>
 
-                <label class="mt-2 md:mt-0 inline-flex items-center gap-2 text-sm whitespace-nowrap">
-                    <input id="dryRun" type="checkbox" class="h-4 w-4" />
-                    Dry-run
-                </label>
+                <!-- Stonly API base URL -->
+                <div>
+                    <label class="block text-sm font-medium">
+                        Stonly API base URL <i>(optional)</i>
+                    </label>
+                    <input id="st_base" class="mt-1 w-full border rounded p-2 text-sm"
+                        placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
+                </div>
+
+                <!-- Dry-run -->
+                <div class="flex items-center md:justify-start">
+                    <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap mt-1 md:mt-6">
+                        <input id="dryRun" type="checkbox" class="h-4 w-4" />
+                        Dry-run
+                    </label>
+                </div>
             </div>
+
 
 
             <!-- Stonly credentials -->
@@ -326,11 +340,6 @@
                     <input id="lang" class="mt-1 w-full border rounded p-2 text-sm" value="en" placeholder="en" />
                 </div>
             </div>
-
-            <!-- API base (optional) -->
-            <label class="block text-sm font-medium mt-2">Stonly API base URL <i>(optional)</i></label>
-            <input id="st_base" class="mt-1 w-full border rounded p-2 text-sm"
-                placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
 
             <!-- YAML (optional) -->
             <label class="block text-sm font-medium mt-2">structure.yaml <i>(optional)</i></label>
