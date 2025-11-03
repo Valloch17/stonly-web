@@ -226,8 +226,9 @@ class Stonly:
             "content": content,
             "language": language,
         }
-        if media is not None:
+        if media:
             body["media"] = media
+
         logger.info("GUIDE create payload=%s", body)
         data = self._req("POST", "/guide", json=body)
         if not isinstance(data, dict):
@@ -266,8 +267,9 @@ class Stonly:
             body["choiceLabel"] = choice_label
         if position is not None:
             body["position"] = position
-        if media is not None:
+        if media:
             body["media"] = media
+
         logger.info("GUIDE append payload=%s", body)
         data = self._req("POST", "/guide/step", json=body)
         if not isinstance(data, dict):
@@ -370,6 +372,25 @@ class GuideStep(BaseModel):
     media: List[str] = Field(default_factory=list)
     position: Optional[int] = None
     choices: List["GuideStepChoice"] = Field(default_factory=list)
+
+    @field_validator("media", mode="before")
+    @classmethod
+    def media_coerce_and_clip(cls, v):
+        # Accept str or list; normalize to list[str]
+        if v is None or v == "":
+            return []
+        if isinstance(v, str):
+            v = [v]
+        if not isinstance(v, list):
+            return []
+        # drop non-string entries, strip spaces
+        v = [str(x).strip() for x in v if isinstance(x, (str, bytes))]
+        # optional: only keep likely direct assets (jpg/png/gif/svg/mp4/webm)
+        # comment this out if you want to send any URL through
+        exts = (".png",".jpg",".jpeg",".gif",".webp",".svg",".mp4",".webm",".mov")
+        v = [u for u in v if any(u.lower().split("?")[0].endswith(ext) for ext in exts)]
+        # clip to 3 per Stonly API
+        return v[:3]
 
     @field_validator("media")
     @classmethod
