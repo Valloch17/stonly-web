@@ -586,13 +586,37 @@
                 }
             } catch { /* no-op */ }
         })();
-        function normalizeContent(s) {
-            return String(s)
-                .replace(/\r\n/g, '\n')   // CRLF → LF
-                .replace(/\r/g, '\n')     // CR → LF
-                .replace(/\u00A0/g, ' ')  // nbsp → space
-                .replace(/\s+$/, '');      // trim trailing whitespace/newlines
+        // Strong HTML-aware newline/whitespace normalizer
+        function normalizeContent(html) {
+            let s = String(html ?? '');
+
+            // Normalize line endings and common whitespace
+            s = s.replace(/\r\n?/g, '\n')        // CRLF/CR -> LF
+                .replace(/\u00A0/g, ' ')        // NBSP -> space
+                .replace(/[ \t]+\n/g, '\n')     // trim end-of-line spaces
+                .trim();
+
+            // Remove whitespace between tags to avoid empty text nodes
+            // e.g., "<p>..</p>\n  <ul>" => "<p>..</p><ul>"
+            s = s.replace(/>\s+\n\s*</g, '><')
+                .replace(/>\s+</g, '><');
+
+            // Collapse multiple blank lines to a single '\n'
+            s = s.replace(/\n{2,}/g, '\n');
+
+            // If there's no <pre>/<code>/<textarea>, replace remaining newlines with spaces
+            // (so paragraph HTML written on multiple lines becomes a single flow)
+            if (!/<\s*(pre|code|textarea)\b/i.test(s)) {
+                s = s.replace(/\n+/g, ' ');
+            }
+
+            // Final tidy around tags: avoid stray spaces at tag boundaries
+            s = s.replace(/>\s+/g, '>')
+                .replace(/\s+</g, '<');
+
+            return s;
         }
+
 
     </script>
 
