@@ -601,8 +601,6 @@
                 const parseBtn = document.getElementById('parseYamlBtn');
                 if (!menu || !btn || !area) return;
                 if (!menu.querySelector('button[data-example="guide_rich"]')) {
-                    const sep = document.createElement('div');
-                    sep.className = 'border-t border-neutral my-1';
                     const b = document.createElement('button');
                     b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
                     b.setAttribute('data-example', 'guide_rich');
@@ -613,8 +611,9 @@
                         btn.setAttribute('aria-expanded', 'false');
                         if (parseBtn) parseBtn.click();
                     });
-                    menu.appendChild(sep);
-                    menu.appendChild(b);
+                    // Insert into the first group (before the MULTI separator if present)
+                    const firstSep = menu.querySelector('div.border-t.border-neutral.my-1');
+                    if (firstSep) menu.insertBefore(b, firstSep); else menu.appendChild(b);
                 }
             } catch { /* no-op */ }
         })();
