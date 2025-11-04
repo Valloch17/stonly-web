@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import List, Optional, Dict, Any, Tuple
+import re
 from dataclasses import dataclass, field
 import os, time
 
@@ -373,6 +374,15 @@ class GuideStep(BaseModel):
     position: Optional[int] = None
     choices: List["GuideStepChoice"] = Field(default_factory=list)
 
+    @field_validator("content", mode="before")
+    @classmethod
+    def content_normalize(cls, v):
+        # Normalize HTML content early so payloads and logs have clean markup
+        try:
+            return normalize_html_content(v)
+        except Exception:
+            return v if isinstance(v, str) else str(v or "")
+
     @field_validator("media", mode="before")
     @classmethod
     def media_coerce_and_clip(cls, v):
@@ -450,6 +460,38 @@ def extract_name_id(obj: dict) -> tuple[Optional[str], Optional[int]]:
 
 def build_path(parent: str, name: str) -> str:
     return f"{parent}/{name}" if parent else f"/{name}"
+
+def normalize_html_content(html: Optional[str]) -> str:
+    """Normalize HTML to avoid unwanted blank lines/newlines in Stonly output.
+    - Collapse CR/CRLF
+    - Trim and normalize whitespace
+    - Remove whitespace between tags
+    - If no <pre>/<code>/<textarea>, replace newlines with spaces
+    """
+    if html is None:
+        return ""
+    s = str(html)
+    # Normalize line endings and common whitespace
+    s = s.replace("\r\n", "\n").replace("\r", "\n")
+    s = s.replace("\u00A0", " ")
+    s = re.sub(r"[ \t]+\n", "\n", s)
+    s = s.strip()
+
+    # Remove whitespace between tags to avoid empty text nodes
+    s = re.sub(r">\s+\n\s<", "><", s)
+    s = re.sub(r">\s+<", "><", s)
+
+    # Collapse multiple blank lines
+    s = re.sub(r"\n{2,}", "\n", s)
+
+    # If no pre/code/textarea, remove remaining newlines (render as spaces)
+    if not re.search(r"<\s*(pre|code|textarea)\b", s, re.I):
+        s = re.sub(r"\n+", " ", s)
+
+    # Final tidy around tag boundaries
+    s = re.sub(r">\s+", ">", s)
+    s = re.sub(r"\s+<", "<", s)
+    return s
 
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
     text = (source or "").strip()
