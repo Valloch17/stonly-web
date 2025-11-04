@@ -984,10 +984,14 @@
             arr.forEach((p, i) => {
                 const section = document.createElement('div');
                 section.className = 'space-y-2';
-                const title = (p.info?.contentTitle || p.firstStep?.title || `Guide ${i + 1}`);
+                const title = (p.info?.contentTitle || p.firstStep?.title || `Item ${i + 1}`);
+                const ct = String(p.info?.contentType || '').toUpperCase();
+                const typeName = ct === 'ARTICLE' ? 'Article'
+                               : ct === 'GUIDED_TOUR' ? 'Guided tour'
+                               : 'Guide';
                 const header = document.createElement('div');
                 header.className = 'text-sm font-semibold';
-                header.textContent = `Guide ${i + 1}: ${title}`;
+                header.textContent = `${i + 1}. ${typeName}: ${title}`;
                 section.appendChild(header);
                 section.appendChild(renderPreviewStep(p.firstStep, 0));
                 tree.appendChild(section);
