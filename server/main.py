@@ -615,6 +615,7 @@ def _build_one_guide(
             "choiceLabel": None,
         })
     else:
+        allow_media = (str(definition.contentType).upper() != "ARTICLE")
         created = st.create_guide(
             folder_id=folder_id,
             content_type=definition.contentType,
@@ -622,7 +623,7 @@ def _build_one_guide(
             first_step_title=definition.firstStep.title,
             content=definition.firstStep.content,
             language=definition.firstStep.language or definition.language,
-            media=definition.firstStep.media,
+            media=(definition.firstStep.media if allow_media else None),
         )
         guide_id = created["guideId"]
         first_step_id = created["firstStepId"]
@@ -658,7 +659,7 @@ def _build_one_guide(
                 language=language,
                 choice_label=choice.label,
                 position=position_value,
-                media=step.media,
+                media=(step.media if allow_media else None),
             )
             step_id = appended["stepId"]
 

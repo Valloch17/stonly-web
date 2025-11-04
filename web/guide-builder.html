@@ -1023,7 +1023,7 @@
                         firstStepTitle: p.firstStep.title,
                         content: p.firstStep.content,
                         language: p.firstStep.language || merged.language,
-                        media: p.firstStep.media
+                        media: (merged.contentType === 'ARTICLE' ? undefined : p.firstStep.media)
                     }
                 });
 
@@ -1049,7 +1049,7 @@
                             content: choice.step.content,
                             language: choice.step.language || merged.language,
                             position: defaultPosition,
-                            media: choice.step.media
+                            media: (merged.contentType === 'ARTICLE' ? undefined : choice.step.media)
                         }
                     });
                     choice.step.choices.forEach((child, idx) => {
