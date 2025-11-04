@@ -504,7 +504,7 @@
 
         (function wireShowExample() {
             const btn = document.getElementById('btnExample');
-            const area = document.getElementById('yaml'); // your YAML textarea
+            const area = document.getElementById('guideYaml'); // your YAML textarea
             if (!btn || !area) return;
 
             btn.addEventListener('click', () => {
@@ -513,7 +513,7 @@
                 area.value = pick;
 
                 // If you have a “Parse YAML” button, click it; otherwise call your parser directly
-                const parseBtn = document.getElementById('btnParse');
+                const parseBtn = document.getElementById('parseYamlBtn');
                 if (parseBtn) {
                     parseBtn.click();
                 } else if (typeof window.parseYaml === 'function') {
