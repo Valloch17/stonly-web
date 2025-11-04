@@ -770,13 +770,24 @@ def api_build_guide(payload: GuideBuildPayload):
     # Parse YAML; may contain one or multiple guides
     items = parse_guides_multi(payload.yaml, payload.defaults)
 
+    # Log a concise header; avoid referencing per-guide fields before selecting items
+    try:
+        titles = []
+        for it in items[:3]:
+            d = it.get("definition")
+            if d:
+                titles.append(str(getattr(d, "contentTitle", "")) or "<no-title>")
+        extra = "" if len(items) <= 3 else f" (+{len(items)-3} more)"
+        sample = ", ".join(titles) + extra
+    except Exception:
+        sample = "(unavailable)"
     logger.info(
-        "GUIDE build start dryRun=%s team=%s folder=%s contentTitle=%s firstStep=%s",
+        "GUIDE build start dryRun=%s team=%s folder=%s items=%s titles=%s",
         payload.dryRun,
         payload.creds.teamId,
         payload.folderId,
-        definition.contentTitle,
-        definition.firstStep.title,
+        len(items),
+        sample,
     )
     logger.debug(
         "GUIDE creds user=%s base=%s",
