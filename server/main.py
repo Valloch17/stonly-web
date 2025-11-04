@@ -114,7 +114,7 @@ class Stonly:
             payload = {"guideList": [{"guideId": gid} for gid in guide_ids]}
             return self._req(
                 "POST",
-                f"{self.base}/guide/publish",
+                "/guide/publish",
                 params={"teamId": self.team_id},
                 json=payload,
             )
