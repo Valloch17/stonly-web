@@ -484,9 +484,13 @@ def normalize_html_content(html: Optional[str]) -> str:
     # Collapse multiple blank lines to a single newline
     s = re.sub(r"\n{2,}", "\n", s)
 
-    # If no block preserving tags, convert newlines to a single space
-    if not re.search(r"<\s*(pre|code|textarea)\b", s, re.I):
+    # If no block-preserving tags, convert newline runs to a single space
+    # Note: inline <code> should NOT prevent newline collapsing
+    if not re.search(r"<\s*(pre|textarea)\b", s, re.I):
         s = re.sub(r"\s*\n\s*", " ", s)
+
+    # Collapse whitespace strictly BETWEEN tags (does not affect text near tags)
+    s = re.sub(r">\s+<", "><", s)
 
     # Trim outer whitespace only
     s = s.strip()
