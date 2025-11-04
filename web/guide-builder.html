@@ -183,17 +183,17 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <!-- Admin token -->
                 <div>
-                    <label for="adminToken" class="block text-sm font-medium">Admin token <span
+                    <label for="token" class="block text-sm font-medium">Admin token <span
                             class="text-red-600">*</span></label>
-                    <input id="adminToken" type="password"
+                    <input id="token" type="password"
                         class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="The token can be found on Confluence" />
                 </div>
 
                 <!-- Stonly API Base URL -->
                 <div>
-                    <label for="st_base" class="block text-sm font-medium">Stonly API Base URL</label>
-                    <input id="st_base" type="text" placeholder="https://public.stonly.com/api/v3"
+                    <label for="base" class="block text-sm font-medium">Stonly API Base URL</label>
+                    <input id="base" type="text" placeholder="https://public.stonly.com/api/v3"
                         value="https://public.stonly.com/api/v3"
                         class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm" />
                 </div>
@@ -982,7 +982,7 @@
             const missing = [];
             if (!settings.token) missing.push('Admin token');
             if (!settings.user) missing.push('Stonly username');
-            if (!settings.password) missing.push('Stonly password');
+            if (!settings.password) missing.push('Stonly token');
             if (!settings.teamId) missing.push('Team ID');
             if (!settings.folderId) missing.push('Folder ID');
             if (missing.length) {
