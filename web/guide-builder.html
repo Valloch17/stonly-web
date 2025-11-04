@@ -586,6 +586,38 @@
                 }
             } catch { /* no-op */ }
         })();
+
+        // Dynamically add an anonymized, rich HTML example with emojis
+        (function addGuideRichExample() {
+            try {
+                const richYaml = `guide:\n  contentTitle: Account Portal | Access Reset (Example)\n  contentType: GUIDE\n  language: en\n  firstStep:\n    title: 🧭 Overview\n    content: |\n      <p>This workflow is for <strong>Tier 2 Support</strong> teams handling escalated <strong>account access reset</strong> requests.</p>\n      <p>Use it when Tier 1 confirms the situation, and the user needs a reset or 2FA reconfiguration.</p>\n      <aside class=\"tip\"><p>📌 <strong>Before you begin:</strong> Check in your admin tool that the user’s <strong>Status</strong> is <strong><span style=\"color:#16a34a\">Active</span></strong>.</p></aside>\n    media:\n      - https://upload.wikimedia.org/wikipedia/commons/7/71/Portal.svg\n    choices:\n      - label: 🪪 Step 1 — Verify Identity\n        step:\n          title: 🪪 Step 1 – Verify Identity\n          content: |\n            <p>Identity requirements depend on how the request arrived.</p>\n            <h4>🧩 Phone or Video</h4>\n            <ul>\n              <li>Verify the user’s <strong>full name</strong> and <strong>email address</strong> verbally.</li>\n            </ul>\n            <h4>🧩 Email Request</h4>\n            <ul>\n              <li>Send a template that confirms the request and explains the next steps.</li>\n              <li>Reference your internal macros (e.g., <code>Support::Access Reset::Verify Identity</code>).</li>\n            </ul>\n            <h4>🔒 Redact Sensitive Data Before Merging</h4>\n            <ol>\n              <li>Select text or attachments containing sensitive info and mark them for redaction.</li>\n              <li>Finalize redactions before merging related tickets.</li>\n            </ol>\n            <aside class=\"warning\"><p>⚠️ <strong><span style=\"color:#dc2626\">Never request a user’s secret key or OTP code.</span></strong> They must enter secrets only on their device.</p></aside>\n          media:\n            - https://upload.wikimedia.org/wikipedia/commons/6/6e/Ionicons_id-card.svg\n\n      - label: 🔁 Step 2 — Perform Reset\n        step:\n          title: 🔁 Step 2 – Perform Reset\n          content: |\n            <ol>\n              <li>Open the <strong>Admin Console</strong> and locate the user by <em>name</em>, <em>email</em>, or <em>ID</em>.</li>\n              <li>Choose <strong>Reset login</strong> or <strong>Initiate password reset</strong> as appropriate.</li>\n              <li>Confirm all prerequisites (identity verification, eligibility, etc.) have been completed.</li>\n              <li>Click <strong><span style=\"color:#3b82f6\">Confirm reset</span></strong>.</li>\n            </ol>\n            <p>Inform the user that they will receive a <strong>temporary password</strong> or a reset link. They must sign in, change their password, and reconfigure <strong>MFA</strong> if needed.</p>\n            <aside class=\"tip\"><p>✅ <b>Note:</b> If the user specifically requests a <b><span style=\"color:#3b82f6\">manual 2FA secret key</span></b> method, provide instructions only if your policy allows it.</p></aside>\n          media:\n            - https://upload.wikimedia.org/wikipedia/commons/1/1f/Reset_Icon.svg\n\n      - label: ✅ Step 3 — Confirm & Close\n        step:\n          title: ✅ Step 3 – Confirm & Close\n          content: |\n            <p>After the user regains access:</p>\n            <ul>\n              <li>Confirm successful sign-in and that MFA is configured.</li>\n              <li>Apply the correct closing macro for your team.</li>\n            </ul>\n            <table>\n              <tr><th>Team</th><th>Macro</th></tr>\n              <tr><td><strong>Support A</strong></td><td><code>Support A::Account Reset::Solved</code></td></tr>\n              <tr><td><strong>Support B</strong></td><td><code>Support B::Account Reset::Solved</code></td></tr>\n            </table>\n            <aside class=\"tip\"><p><strong>🎯 End of Workflow – Account Access Reset</strong></p></aside>\n          media:\n            - https://upload.wikimedia.org/wikipedia/commons/b/bd/Green_check.svg`;
+
+                if (typeof EXAMPLES === 'object' && !EXAMPLES.guide_rich) {
+                    EXAMPLES.guide_rich = richYaml;
+                }
+                const menu = document.getElementById('examplesMenu');
+                const btn = document.getElementById('btnExample');
+                const area = document.getElementById('guideYaml');
+                const parseBtn = document.getElementById('parseYamlBtn');
+                if (!menu || !btn || !area) return;
+                if (!menu.querySelector('button[data-example="guide_rich"]')) {
+                    const sep = document.createElement('div');
+                    sep.className = 'border-t border-neutral my-1';
+                    const b = document.createElement('button');
+                    b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
+                    b.setAttribute('data-example', 'guide_rich');
+                    b.textContent = 'GUIDE - rich HTML & emojis';
+                    b.addEventListener('click', () => {
+                        area.value = richYaml;
+                        menu.classList.add('hidden');
+                        btn.setAttribute('aria-expanded', 'false');
+                        if (parseBtn) parseBtn.click();
+                    });
+                    menu.appendChild(sep);
+                    menu.appendChild(b);
+                }
+            } catch { /* no-op */ }
+        })();
         // Strong HTML-aware newline/whitespace normalizer
         function normalizeContent(html) {
             let s = String(html ?? '');
