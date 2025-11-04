@@ -597,7 +597,7 @@
                 .trim();
 
             // Remove whitespace between tags to avoid empty text nodes
-            // e.g., "<p>..</p>\n  <ul>" => "<p>..</p><ul>"
+            // e.g. "<p>..</p>\n  <ul>" => "<p>..</p><ul>"
             s = s.replace(/>\s+\n\s*</g, '><')
                 .replace(/>\s+</g, '><');
 
