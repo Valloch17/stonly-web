@@ -385,10 +385,9 @@ class GuideStep(BaseModel):
             return []
         # drop non-string entries, strip spaces
         v = [str(x).strip() for x in v if isinstance(x, (str, bytes))]
-        # optional: only keep likely direct assets (jpg/png/gif/svg/mp4/webm)
-        # comment this out if you want to send any URL through
-        exts = (".png",".jpg",".jpeg",".gif",".webp",".svg",".mp4",".webm",".mov")
-        v = [u for u in v if any(u.lower().split("?")[0].endswith(ext) for ext in exts)]
+        # Be permissive: keep any non-empty URL-like strings.
+        # Some CDN/image hosts may not expose a clean file extension.
+        v = [u for u in v if u]
         # clip to 3 per Stonly API
         return v[:3]
 
