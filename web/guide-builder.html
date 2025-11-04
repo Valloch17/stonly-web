@@ -283,6 +283,11 @@
                     <p class="text-sm text-slate-500">Describe the guide structure using nested steps and choices.</p>
                 </div>
                 <div class="flex items-center gap-2">
+                    <button id="btnExample"
+                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                        Show example
+                    </button>
+
                     <button id="parseYamlBtn"
                         class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
                         Parse YAML
@@ -393,6 +398,133 @@
             <span>GitHub</span>
         </a>
     </div>
+    <script>
+        const YAML_EXAMPLES = [
+            `# Example 1 — ARTICLE (single step, simple HTML)
+        guide:
+          contentTitle: Company Security Policy (Quick Read)
+          contentType: ARTICLE
+          language: en
+          firstStep:
+            title: Security Policy Overview
+            content: |
+              <h3>Welcome</h3>
+              <p>This article summarizes the core security practices.</p>
+              <ul>
+                <li><strong>MFA</strong> required for all accounts</li>
+                <li>Use a <em>password manager</em></li>
+                <li>Report phishing via the <code>Phish Alert</code> button</li>
+              </ul>
+              <p>For details, see the full handbook.</p>`,
+
+            `# Example 2 — GUIDE (branching sub-steps + media)
+        guide:
+          contentTitle: Laptop Setup Wizard
+          contentType: GUIDE
+          language: en
+          firstStep:
+            title: Choose Your OS
+            content: |
+              <p>Pick your operating system to see tailored steps.</p>
+            media:
+              - https://upload.wikimedia.org/wikipedia/commons/3/3a/NeXT_logo.svg
+              - https://upload.wikimedia.org/wikipedia/commons/4/48/Windows_logo_-_2012.svg
+            choices:
+              - label: macOS
+                step:
+                  title: macOS Setup
+                  content: |
+                    <ol>
+                      <li>Open <strong>System Settings</strong> → <em>Privacy & Security</em></li>
+                      <li>Enable FileVault</li>
+                      <li>Install Rosetta if prompted</li>
+                    </ol>
+                  media:
+                    - https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg
+              - label: Windows
+                step:
+                  title: Windows Setup
+                  content: |
+                    <ol>
+                      <li>Run <code>Windows Update</code> until fully patched</li>
+                      <li>Turn on BitLocker</li>
+                      <li>Install company apps from the portal</li>
+                    </ol>
+                  media: https://upload.wikimedia.org/wikipedia/commons/4/48/Windows_logo_-_2012.svg`,
+
+            `# Example 3 — GUIDED_TOUR (linear next steps)
+        guide:
+          contentTitle: Product Onboarding Tour
+          contentType: GUIDED_TOUR
+          language: en
+          firstStep:
+            title: Welcome to the Dashboard
+            content: |
+              <p>This brief tour highlights key areas of the product.</p>
+            choices:
+              - label: Next
+                step:
+                  title: Create Your First Project
+                  content: |
+                    <p>Click <strong>New Project</strong> in the top right.</p>
+                  choices:
+                    - label: Next
+                      step:
+                        title: Invite Your Team
+                        content: |
+                          <p>Open <em>Settings → Members</em> and invite colleagues.</p>`,
+
+            `# Example 4 — GUIDE (HTML variety + table + code + media)
+        guide:
+          contentTitle: Troubleshoot VPN Issues
+          contentType: GUIDE
+          language: en
+          firstStep:
+            title: Check Basics
+            content: |
+              <p>Before advanced steps, verify:</p>
+              <table border="1" cellpadding="6">
+                <tr><th>Item</th><th>Expected</th></tr>
+                <tr><td>Internet</td><td>Working</td></tr>
+                <tr><td>Credentials</td><td>Valid</td></tr>
+              </table>
+              <p>Then try reconnecting.</p>
+            media:
+              - https://upload.wikimedia.org/wikipedia/commons/3/3f/OOjs_UI_icon_reload-ltr-progressive.svg
+            choices:
+              - label: Still not working
+                step:
+                  title: Reset Configuration
+                  content: |
+                    <p>Run this command and retry:</p>
+                    <pre><code>vpncli reset --profile default</code></pre>
+                  media:
+                    - https://upload.wikimedia.org/wikipedia/commons/8/8f/OOjs_UI_icon_cog-ltr-progressive.svg
+        `];
+
+        (function wireShowExample() {
+            const btn = document.getElementById('btnExample');
+            const area = document.getElementById('yaml'); // your YAML textarea
+            if (!btn || !area) return;
+
+            btn.addEventListener('click', () => {
+                // Pick a random example
+                const pick = YAML_EXAMPLES[Math.floor(Math.random() * YAML_EXAMPLES.length)];
+                area.value = pick;
+
+                // If you have a “Parse YAML” button, click it; otherwise call your parser directly
+                const parseBtn = document.getElementById('btnParse');
+                if (parseBtn) {
+                    parseBtn.click();
+                } else if (typeof window.parseYaml === 'function') {
+                    window.parseYaml();
+                } else if (typeof window.onParseYaml === 'function') {
+                    window.onParseYaml();
+                }
+            });
+        })();
+    </script>
+
     <script>
         // Execution plan show/hide
         (function setupPlanToggle() {
