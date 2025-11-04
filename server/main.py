@@ -115,7 +115,7 @@ class Stonly:
             return self._req(
                 "POST",
                 f"{self.base}/guide/publish",
-                params={"teamId": self.teamId},
+                params={"teamId": self.team_id},
                 json=payload,
             )
 
@@ -481,6 +481,178 @@ def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
         firstStep=first_step,
     )
 
+def parse_guides_multi(source: str, defaults: GuideDefaults) -> list[dict]:
+    """
+    Parse a YAML that may contain multiple guides.
+    Accepts:
+      - Multi-document YAML (--- separators)
+      - Single document with a top-level 'guides' list
+      - Single guide (backward compatible)
+
+    Returns a list of items: { 'definition': GuideDefinition, 'overrides': {folderId?, publish?} }
+    Top-level contentType/language inside an item override values inside the nested guide, if present.
+    """
+    text = (source or "").strip()
+    if not text:
+        raise HTTPException(400, detail={"error": "YAML payload is required"})
+
+    try:
+        docs = list(yaml.safe_load_all(text))
+    except Exception as e:
+        raise HTTPException(400, detail={"error": "Invalid YAML", "message": str(e)})
+
+    # If a single doc with a 'guides' list, expand it
+    if len(docs) == 1 and isinstance(docs[0], dict) and isinstance(docs[0].get("guides"), list):
+        docs = docs[0]["guides"]
+
+    # If still empty, error
+    if not docs:
+        raise HTTPException(400, detail={"error": "No guides found in YAML"})
+
+    items: list[dict] = []
+    for idx, raw in enumerate(docs):
+        if not isinstance(raw, dict):
+            raise HTTPException(400, detail={"error": f"YAML document {idx} must be a mapping"})
+
+        guide_data = raw.get("guide") if isinstance(raw.get("guide"), dict) else raw
+
+        # Allow item-level overrides
+        top_ct = raw.get("contentType")
+        top_lang = raw.get("language")
+        folder_id = raw.get("folderId") or raw.get("folder_id")
+        publish = raw.get("publish")
+
+        first_step_raw = guide_data.get("firstStep") if isinstance(guide_data, dict) else None
+        if not isinstance(first_step_raw, dict):
+            raise HTTPException(400, detail={"error": f"guide.firstStep must be an object in document {idx}"})
+        first_step = GuideStep.model_validate(first_step_raw)
+
+        # Compute merged fields with precedence: guide > top-level > defaults
+        content_title = guide_data.get("contentTitle") or defaults.contentTitle or first_step.title
+        if not content_title:
+            raise HTTPException(400, detail={"error": f"Missing contentTitle for guide in document {idx}"})
+        content_type = guide_data.get("contentType") or top_ct or defaults.contentType or "GUIDE"
+        language = guide_data.get("language") or top_lang or defaults.language or first_step.language or "en-US"
+
+        definition = GuideDefinition(
+            contentTitle=content_title,
+            contentType=content_type,
+            language=language,
+            firstStep=first_step,
+        )
+        items.append({
+            "definition": definition,
+            "overrides": {"folderId": folder_id, "publish": publish},
+        })
+
+    return items
+
+def _build_one_guide(
+    *,
+    st: Stonly,
+    team_id: int,
+    folder_id: int,
+    definition: GuideDefinition,
+    dry_run: bool,
+    publish: bool,
+):
+    """
+    Build a single guide with steps. Optionally publish.
+    Returns a dict similar to the legacy response (without 'ok').
+    """
+    steps_created: List[Dict[str, Any]] = []
+    if dry_run:
+        guide_id: Any = "dry-run-guide"
+        first_step_id: Any = "dry-step-1"
+        steps_created.append({
+            "title": definition.firstStep.title,
+            "stepId": first_step_id,
+            "parent": None,
+            "choiceLabel": None,
+        })
+    else:
+        created = st.create_guide(
+            folder_id=folder_id,
+            content_type=definition.contentType,
+            content_title=definition.contentTitle,
+            first_step_title=definition.firstStep.title,
+            content=definition.firstStep.content,
+            language=definition.firstStep.language or definition.language,
+            media=definition.firstStep.media,
+        )
+        guide_id = created["guideId"]
+        first_step_id = created["firstStepId"]
+        steps_created.append({
+            "title": definition.firstStep.title,
+            "stepId": first_step_id,
+            "parent": None,
+            "choiceLabel": None,
+        })
+
+    counter = len(steps_created)
+    queue: List[Tuple[GuideStepChoice, str, str, Any, int]] = []
+    for idx, choice in enumerate(definition.firstStep.choices):
+        queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id, idx))
+
+    while queue:
+        choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
+        step = choice.step
+        language = step.language or definition.language
+        position_value = choice.position if choice.position is not None else (
+            step.position if step.position is not None else choice_index
+        )
+
+        if dry_run:
+            counter += 1
+            step_id = f"dry-step-{counter}"
+        else:
+            appended = st.append_step(
+                guide_id=guide_id,
+                parent_step_id=parent_step_id,
+                title=step.title,
+                content=step.content,
+                language=language,
+                choice_label=choice.label,
+                position=position_value,
+                media=step.media,
+            )
+            step_id = appended["stepId"]
+
+        steps_created.append({
+            "title": step.title,
+            "stepId": step_id,
+            "parent": parent_title,
+            "parentPath": path,
+            "choiceLabel": choice.label,
+            "position": position_value,
+        })
+
+        for idx, child in enumerate(step.choices):
+            queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id, idx))
+
+    # Publish? (skipped in dry-run)
+    published = False
+    if not dry_run and publish:
+        # Caller may also perform a bulk publish later; in that case they should pass publish=False here.
+        st._req(
+            "POST",
+            "/guide/publish",
+            params={"teamId": team_id},
+            json={"guideList": [{"guideId": guide_id}]},
+        )
+        published = True
+
+    return {
+        "guideId": guide_id,
+        "firstStepId": first_step_id,
+        "steps": steps_created,
+        "summary": {
+            "stepCount": len(steps_created),
+            "branchCount": max(len(steps_created) - 1, 0),
+        },
+        "published": published,
+    }
+
 # ---- endpoints ----
 @app.post("/api/apply")
 def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)):
@@ -595,7 +767,8 @@ def api_build_guide(payload: GuideBuildPayload):
 
 
     ensure_admin(f"Bearer {payload.token}")
-    definition = parse_guide_yaml(payload.yaml, payload.defaults)
+    # Parse YAML; may contain one or multiple guides
+    items = parse_guides_multi(payload.yaml, payload.defaults)
 
     logger.info(
         "GUIDE build start dryRun=%s team=%s folder=%s contentTitle=%s firstStep=%s",
@@ -617,151 +790,112 @@ def api_build_guide(payload: GuideBuildPayload):
         password=payload.creds.password,
         team_id=payload.creds.teamId
     )
-
     dry_run = bool(payload.dryRun)
-    folder_id = int(payload.folderId)
 
-    steps_created: List[Dict[str, Any]] = []
-    if dry_run:
-        guide_id: Any = "dry-run-guide"
-        first_step_id: Any = "dry-step-1"
-        steps_created.append({
-            "title": definition.firstStep.title,
-            "stepId": first_step_id,
-            "parent": None,
-            "choiceLabel": None,
-        })
-    else:
+    # Single guide (back-compat): keep response shape
+    if len(items) == 1:
+        definition = items[0]["definition"]
+        ov = items[0]["overrides"] or {}
+        folder_id = int(ov.get("folderId") or payload.folderId)
+        publish = bool(ov.get("publish") if ov.get("publish") is not None else getattr(payload, "publish", False))
+
         try:
-            created = st.create_guide(
+            result_one = _build_one_guide(
+                st=st,
+                team_id=payload.creds.teamId,
                 folder_id=folder_id,
-                content_type=definition.contentType,
-                content_title=definition.contentTitle,
-                first_step_title=definition.firstStep.title,
-                content=definition.firstStep.content,
-                language=definition.firstStep.language or definition.language,
-                media=definition.firstStep.media,
+                definition=definition,
+                dry_run=dry_run,
+                publish=publish,
             )
-        except Exception:
-            logger.exception(
-                "GUIDE create failed folder=%s title=%s",
-                folder_id,
-                definition.contentTitle,
-            )
-            raise
-        guide_id = created["guideId"]
-        first_step_id = created["firstStepId"]
-        steps_created.append({
-            "title": definition.firstStep.title,
-            "stepId": first_step_id,
-            "parent": None,
-            "choiceLabel": None,
-        })
-        logger.info(
-            "GUIDE created guideId=%s firstStepId=%s",
-            guide_id,
-            first_step_id,
-        )
-
-    counter = len(steps_created)
-    queue: List[Tuple[GuideStepChoice, str, str, Any, int]] = []
-    for idx, choice in enumerate(definition.firstStep.choices):
-        queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id, idx))
-
-    while queue:
-        choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
-        step = choice.step
-        language = step.language or definition.language
-        position_value = choice.position if choice.position is not None else (
-            step.position if step.position is not None else choice_index
-        )
-
-        if dry_run:
-            counter += 1
-            step_id = f"dry-step-{counter}"
-        else:
-            try:
-                appended = st.append_step(
-                    guide_id=guide_id,
-                    parent_step_id=parent_step_id,
-                    title=step.title,
-                    content=step.content,
-                    language=language,
-                    choice_label=choice.label,
-                    position=position_value,
-                    media=step.media,
-                )
-            except Exception:
-                logger.exception(
-                    "GUIDE append failed guideId=%s parentStepId=%s title=%s",
-                    guide_id,
-                    parent_step_id,
-                    step.title,
-                )
-                raise
-            step_id = appended["stepId"]
-
-        steps_created.append({
-            "title": step.title,
-            "stepId": step_id,
-            "parent": parent_title,
-            "parentPath": path,
-            "choiceLabel": choice.label,
-            "position": position_value,
-        })
-        logger.info(
-            "GUIDE step appended guideId=%s parent=%s step=%s stepId=%s dryRun=%s position=%s",
-            guide_id,
-            parent_title,
-            step.title,
-            step_id,
-            dry_run,
-            position_value,
-        )
-
-        for idx, child in enumerate(step.choices):
-            queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id, idx))
-
-    logger.info(
-        "GUIDE build complete guideId=%s dryRun=%s steps=%s",
-        guide_id,
-        dry_run,
-        len(steps_created),
-    )
-    # --- PUBLISH (new) ------------------------------------------------------
-    published = False
-    publish_resp = None
-    # Only publish when not a dry run and when the payload asks for it.
-    if not dry_run and bool(getattr(payload, "publish", False)):
-        try:
-            logger.info("GUIDE publish request guideId=%s", guide_id)
-            publish_resp = st._req(
-                "POST",
-                "/guide/publish",
-                params={"teamId": payload.creds.teamId},
-                json={"guideList": [{"guideId": guide_id}]},
-            )
-            published = True
-            logger.info("GUIDE published guideId=%s", guide_id)
         except HTTPException:
-            # Bubble up upstream errors as-is so the UI can show details
             raise
         except Exception:
-            logger.exception("GUIDE publish failed guideId=%s", guide_id)
-            raise HTTPException(502, detail={"error": "Publish failed", "guideId": guide_id})
+            logger.exception("GUIDE build failed (single)")
+            raise HTTPException(502, detail={"error": "Build failed"})
 
-    return {
+        return {
+            "ok": True,
+            "dryRun": dry_run,
+            **result_one,
+        }
+
+    # Multiple guides: continue-on-error, batch publish at end
+    results: list[dict] = []
+    publish_ids: list[str] = []
+
+    for idx, item in enumerate(items):
+        definition = item["definition"]
+        ov = item.get("overrides") or {}
+        folder_id = int(ov.get("folderId") or payload.folderId)
+        item_publish = bool(ov.get("publish") if ov.get("publish") is not None else getattr(payload, "publish", False))
+        try:
+            result = _build_one_guide(
+                st=st,
+                team_id=payload.creds.teamId,
+                folder_id=folder_id,
+                definition=definition,
+                dry_run=dry_run,
+                publish=False,  # defer to bulk publish later
+            )
+            # Track for bulk publish if requested and not dry run
+            if item_publish and not dry_run:
+                publish_ids.append(result["guideId"])
+            results.append({"ok": True, "index": idx, "contentTitle": definition.contentTitle, **result})
+        except HTTPException as e:
+            results.append({
+                "ok": False,
+                "index": idx,
+                "contentTitle": getattr(definition, "contentTitle", None),
+                "error": getattr(e, "detail", str(e)),
+                "type": e.__class__.__name__,
+            })
+        except Exception as e:
+            results.append({
+                "ok": False,
+                "index": idx,
+                "contentTitle": getattr(definition, "contentTitle", None),
+                "error": str(e),
+                "type": e.__class__.__name__,
+            })
+
+    published_all = False
+    bulk_publish_error = None
+    published_ids: list[str] = []
+    if publish_ids and not dry_run:
+        try:
+            st.publish_guides(publish_ids)
+            published_all = True
+            # mark each corresponding result as published
+            for r in results:
+                if r.get("ok") and r.get("guideId") in publish_ids:
+                    r["published"] = True
+            published_ids = list(publish_ids)
+        except Exception as e:
+            bulk_publish_error = str(e)
+
+    total_steps = sum((r.get("summary", {}).get("stepCount", 0) for r in results if r.get("ok")), 0)
+    succeeded = sum(1 for r in results if r.get("ok"))
+    failed = len(results) - succeeded
+    created_ids = [r["guideId"] for r in results if r.get("ok") and r.get("guideId")]
+    resp = {
         "ok": True,
         "dryRun": dry_run,
-        "guideId": guide_id,
-        "firstStepId": first_step_id,
-        "steps": steps_created,
+        "results": results,
         "summary": {
-            "stepCount": len(steps_created),
-            "branchCount": max(len(steps_created) - 1, 0),
+            "count": len(results),
+            "succeeded": succeeded,
+            "failed": failed,
+            "totalSteps": total_steps,
         },
-        "published": published
+        "publishedAll": published_all,
+        "createdIds": created_ids,
+        "attemptedPublishIds": publish_ids,
+        "publishedIds": published_ids,
     }
+    if bulk_publish_error:
+        resp["bulkPublishError"] = bulk_publish_error
+    return resp
 
 @app.get("/api/dump-structure")
 def api_dump(

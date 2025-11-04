@@ -555,6 +555,37 @@
                 if (!menu.classList.contains('hidden')) closeMenu();
             });
         })();
+        // Dynamically add a MULTI example and menu entry
+        (function addMultiExample() {
+            try {
+                const multiYaml = `# Multiple guides in one YAML (multi-document)\n---\n# Per-guide overrides at the document level\nfolderId: 123456\npublish: true\ncontentType: GUIDE\nlanguage: en\nguide:\n  contentTitle: Welcome Wizard\n  # Values inside 'guide' have priority over doc-level ones\n  contentType: GUIDE\n  language: en\n  firstStep:\n    title: Welcome\n    content: |\n      <p>Thanks for joining!</p>\n    choices:\n      - label: Set up\n        step:\n          title: Setup\n          content: "<p>Configure your workspace.</p>"\n\n---\n# Second guide — inherits from UI defaults when not set here\nguide:\n  contentTitle: Product Tour\n  contentType: GUIDED_TOUR\n  language: en\n  firstStep:\n    title: Tour Intro\n    content: "<p>Quick overview.</p>"\n    choices:\n      - label: Next\n        step:\n          title: Feature A\n          content: "<p>About Feature A.</p>"`;
+                // attach to EXAMPLES map if not present
+                if (typeof EXAMPLES === 'object' && !EXAMPLES.multi) {
+                    EXAMPLES.multi = multiYaml;
+                }
+                const menu = document.getElementById('examplesMenu');
+                const btn = document.getElementById('btnExample');
+                const area = document.getElementById('guideYaml');
+                const parseBtn = document.getElementById('parseYamlBtn');
+                if (!menu || !btn || !area) return;
+                if (!menu.querySelector('button[data-example="multi"]')) {
+                    const sep = document.createElement('div');
+                    sep.className = 'border-t border-neutral my-1';
+                    const b = document.createElement('button');
+                    b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
+                    b.setAttribute('data-example', 'multi');
+                    b.textContent = 'MULTI — multiple guides';
+                    b.addEventListener('click', () => {
+                        area.value = multiYaml;
+                        menu.classList.add('hidden');
+                        btn.setAttribute('aria-expanded', 'false');
+                        if (parseBtn) parseBtn.click();
+                    });
+                    menu.appendChild(sep);
+                    menu.appendChild(b);
+                }
+            } catch { /* no-op */ }
+        })();
         function normalizeContent(s) {
             return String(s)
                 .replace(/\r\n/g, '\n')   // CRLF → LF
@@ -798,39 +829,49 @@
                 err.textContent = 'YAML input is required.';
                 return null;
             }
-            let doc;
+            let docs = [];
             try {
-                doc = jsyaml.load(text);
+                jsyaml.loadAll(text, (d) => { docs.push(d); });
             } catch (e) {
                 err.textContent = e.message || 'Unable to parse YAML.';
                 return null;
             }
-            if (!doc || typeof doc !== 'object') {
-                err.textContent = 'YAML root must be an object.';
+            if (!docs.length) {
+                err.textContent = 'No YAML documents found.';
                 return null;
             }
-            const guide = doc.guide || doc;
-            if (!guide || typeof guide !== 'object') {
-                err.textContent = 'Missing "guide" object.';
-                return null;
+            // Support single document with top-level guides: []
+            if (docs.length === 1 && docs[0] && typeof docs[0] === 'object' && Array.isArray(docs[0].guides)) {
+                docs = docs[0].guides;
             }
-            const info = {
-                contentTitle: typeof guide.contentTitle === 'string' ? guide.contentTitle.trim() : '',
-                contentType: typeof guide.contentType === 'string' ? guide.contentType.trim() : '',
-                language: typeof guide.language === 'string' ? guide.language.trim() : ''
-            };
-            if (!guide.firstStep) {
-                err.textContent = 'guide.firstStep is required.';
-                return null;
-            }
-            let firstStep;
+            const results = [];
             try {
-                firstStep = normalizeStep(guide.firstStep, 'guide.firstStep');
+                docs.forEach((raw, idx) => {
+                    if (!raw || typeof raw !== 'object') throw new Error(`Document ${idx} must be a mapping`);
+                    const topCT = (typeof raw.contentType === 'string' && raw.contentType.trim()) ? raw.contentType.trim() : '';
+                    const topLang = (typeof raw.language === 'string' && raw.language.trim()) ? raw.language.trim() : '';
+                    const overrides = {
+                        folderId: (raw.folderId != null ? Number(raw.folderId) : null),
+                        publish: (raw.publish != null ? !!raw.publish : null),
+                        contentType: topCT || null,
+                        language: topLang || null,
+                    };
+                    const guide = (raw.guide && typeof raw.guide === 'object') ? raw.guide : raw;
+                    const info = {
+                        contentTitle: typeof guide.contentTitle === 'string' ? guide.contentTitle.trim() : '',
+                        // Priority: value inside guide > doc-level topCT
+                        contentType: (typeof guide.contentType === 'string' && guide.contentType.trim()) ? guide.contentType.trim() : (topCT || ''),
+                        language: (typeof guide.language === 'string' && guide.language.trim()) ? guide.language.trim() : (topLang || ''),
+                    };
+                    if (!guide.firstStep) throw new Error(`guide.firstStep is required (document ${idx})`);
+                    const firstStep = normalizeStep(guide.firstStep, `doc[${idx}].guide.firstStep`);
+                    results.push({ info, firstStep, overrides });
+                });
             } catch (e) {
-                err.textContent = e.message;
+                err.textContent = e?.message || String(e);
                 return null;
             }
-            return { info, firstStep };
+            return results;
         }
 
         function renderPreviewStep(step, depth) {
@@ -883,77 +924,90 @@
                 return;
             }
             tree.innerHTML = '';
-            tree.appendChild(renderPreviewStep(parsed.firstStep, 0));
-            status.textContent = 'Preview ready. Review before creating the guide.';
+            const arr = Array.isArray(parsed) ? parsed : [parsed];
+            arr.forEach((p, i) => {
+                const section = document.createElement('div');
+                section.className = 'space-y-2';
+                const title = (p.info?.contentTitle || p.firstStep?.title || `Guide ${i + 1}`);
+                const header = document.createElement('div');
+                header.className = 'text-sm font-semibold';
+                header.textContent = `Guide ${i + 1}: ${title}`;
+                section.appendChild(header);
+                section.appendChild(renderPreviewStep(p.firstStep, 0));
+                tree.appendChild(section);
+            });
+            status.textContent = `${arr.length} guide(s) parsed. Review before creating.`;
         }
 
         function collectPlan(parsed, settings) {
-            if (!parsed) {
-                return null;
-            }
-            const merged = {
-                token: settings.token,
-                dryRun: settings.dryRun,
-                base: settings.base,
-                teamId: settings.teamId,
-                user: settings.user,
-                password: settings.password,
-                folderId: settings.folderId,
-                contentTitle: parsed.info.contentTitle || settings.contentTitle || parsed.firstStep.title,
-                contentType: parsed.info.contentType || settings.contentType || 'GUIDE',
-                language: (parsed.info.language || settings.language || parsed.firstStep.language || 'en-US'),
-            };
-            const plan = [];
-            plan.push({
-                action: 'Create guide',
-                endpoint: 'POST /guide',
-                payload: {
-                    folderId: merged.folderId,
-                    contentType: merged.contentType,
-                    contentTitle: merged.contentTitle,
-                    firstStepTitle: parsed.firstStep.title,
-                    content: parsed.firstStep.content,
-                    language: parsed.firstStep.language || merged.language,
-                    media: parsed.firstStep.media
-                }
-            });
-
-            const queue = [...parsed.firstStep.choices.map((choice, index) => ({
-                parentTitle: parsed.firstStep.title,
-                parentPath: 'firstStep',
-                choice,
-                index
-            }))];
-
-            while (queue.length) {
-                const { parentTitle, parentPath, choice, index } = queue.shift();
-                const defaultPosition = choice.position ?? choice.step?.position ?? index ?? 0;
+            if (!parsed) return null;
+            const arr = Array.isArray(parsed) ? parsed : [parsed];
+            const plans = arr.map((p, i) => {
+                const merged = {
+                    token: settings.token,
+                    dryRun: settings.dryRun,
+                    base: settings.base,
+                    teamId: settings.teamId,
+                    user: settings.user,
+                    password: settings.password,
+                    folderId: (p.overrides?.folderId ?? settings.folderId),
+                    contentTitle: p.info.contentTitle || settings.contentTitle || p.firstStep.title,
+                    // Priority for plan: value inside guide info > doc-level overrides > UI defaults
+                    contentType: (p.info.contentType || p.overrides?.contentType || settings.contentType || 'GUIDE'),
+                    language: (p.info.language || p.overrides?.language || settings.language || p.firstStep.language || 'en-US'),
+                };
+                const plan = [];
                 plan.push({
-                    action: `Append step: ${choice.step.title}`,
-                    endpoint: 'POST /guide/step',
-                    note: `Parent step: ${parentTitle} (${parentPath})`,
+                    action: 'Create guide',
+                    endpoint: 'POST /guide',
                     payload: {
-                        guideId: '<from create guide response>',
-                        parentStepId: `<stepId for "${parentTitle}">`,
-                        title: choice.step.title,
-                        choiceLabel: choice.label || null,
-                        content: choice.step.content,
-                        language: choice.step.language || merged.language,
-                        position: defaultPosition,
-                        media: choice.step.media
+                        folderId: merged.folderId,
+                        contentType: merged.contentType,
+                        contentTitle: merged.contentTitle,
+                        firstStepTitle: p.firstStep.title,
+                        content: p.firstStep.content,
+                        language: p.firstStep.language || merged.language,
+                        media: p.firstStep.media
                     }
                 });
-                choice.step.choices.forEach((child, idx) => {
-                    queue.push({
-                        parentTitle: choice.step.title,
-                        parentPath: `${parentPath}.choices[${idx}]`,
-                        choice: child,
-                        index: idx
-                    });
-                });
-            }
 
-            return { settings: merged, plan };
+                const queue = [...p.firstStep.choices.map((choice, index) => ({
+                    parentTitle: p.firstStep.title,
+                    parentPath: 'firstStep',
+                    choice,
+                    index
+                }))];
+
+                while (queue.length) {
+                    const { parentTitle, parentPath, choice, index } = queue.shift();
+                    const defaultPosition = choice.position ?? choice.step?.position ?? index ?? 0;
+                    plan.push({
+                        action: `Append step: ${choice.step.title}`,
+                        endpoint: 'POST /guide/step',
+                        note: `Parent step: ${parentTitle} (${parentPath})`,
+                        payload: {
+                            guideId: '<from create guide response>',
+                            parentStepId: `<stepId for "${parentTitle}">`,
+                            title: choice.step.title,
+                            choiceLabel: choice.label || null,
+                            content: choice.step.content,
+                            language: choice.step.language || merged.language,
+                            position: defaultPosition,
+                            media: choice.step.media
+                        }
+                    });
+                    choice.step.choices.forEach((child, idx) => {
+                        queue.push({
+                            parentTitle: choice.step.title,
+                            parentPath: `${parentPath}.choices[${idx}]`,
+                            choice: child,
+                            index: idx
+                        });
+                    });
+                }
+                return { index: i, settings: merged, plan };
+            });
+            return { guides: plans };
         }
 
         function maskSecretsDeep(obj) {
@@ -1152,6 +1206,12 @@
                     updateOut({ dryRun: settings.dryRun, status, plan, response: body, raw: rawText });
                     if (settings.dryRun) {
                         alert('Dry-run complete. See the response panel for the simulated steps.');
+                    } else if (Array.isArray(body?.results)) {
+                        const total = body.summary?.count ?? body.results.length;
+                        const ok = body.summary?.succeeded ?? body.results.filter(r => r.ok).length;
+                        const failed = body.summary?.failed ?? (total - ok);
+                        const pubAll = body.publishedAll ? ' All requested guides were published.' : '';
+                        alert(`Batch complete: ${ok}/${total} succeeded, ${failed} failed.${pubAll}`);
                     } else {
                         alert(`Guide ${body.guideId} created with ${body.summary.stepCount} steps.`);
                     }
