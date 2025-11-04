@@ -462,35 +462,34 @@ def build_path(parent: str, name: str) -> str:
     return f"{parent}/{name}" if parent else f"/{name}"
 
 def normalize_html_content(html: Optional[str]) -> str:
-    """Normalize HTML to avoid unwanted blank lines/newlines in Stonly output.
-    - Collapse CR/CRLF
-    - Trim and normalize whitespace
-    - Remove whitespace between tags
-    - If no <pre>/<code>/<textarea>, replace newlines with spaces
+    """Normalize HTML minimally to remove YAML-induced newlines without
+    altering intended spaces around inline tags.
+
+    Rules:
+    - Normalize CR/CRLF to LF.
+    - Trim leading/trailing whitespace and EOL spaces.
+    - If there is no <pre>/<code>/<textarea>, replace newline runs with a single space.
+    - Do NOT remove spaces around tags (avoid changing text like `</strong> Do <strong>`).
     """
     if html is None:
         return ""
     s = str(html)
-    # Normalize line endings and common whitespace
+
+    # Normalize line endings
     s = s.replace("\r\n", "\n").replace("\r", "\n")
+    # Replace NBSP with regular space
     s = s.replace("\u00A0", " ")
+    # Trim end-of-line spaces introduced by YAML formatting
     s = re.sub(r"[ \t]+\n", "\n", s)
-    s = s.strip()
-
-    # Remove whitespace between tags to avoid empty text nodes
-    s = re.sub(r">\s+\n\s<", "><", s)
-    s = re.sub(r">\s+<", "><", s)
-
-    # Collapse multiple blank lines
+    # Collapse multiple blank lines to a single newline
     s = re.sub(r"\n{2,}", "\n", s)
 
-    # If no pre/code/textarea, remove remaining newlines (render as spaces)
+    # If no block preserving tags, convert newlines to a single space
     if not re.search(r"<\s*(pre|code|textarea)\b", s, re.I):
-        s = re.sub(r"\n+", " ", s)
+        s = re.sub(r"\s*\n\s*", " ", s)
 
-    # Final tidy around tag boundaries
-    s = re.sub(r">\s+", ">", s)
-    s = re.sub(r"\s+<", "<", s)
+    # Trim outer whitespace only
+    s = s.strip()
     return s
 
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
