@@ -185,8 +185,7 @@
                 <div>
                     <label for="token" class="block text-sm font-medium">Admin token <span
                             class="text-red-600">*</span></label>
-                    <input id="token" type="password"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="token" type="password" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="The token can be found on Confluence" />
                 </div>
 
@@ -283,10 +282,27 @@
                     <p class="text-sm text-slate-500">Describe the guide structure using nested steps and choices.</p>
                 </div>
                 <div class="flex items-center gap-2">
-                    <button id="btnExample"
-                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
-                        Show example
-                    </button>
+                    <!-- Examples dropdown -->
+                    <div class="relative inline-block">
+                        <button id="btnExample"
+                            class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button"
+                            aria-haspopup="true" aria-expanded="false">
+                            Examples ▾
+                        </button>
+
+                        <div id="examplesMenu"
+                            class="absolute left-0 mt-1 w-72 rounded-md border border-neutral bg-card shadow-lg hidden z-40">
+                            <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
+                                data-example="article">ARTICLE — single step</button>
+                            <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
+                                data-example="guide_media">GUIDE — branches + media</button>
+                            <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
+                                data-example="tour">GUIDED_TOUR — linear</button>
+                            <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
+                                data-example="troubleshoot">GUIDE — rich HTML & code</button>
+                        </div>
+                    </div>
+
 
                     <button id="parseYamlBtn"
                         class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
@@ -399,8 +415,8 @@
         </a>
     </div>
     <script>
-        const YAML_EXAMPLES = [
-            `# Example 1 — ARTICLE (single step, simple HTML)
+        const EXAMPLES = {
+            article: `# ARTICLE — single step (simple HTML, no choices)
         guide:
           contentTitle: Company Security Policy (Quick Read)
           contentType: ARTICLE
@@ -417,7 +433,7 @@
               </ul>
               <p>For details, see the full handbook.</p>`,
 
-            `# Example 2 — GUIDE (branching sub-steps + media)
+            guide_media: `# GUIDE — branching sub-steps with media
         guide:
           contentTitle: Laptop Setup Wizard
           contentType: GUIDE
@@ -427,8 +443,8 @@
             content: |
               <p>Pick your operating system to see tailored steps.</p>
             media:
-              - https://upload.wikimedia.org/wikipedia/commons/3/3a/NeXT_logo.svg
               - https://upload.wikimedia.org/wikipedia/commons/4/48/Windows_logo_-_2012.svg
+              - https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg
             choices:
               - label: macOS
                 step:
@@ -452,29 +468,26 @@
                     </ol>
                   media: https://upload.wikimedia.org/wikipedia/commons/4/48/Windows_logo_-_2012.svg`,
 
-            `# Example 3 — GUIDED_TOUR (linear next steps)
+            tour: `# GUIDED_TOUR — linear "Next" steps
         guide:
           contentTitle: Product Onboarding Tour
           contentType: GUIDED_TOUR
           language: en
           firstStep:
             title: Welcome to the Dashboard
-            content: |
-              <p>This brief tour highlights key areas of the product.</p>
+            content: "<p>This brief tour highlights key areas of the product.</p>"
             choices:
               - label: Next
                 step:
                   title: Create Your First Project
-                  content: |
-                    <p>Click <strong>New Project</strong> in the top right.</p>
+                  content: "<p>Click <strong>New Project</strong> in the top right.</p>"
                   choices:
                     - label: Next
                       step:
                         title: Invite Your Team
-                        content: |
-                          <p>Open <em>Settings → Members</em> and invite colleagues.</p>`,
+                        content: "<p>Open <em>Settings → Members</em> and invite colleagues.</p>"`,
 
-            `# Example 4 — GUIDE (HTML variety + table + code + media)
+            troubleshoot: `# GUIDE — rich HTML (table + pre/code) + media
         guide:
           contentTitle: Troubleshoot VPN Issues
           contentType: GUIDE
@@ -500,30 +513,50 @@
                     <pre><code>vpncli reset --profile default</code></pre>
                   media:
                     - https://upload.wikimedia.org/wikipedia/commons/8/8f/OOjs_UI_icon_cog-ltr-progressive.svg
-        `];
+        `
+        };
 
-        (function wireShowExample() {
+        (function wireExamplesDropdown() {
             const btn = document.getElementById('btnExample');
-            const area = document.getElementById('guideYaml'); // your YAML textarea
-            if (!btn || !area) return;
+            const menu = document.getElementById('examplesMenu');
+            const area = document.getElementById('guideYaml');
+            const parseBtn = document.getElementById('parseYamlBtn');
+            if (!btn || !menu || !area) return;
 
-            btn.addEventListener('click', () => {
-                // Pick a random example
-                const pick = YAML_EXAMPLES[Math.floor(Math.random() * YAML_EXAMPLES.length)];
-                area.value = pick;
+            const openMenu = () => {
+                menu.classList.remove('hidden');
+                btn.setAttribute('aria-expanded', 'true');
+            };
+            const closeMenu = () => {
+                menu.classList.add('hidden');
+                btn.setAttribute('aria-expanded', 'false');
+            };
 
-                // If you have a “Parse YAML” button, click it; otherwise call your parser directly
-                const parseBtn = document.getElementById('parseYamlBtn');
-                if (parseBtn) {
-                    parseBtn.click();
-                } else if (typeof window.parseYaml === 'function') {
-                    window.parseYaml();
-                } else if (typeof window.onParseYaml === 'function') {
-                    window.onParseYaml();
-                }
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const isOpen = !menu.classList.contains('hidden');
+                (isOpen ? closeMenu : openMenu)();
+            });
+
+            menu.querySelectorAll('button[data-example]').forEach(item => {
+                item.addEventListener('click', () => {
+                    const key = item.getAttribute('data-example');
+                    const yaml = EXAMPLES[key];
+                    if (yaml) {
+                        area.value = yaml;
+                        closeMenu();
+                        if (parseBtn) parseBtn.click();
+                    }
+                });
+            });
+
+            // click outside to close
+            document.addEventListener('click', (e) => {
+                if (!menu.classList.contains('hidden')) closeMenu();
             });
         })();
     </script>
+
 
     <script>
         // Execution plan show/hide
