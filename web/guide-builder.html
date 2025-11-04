@@ -576,7 +576,16 @@
                 title: step.title.trim(),
                 content: step.content,
                 language: typeof step.language === 'string' && step.language.trim() ? step.language.trim() : null,
-                media: Array.isArray(step.media) ? step.media.map(String) : [],
+                media: (() => {
+                    if (Array.isArray(step.media)) {
+                        return step.media.map(x => String(x).trim()).filter(Boolean).slice(0, 3);
+                    }
+                    if (typeof step.media === 'string' && step.media.trim()) {
+                        return [step.media.trim()];
+                    }
+                    return [];
+                })(),
+
                 position: Number.isFinite(step.position) ? Number(step.position) : null,
                 choices: []
             };
@@ -665,6 +674,15 @@
                 ${step.language ? `<span class="text-xs text-slate-500 uppercase">${step.language}</span>` : ''}
             `;
             container.appendChild(heading);
+
+            // Show media badge if present
+            if (Array.isArray(step.media) && step.media.length) {
+                const badge = document.createElement('div');
+                badge.className = 'mt-1 text-xs text-slate-500';
+                badge.textContent = `Media: ${step.media.length} URL${step.media.length > 1 ? 's' : ''}`;
+                container.appendChild(badge);
+            }
+
 
             if (step.choices.length) {
                 const list = document.createElement('div');
