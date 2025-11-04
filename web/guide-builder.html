@@ -246,14 +246,17 @@
                 <p class="text-sm text-slate-500">These values pre-fill the payload. YAML values override them when
                     provided.</p>
             </header>
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div class="md:col-span-2">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                <!-- Content title (wide) -->
+                <div class="md:col-span-7">
                     <label class="block text-sm font-medium">Content title</label>
                     <input id="contentTitle" type="text"
                         class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="Onboarding walkthrough" />
                 </div>
-                <div>
+
+                <!-- Content type (keep your exact options) -->
+                <div class="md:col-span-3">
                     <label class="block text-sm font-medium">Content type</label>
                     <select id="contentType" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm bg-card">
                         <option value="GUIDE">GUIDE</option>
@@ -261,12 +264,16 @@
                         <option value="GUIDED_TOUR">GUIDED_TOUR</option>
                     </select>
                 </div>
-                <div>
+
+                <!-- Language (narrow, right side) -->
+                <div class="md:col-span-2 md:justify-self-end">
                     <label class="block text-sm font-medium">Language</label>
-                    <input id="language" type="text" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="language" type="text"
+                        class="mt-1 w-full md:w-24 text-center border border-neutral rounded-lg p-2 text-sm"
                         placeholder="en" value="en" />
                 </div>
             </div>
+
         </section>
 
         <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
