@@ -555,6 +555,14 @@
                 if (!menu.classList.contains('hidden')) closeMenu();
             });
         })();
+        function normalizeContent(s) {
+            return String(s)
+                .replace(/\r\n/g, '\n')   // CRLF → LF
+                .replace(/\r/g, '\n')     // CR → LF
+                .replace(/\u00A0/g, ' ')  // nbsp → space
+                .replace(/\s+$/, '');      // trim trailing whitespace/newlines
+        }
+
     </script>
 
 
@@ -739,7 +747,7 @@
             }
             const node = {
                 title: step.title.trim(),
-                content: step.content,
+                content: normalizeContent(step.content),
                 language: typeof step.language === 'string' && step.language.trim() ? step.language.trim() : null,
                 media: (() => {
                     if (Array.isArray(step.media)) {
