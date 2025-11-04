@@ -260,33 +260,35 @@
             </div>
 
             <!-- Admin token + Stonly API Base URL + Dry-run on one row -->
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                <!-- Admin token -->
-                <div>
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                <!-- Admin token (span 5) -->
+                <div class="md:col-span-5">
                     <label class="block text-sm font-medium">
                         Admin token <span class="text-red-600">*</span>
                     </label>
                     <input id="token" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded p-2 text-sm" placeholder="APP_ADMIN_TOKEN" />
+                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        placeholder="APP_ADMIN_TOKEN" />
                 </div>
 
-                <!-- Stonly API base URL -->
-                <div>
+                <!-- Stonly API base URL (span 5) -->
+                <div class="md:col-span-5">
                     <label class="block text-sm font-medium">
-                        Stonly API base URL <i>(optional)</i>
+                        Stonly API base URL
                     </label>
-                    <input id="st_base" class="mt-1 w-full border rounded p-2 text-sm"
+                    <input id="st_base" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
                 </div>
 
-                <!-- Dry-run -->
-                <div class="flex items-center md:justify-start">
+                <!-- Dry-run (span 2, right-aligned) -->
+                <div class="md:col-span-2 flex items-center md:justify-end">
                     <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap mt-1 md:mt-6">
                         <input id="dryRun" type="checkbox" class="h-4 w-4" />
                         Dry-run
                     </label>
                 </div>
             </div>
+
 
 
 
