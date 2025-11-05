@@ -389,6 +389,7 @@
                 <div class="title">Logs</div>
                 <div>
                     <button id="btnFetchLogs" class="button">Fetch backend logs</button>
+                    <button id="btnClearLogs" class="button">Clear logs</button>
                 </div>
             </div>
             <div class="card-content">
@@ -710,6 +711,11 @@
             }
         }
         document.getElementById('btnFetchLogs').addEventListener('click', fetchLogs);
+        function clearLogs() {
+            const ta = document.getElementById('logBox');
+            if (ta) ta.value = '';
+        }
+        document.getElementById('btnClearLogs').addEventListener('click', clearLogs);
 
     </script>
 
