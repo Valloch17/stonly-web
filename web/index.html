@@ -265,10 +265,10 @@
                 <h2 class="text-lg font-semibold">Settings</h2>
             </div>
 
-            <!-- Admin token + Stonly API Base URL + Dry-run on one row -->
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-                <!-- Admin token (span 5) -->
-                <div class="md:col-span-5">
+            <!-- Admin token + Stonly API Base URL on one row -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                <!-- Admin token -->
+                <div>
                     <label class="block text-sm font-medium">
                         Admin token <span class="text-red-600">*</span>
                     </label>
@@ -277,21 +277,13 @@
                         placeholder="The token can be found on Confluence" />
                 </div>
 
-                <!-- Stonly API base URL (span 5) -->
-                <div class="md:col-span-5">
+                <!-- Stonly API base URL -->
+                <div>
                     <label class="block text-sm font-medium">
                         Stonly API base URL
                     </label>
                     <input id="st_base" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
                         placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
-                </div>
-
-                <!-- Dry-run (span 2, right-aligned) -->
-                <div class="md:col-span-2 flex items-center md:justify-end">
-                    <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap mt-1 md:mt-6">
-                        <input id="dryRun" type="checkbox" class="h-4 w-4" />
-                        Dry-run
-                    </label>
                 </div>
             </div>
 
@@ -335,7 +327,7 @@
             </div>
 
             <!-- Global creation settings -->
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
                 <div>
                     <label class="block text-sm font-medium"><span id="forStonly">Visibility</span></label>
                     <select id="publicAccess" class="mt-1 w-full border rounded p-2 text-sm">
@@ -344,8 +336,16 @@
                     </select>
                 </div>
                 <div>
-                    <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
-                    <input id="lang" class="mt-1 w-full border rounded p-2 text-sm" value="en" placeholder="en" />
+                    <div class="flex items-end justify-between gap-4">
+                        <div>
+                            <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
+                            <input id="lang" class="mt-1 w-24 text-center border rounded p-2 text-sm" value="en" placeholder="en" />
+                        </div>
+                        <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap mb-1">
+                            <input id="dryRun" type="checkbox" class="h-4 w-4" />
+                            Dry-run
+                        </label>
+                    </div>
                 </div>
             </div>
 
