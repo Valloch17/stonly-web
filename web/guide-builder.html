@@ -387,9 +387,15 @@
         <div class="card">
             <div class="card-header">
                 <div class="title">Logs</div>
-                <div>
-                    <button id="btnFetchLogs" class="button">Fetch backend logs</button>
-                    <button id="btnClearLogs" class="button">Clear logs</button>
+                <div class="flex items-center gap-2">
+                    <button id="btnFetchLogs" type="button"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral bg-card text-sm font-medium hover:brightness-105 transition">
+                        Fetch
+                    </button>
+                    <button id="btnClearLogs" type="button"
+                        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral bg-card text-sm font-medium hover:brightness-105 transition">
+                        Clear
+                    </button>
                 </div>
             </div>
             <div class="card-content">
