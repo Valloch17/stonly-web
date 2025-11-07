@@ -37,10 +37,9 @@ logging.getLogger("urllib3").setLevel(logging.DEBUG if os.getenv("HTTP_DEBUG") =
 
 
 # ---- Config ----
-
-ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
-if not ADMIN_TOKEN:
-    raise RuntimeError("Missing env: APP_ADMIN_TOKEN")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+if not GOOGLE_CLIENT_ID:
+    raise RuntimeError("Missing env: GOOGLE_CLIENT_ID")
 
 # IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
 # Ils arrivent depuis le frontend dans chaque requête (payload ou query).
@@ -60,6 +59,12 @@ from fastapi.responses import PlainTextResponse
 import os, itertools, collections
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
+
+@app.get("/api/auth/config")
+def auth_config():
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(500, detail="Missing GOOGLE_CLIENT_ID")
+    return {"clientId": GOOGLE_CLIENT_ID, "hd": "stonly.com"}
 
 @app.get("/api/debug/logs", response_class=PlainTextResponse)
 def tail_logs(lines: int = Query(300, ge=1, le=5000)):
@@ -91,13 +96,44 @@ async def unhandled_exc(_, exc: Exception):
     )
 
 
-# ---- Auth guard ----
-def ensure_admin(auth_header: Optional[str]):
-    if not auth_header or not auth_header.startswith("Bearer "):
+# ---- Auth guard (Google ID token) ----
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
+
+def _verify_google_bearer(auth_header: Optional[str]) -> dict:
+    if not auth_header or not str(auth_header).startswith("Bearer "):
         raise HTTPException(401, detail="Missing bearer token")
-    token = auth_header.split(" ", 1)[1]
-    if token != ADMIN_TOKEN:
-        raise HTTPException(403, detail="Invalid token")
+    raw = str(auth_header).split(" ", 1)[1].strip()
+    if not raw:
+        raise HTTPException(401, detail="Empty bearer token")
+    try:
+        info = google_id_token.verify_oauth2_token(raw, google_requests.Request(), GOOGLE_CLIENT_ID)
+    except Exception as e:
+        logger.warning("Google token verification failed: %s", e)
+        raise HTTPException(401, detail="Invalid Google token")
+
+    # Basic checks: issuer, email, domain
+    iss = str(info.get("iss", ""))
+    if iss not in ("accounts.google.com", "https://accounts.google.com"):
+        raise HTTPException(401, detail="Invalid token issuer")
+
+    email = info.get("email")
+    email_verified = info.get("email_verified")
+    hd = info.get("hd")
+
+    if not email or str(email).strip() == "":
+        raise HTTPException(403, detail="Missing email in token")
+    if email_verified not in (True, "true", "True", 1, "1"):
+        raise HTTPException(403, detail="Unverified Google email")
+
+    domain_ok = str(email).lower().endswith("@stonly.com") or (isinstance(hd, str) and hd.lower() == "stonly.com")
+    if not domain_ok:
+        raise HTTPException(403, detail="Email must be @stonly.com")
+
+    return info
+
+def ensure_admin(auth_header: Optional[str]):
+    _verify_google_bearer(auth_header)
 
 # ---- Client API Stonly ----
 class Stonly:

@@ -5,3 +5,4 @@ pydantic==2.9.2
 pytest
 httpx
 PyYAML==6.0.2
+google-auth==2.35.0

@@ -82,6 +82,7 @@
         .layer-0 { background: var(--layer-0) !important; }
         .layer-1 { background: var(--layer-1) !important; }
     </style>
+    <!-- Google Identity Services script will be loaded dynamically -->
     <!-- Copy into the head of all HTML pages you wish to display the widget -->
 
     <!-- stonly-widget - copy into the head -->
@@ -103,7 +104,15 @@
 </head>
 
 <body class="min-h-screen">
-    <div id="app" class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <!-- Sign-in gate -->
+    <div id="signin" class="max-w-5xl mx-auto px-4 py-8 space-y-4" style="display:none">
+        <h1 class="text-2xl font-semibold">Sign in</h1>
+        <p class="text-sm text-muted-foreground">Use your @stonly.com Google account to continue.</p>
+        <div id="gsiButton"></div>
+        <div id="authError" class="text-red-600 text-sm" style="display:none"></div>
+    </div>
+
+    <div id="app" class="max-w-5xl mx-auto px-4 py-8 space-y-6" style="display:none">
         <div class="flex items-start justify-between gap-3">
             <div>
             <h1 class="text-2xl font-semibold flex items-center gap-2">
@@ -141,26 +150,13 @@
                 <h2 class="text-lg font-semibold">Settings</h2>
             </div> -->
 
-            <!-- Admin token + Stonly API Base URL on one row -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-                <!-- Admin token -->
-                <div>
-                    <label class="block text-sm font-medium">
-                        Admin token <span class="text-red-600">*</span>
-                    </label>
-                    <input id="token" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="The token can be found on Confluence" />
-                </div>
-
-                <!-- Stonly API base URL -->
-                <div>
-                    <label class="block text-sm font-medium">
-                        Stonly API Base URL
-                    </label>
-                    <input id="st_base" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
-                </div>
+            <!-- Stonly API Base URL -->
+            <div>
+                <label class="block text-sm font-medium">
+                    Stonly API Base URL
+                </label>
+                <input id="st_base" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                    placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
             </div>
 
 
@@ -281,7 +277,8 @@
 
     </div>
     <script>
-        const BASE = "https://stonly-web.onrender.com"; // <-- corrige le ReferenceError (voir §2)
+        const BASE = "https://stonly-web.onrender.com"; // API base
+        const AUTH_STORAGE_KEY = "google_id_token";
         // --- Persistence helpers ---
         const STORAGE_KEY_NODES = "stonly_ui_nodes";
         const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
@@ -512,7 +509,7 @@
 
         // Ajoute/retire un liseré rouge sur les champs vides requis
         function validateRequired() {
-            const ids = ["token", "parentId", "st_team", "st_user", "st_pass"];
+            const ids = ["parentId", "st_team", "st_user", "st_pass"];
             let ok = true;
             ids.forEach(id => {
                 const el = document.getElementById(id);
@@ -559,7 +556,7 @@
 
 
             const getCommon = () => ({
-                token: document.getElementById('token').value,   // APP_ADMIN_TOKEN
+                token: (localStorage.getItem(AUTH_STORAGE_KEY) || ""),   // Google ID Token
                 parentId: (() => { const v = document.getElementById('parentId').value; return v ? Number(v) : null; })(),
                 creds: {
                     user: document.getElementById('st_user').value,
@@ -591,6 +588,7 @@
 
                 try {
                     let res;
+                    const idToken = localStorage.getItem(AUTH_STORAGE_KEY) || "";
 
                     if (path === '/api/dump-structure') {
                         const url = new URL(BASE + path);
@@ -601,11 +599,11 @@
                         url.searchParams.set('teamId', c.teamId);
                         url.searchParams.set('base', c.base || "https://public.stonly.com/api/v3");
                         if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
-                        res = await fetch(url, { method: 'GET' });
+                        res = await fetch(url, { method: 'GET', headers: idToken ? { 'Authorization': 'Bearer ' + idToken } : {} });
                     } else {
                         res = await fetch(BASE + path, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
+                            headers: Object.assign({ 'Content-Type': 'application/json' }, idToken ? { 'Authorization': 'Bearer ' + idToken } : {}),
                             body: JSON.stringify(bodyOrParams),
                         });
                     }
@@ -779,6 +777,75 @@
                     label.textContent = "Dark";
                 }
             }
+        })();
+
+        // --- Google Sign-In gating ---
+        (function initAuth() {
+            const app = document.getElementById('app');
+            const signin = document.getElementById('signin');
+            const errBox = document.getElementById('authError');
+
+            function showApp() {
+                if (signin) signin.style.display = 'none';
+                if (app) app.style.display = '';
+            }
+            function showSignin(msg) {
+                if (app) app.style.display = 'none';
+                if (signin) signin.style.display = '';
+                if (errBox && msg) { errBox.textContent = msg; errBox.style.display = ''; }
+            }
+
+            const token = localStorage.getItem(AUTH_STORAGE_KEY);
+            if (token) {
+                // Optimistically allow; backend will enforce validity
+                showApp();
+            } else {
+                showSignin();
+            }
+
+            // Fetch client ID then load GIS
+            fetch(BASE + '/api/auth/config')
+                .then(r => r.ok ? r.json() : Promise.reject(new Error('Failed to load auth config')))
+                .then(cfg => new Promise((resolve, reject) => {
+                    const s = document.createElement('script');
+                    s.src = 'https://accounts.google.com/gsi/client';
+                    s.async = true; s.defer = true;
+                    s.onload = () => resolve(cfg);
+                    s.onerror = () => reject(new Error('Failed to load Google script'));
+                    document.head.appendChild(s);
+                }))
+                .then(cfg => {
+                    // Initialize GIS
+                    /* global google */
+                    if (!window.google || !window.google.accounts || !window.google.accounts.id) {
+                        throw new Error('Google Identity Services not available');
+                    }
+                    google.accounts.id.initialize({
+                        client_id: cfg.clientId,
+                        callback: (resp) => {
+                            try {
+                                if (resp && resp.credential) {
+                                    localStorage.setItem(AUTH_STORAGE_KEY, resp.credential);
+                                    showApp();
+                                } else {
+                                    showSignin('No credential received');
+                                }
+                            } catch (e) {
+                                showSignin('Sign-in failed');
+                            }
+                        },
+                        auto_select: false,
+                        ux_mode: 'popup',
+                    });
+                    const btn = document.getElementById('gsiButton');
+                    if (btn) {
+                        google.accounts.id.renderButton(btn, { theme: 'outline', size: 'large', type: 'standard', text: 'signin_with' });
+                    }
+                })
+                .catch(err => {
+                    if (errBox) { errBox.textContent = String(err); errBox.style.display = ''; }
+                    showSignin();
+                });
         })();
     </script>
 
