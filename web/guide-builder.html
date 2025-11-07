@@ -25,7 +25,7 @@
 
 <body class="min-h-screen">
     <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        <div class="flex items-start justify-between gap-4">
+        <div class="flex items-start justify-between gap-3">
             <div>
             <h1 class="text-2xl font-semibold flex items-center gap-2">
                 <img src="/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
@@ -37,7 +37,7 @@
             </div>
             <div class="flex items-center gap-3 pt-1">
                 <a href="/"
-                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
                         <path stroke-linecap="round" stroke-linejoin="round"
                             d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
@@ -863,7 +863,7 @@
                 list.className = 'space-y-3 mt-2';
                 step.choices.forEach((choice, idx) => {
                     const choiceBlock = document.createElement('div');
-                    choiceBlock.className = 'rounded-md border border-dashed border-neutral p-3 bg-white/60 dark:bg-slate-900/40 space-y-2';
+                    choiceBlock.className = 'rounded-md border border-dashed border-neutral p-3 bg-card/60 dark:bg-slate-900/40 space-y-2';
                     const label = choice.label ? choice.label : `Choice ${idx + 1}`;
                     const pos = choice.position != null ? `· position ${choice.position}` : '';
                     choiceBlock.innerHTML = `<div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label} ${pos}</div>`;
