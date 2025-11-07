@@ -11,181 +11,58 @@
     <title>Stonly Guide Builder</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <!-- Heading font: Space Grotesk -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared.css">
     <style>
-        :root {
-            --bg: #f6f7fb;
-            --card: #ffffff;
-            --text: #0f172a;
-            --muted: #475569;
-            --border: #e2e8f0;
-        }
-
-        html[data-theme="dark"] {
-            --bg: #0b1220;
-            --card: #0f172a;
-            --text: #e5e7eb;
-            --muted: #94a3b8;
-            --border: #1f2937;
-        }
-
-        body {
-            background: var(--bg);
-            color: var(--text);
-            font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-        }
-
-        .bg-card {
-            background: var(--card) !important;
-        }
-
-        .border-neutral {
-            border-color: var(--border) !important;
-        }
-
-        input,
-        textarea,
-        select {
-            background: var(--card);
-            color: var(--text);
-            border-color: var(--border);
-        }
-
-        #out {
-            background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important;
-        }
-
-        .contact-badge {
-            position: fixed;
-            right: 14px;
-            bottom: 12px;
-            z-index: 50;
-            font-size: 12px;
-            line-height: 1;
-            color: #334155;
-            background: rgba(248, 250, 252, .95);
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            padding: 8px 10px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        html[data-theme="dark"] .contact-badge {
-            color: #e2e8f0;
-            background: rgba(15, 23, 42, .95);
-            border-color: #1f2937;
-        }
-
-        .contact-badge a {
-            color: inherit;
-            text-decoration: none;
-            border-bottom: 1px dotted currentColor;
-        }
-
-        .contact-badge a:hover {
-            text-decoration: underline;
-        }
-
-        .contact-badge .sep {
-            opacity: .5;
-            user-select: none;
-        }
-
-        .contact-badge .gh {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            border-bottom: none;
-        }
-
-        .contact-badge .gh svg {
-            width: 14px;
-            height: 14px;
-            display: block;
-        }
-
-        /* Top-right fixed toggle (same as index.html) */
-        .theme-toggle {
-            position: fixed;
-            top: 12px;
-            right: 12px;
-            z-index: 60;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            font-size: 12px;
-            line-height: 1;
-            color: var(--muted);
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
-        }
-
-        .theme-toggle:hover {
-            filter: brightness(1.05);
-        }
-
-        .theme-toggle svg {
-            width: 16px;
-            height: 16px;
-        }
-
-        /* Map common Tailwind colors to tokens so they flip with theme */
-        .bg-white,
-        .bg-gray-50 {
-            background: var(--card) !important;
-        }
-
-        .border {
-            border-color: var(--border) !important;
-        }
-
-        /* Keep the "response" area subtly tinted off-card, like KB */
-        #out {
-            background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important;
-        }
+        /* Page-level overrides only */
+        :root { --bg: #fae9f0; }
+        body { font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
     </style>
 </head>
 
-<body class="min-h-screen bg-gray-50">
-    <div class="max-w-5xl mx-auto flex items-center justify-end gap-3 px-4 pt-6">
-        <a href="/"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                    d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
-            </svg>
-            KB Builder
-        </a>
-        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
-            <span id="themeIcon">
-                <svg viewBox="0 0 24 24" fill="currentColor">
-                    <path
-                        d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
-                </svg>
-            </span>
-            <span id="themeLabel">Dark</span>
-        </button>
-    </div>
-
+<body class="min-h-screen">
     <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        <div>
-            <h1 class="text-2xl font-semibold">Stonly Guide Builder</h1>
+        <div class="flex items-start justify-between gap-4">
+            <div>
+            <h1 class="text-2xl font-semibold flex items-center gap-2">
+                <img src="/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+                <img src="/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
+                <span class="title-text">Guide Builder</span>
+            </h1>
             <p class="text-sm text-slate-500 dark:text-slate-400">Create guides and steps from YAML with the Stonly API.
             </p>
+            </div>
+            <div class="flex items-center gap-3 pt-1">
+                <a href="/"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+                    </svg>
+                    KB Builder
+                </a>
+                <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+                    <span id="themeIcon">
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                            <path
+                                d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+                        </svg>
+                    </span>
+                    <span id="themeLabel">Dark</span>
+                </button>
+            </div>
         </div>
 
-        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+        <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <!-- Admin token -->
                 <div>
                     <label for="token" class="block text-sm font-medium">Admin token <span
                             class="text-red-600">*</span></label>
-                    <input id="token" type="password" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="token" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="The token can be found on Confluence" />
                 </div>
 
@@ -194,58 +71,58 @@
                     <label for="base" class="block text-sm font-medium">Stonly API Base URL</label>
                     <input id="base" type="text" placeholder="https://public.stonly.com/api/v3"
                         value="https://public.stonly.com/api/v3"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm" />
+                        class="mt-1 w-full border rounded-lg p-2 text-sm" />
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium">Stonly username <span class="text-red-600">*</span></label>
                     <input id="user" type="text" required aria-required="true"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="your.name@company.com" autocomplete="off" />
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Stonly token <span class="text-red-600">*</span></label>
                     <input id="password" type="password" required aria-required="true"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="Your Stonly integration token" autocomplete="off" />
                 </div>
             </div>
             <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
                 <label class="inline-flex items-center gap-2">
                     <input id="publishAfter" type="checkbox" class="h-4 w-4" checked>
-                    <span class="text-sm">Publish after build</span>
+                    <span class="text-sm font-medium">Publish after build</span>
                 </label>
 
                 <label class="inline-flex items-center gap-2">
                     <input id="dryRun" type="checkbox" class="h-4 w-4">
-                    <span class="text-sm">Dry-run</span>
+                    <span class="text-sm font-medium">Dry-run</span>
                 </label>
             </div>
 
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-                    <input id="teamId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="teamId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="123456" />
                 </div>
                 <div>
                     <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
-                    <input id="folderId" type="number" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="Destination folder ID" />
                 </div>
             </div>
         </section>
 
-        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+        <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
             <header>
                 <h2 class="text-lg font-semibold">Guide defaults</h2>
                 <p class="text-sm text-slate-500">These values pre-fill the payload. YAML values override them when
                     provided.</p>
             </header>
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                 <!-- Content title (wide) -->
                 <div class="md:col-span-7">
                     <label class="block text-sm font-medium">Content title</label>
@@ -275,7 +152,7 @@
 
         </section>
 
-        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+        <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
             <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                 <div>
                     <h2 class="text-lg font-semibold">Guide YAML <span class="text-red-600">*</span></h2>
@@ -291,7 +168,7 @@
                         </button>
 
                         <div id="examplesMenu"
-                            class="absolute left-0 mt-1 w-72 rounded-md border border-neutral bg-card shadow-lg hidden z-40">
+                            class="absolute left-0 mt-1 w-72 rounded-md border bg-card shadow-lg hidden z-40">
                             <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
                                 data-example="article">ARTICLE — single step</button>
                             <button class="w-full text-left px-3 py-2 text-sm hover:bg-neutral/10"
@@ -305,7 +182,7 @@
 
 
                     <button id="parseYamlBtn"
-                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                        class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">
                         Parse YAML
                     </button>
                     <button id="createGuideBtn"
@@ -315,7 +192,7 @@
             </header>
 
             <div>
-                <textarea id="guideYaml" class="mt-1 w-full border border-neutral rounded-lg p-3 text-sm h-64 font-mono"
+                <textarea id="guideYaml" class="mt-1 w-full border rounded-lg p-3 text-sm h-64 font-mono"
                     placeholder="guide:
   contentTitle: Product Walkthrough
   language: en-US
@@ -350,7 +227,7 @@
             </div> -->
         </section>
 
-        <section class="bg-card border border-neutral rounded-xl shadow-sm p-5 space-y-4">
+        <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
             <header class="flex items-center justify-between gap-3">
                 <h2 class="text-lg font-semibold">Preview</h2>
                 <span id="previewStatus" class="inline-flex items-center gap-2 text-sm text-slate-500">Waiting for
@@ -367,10 +244,10 @@
                 </div>
                 <div class="flex items-center gap-2">
                     <button id="togglePlan"
-                        class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium" type="button">
+                        class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">
                         Show
                     </button>
-                    <button id="copyOut" class="px-3 py-2 rounded-md border border-neutral bg-card text-sm font-medium"
+                    <button id="copyOut" class="px-3 py-2 rounded-md border bg-card text-sm font-medium"
                         type="button">
                         Copy plan
                     </button>
@@ -379,7 +256,7 @@
 
             <div id="planContainer" class="hidden">
                 <pre id="out"
-                    class="border border-neutral rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
+                    class="border rounded-lg p-4 text-xs overflow-auto max-h-80 whitespace-pre-wrap"></pre>
             </div>
 
         </section>
@@ -398,7 +275,7 @@
                     </button>
                 </div>
             </div>
-            <div class="card-content">
+            <div id="logsContent" class="card-content hidden">
                 <textarea id="logBox" class="text-xs"
                     style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
 
@@ -577,7 +454,7 @@
                 if (!menu || !btn || !area) return;
                 if (!menu.querySelector('button[data-example="multi"]')) {
                     const sep = document.createElement('div');
-                    sep.className = 'border-t border-neutral my-1';
+                    sep.className = 'border-t my-1';
                     const b = document.createElement('button');
                     b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
                     b.setAttribute('data-example', 'multi');
@@ -619,7 +496,7 @@
                         if (parseBtn) parseBtn.click();
                     });
                     // Insert into the first group (before the MULTI separator if present)
-                    const firstSep = menu.querySelector('div.border-t.border-neutral.my-1');
+                    const firstSep = menu.querySelector('div.border-t.my-1');
                     if (firstSep) menu.insertBefore(b, firstSep); else menu.appendChild(b);
                 }
             } catch { /* no-op */ }
@@ -705,21 +582,37 @@
             ta.scrollTop = ta.scrollHeight;
         }
 
+        function setLogsVisible(show) {
+            const c = document.getElementById('logsContent');
+            if (!c) return;
+            if (show) c.classList.remove('hidden'); else c.classList.add('hidden');
+        }
+
         async function fetchLogs() {
+            const ta = document.getElementById('logBox');
             try {
                 const textOrJson = await apiFetch('/api/debug/logs?lines=400', { method: 'GET' });
-                const text = typeof textOrJson === 'string' ? textOrJson : JSON.stringify(textOrJson, null, 2);
-                logLine('--- backend logs (tail) ---');
-                logLine(text);
-                logLine('--- end logs ---');
+                const raw = typeof textOrJson === 'string' ? textOrJson : JSON.stringify(textOrJson, null, 2);
+                const t = (raw || '').trim();
+                // Only show the box if we really have logs
+                if (t && !/^no log file yet\.?$/i.test(t)) {
+                    if (ta) ta.value = `--- backend logs (tail) ---\n${t}\n--- end logs ---\n`;
+                    setLogsVisible(true);
+                } else {
+                    if (ta) ta.value = '';
+                    setLogsVisible(false);
+                }
             } catch (e) {
-                logLine('Fetch logs failed: ' + (e?.message || e));
+                // On failure, keep the box hidden
+                if (ta) ta.value = '';
+                setLogsVisible(false);
             }
         }
         document.getElementById('btnFetchLogs').addEventListener('click', fetchLogs);
         function clearLogs() {
             const ta = document.getElementById('logBox');
             if (ta) ta.value = '';
+            setLogsVisible(false);
         }
         document.getElementById('btnClearLogs').addEventListener('click', clearLogs);
 

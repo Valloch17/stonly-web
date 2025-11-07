@@ -19,138 +19,15 @@
     <script src="https://unpkg.com/htm@3.1.1/dist/htm.umd.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <!-- Heading font: Space Grotesk -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/shared.css">
     <style>
-        .contact-badge {
-            position: fixed;
-            right: 14px;
-            bottom: 12px;
-            z-index: 50;
-            font-size: 12px;
-            line-height: 1;
-            color: #334155;
-            /* slate-700 */
-            background: rgba(248, 250, 252, .95);
-            border: 1px solid #e2e8f0;
-            /* slate-200 */
-            border-radius: 8px;
-            padding: 8px 10px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
 
-        .contact-badge a {
-            color: inherit;
-            text-decoration: none;
-            border-bottom: 1px dotted currentColor;
-        }
-
-        .contact-badge a:hover {
-            text-decoration: underline;
-        }
-
-        .contact-badge .sep {
-            opacity: .5;
-            user-select: none;
-        }
-
-        .contact-badge .gh {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            border-bottom: none;
-            /* don’t underline the icon+text group */
-        }
-
-        .contact-badge .gh svg {
-            width: 14px;
-            height: 14px;
-            display: block;
-        }
-
-        /* Theme tokens */
-        :root {
-            --bg: #f6f7fb;
-            /* light page bg */
-            --card: #ffffff;
-            /* light card bg */
-            --text: #0f172a;
-            /* slate-900 */
-            --muted: #475569;
-            /* slate-600 */
-            --border: #e2e8f0;
-            /* slate-200 */
-        }
-
-        html[data-theme="dark"] {
-            --bg: #0b1220;
-            /* dark page bg */
-            --card: #0f172a;
-            /* dark card bg */
-            --text: #e5e7eb;
-            /* slate-200 */
-            --muted: #94a3b8;
-            /* slate-400 */
-            --border: #1f2937;
-            /* slate-800/700 */
-        }
-
-        /* Apply tokens to page + common elements */
-        body {
-            background: var(--bg);
-            color: var(--text);
-        }
-
-        .bg-white,
-        .bg-gray-50 {
-            background: var(--card) !important;
-        }
-
-        .border {
-            border-color: var(--border) !important;
-        }
-
-        input,
-        textarea,
-        select {
-            background: var(--card);
-            color: var(--text);
-            border-color: var(--border);
-        }
-
-        /* Response pre/code area */
-        #out {
-            background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important;
-        }
-
-        /* Toggle button (top-right) */
-        .theme-toggle {
-            position: fixed;
-            top: 12px;
-            right: 12px;
-            z-index: 60;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 10px;
-            font-size: 12px;
-            line-height: 1;
-            color: var(--muted);
-            background: var(--card);
-            border: 1px solid var(--border);
-            border-radius: 999px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, .08);
-        }
-
-        .theme-toggle:hover {
-            filter: brightness(1.05);
-        }
-
-        .theme-toggle svg {
-            width: 16px;
-            height: 16px;
-        }
+        /* Page-level override of shared tokens */
+        :root { --bg: #e6e3f8; }
 
         /* Force Reset button to stay readable in both themes */
         #resetTree {
@@ -202,13 +79,8 @@
         }
 
         /* Utility classes used by the tree nodes */
-        .layer-0 {
-            background: var(--layer-0) !important;
-        }
-
-        .layer-1 {
-            background: var(--layer-1) !important;
-        }
+        .layer-0 { background: var(--layer-0) !important; }
+        .layer-1 { background: var(--layer-1) !important; }
     </style>
     <!-- Copy into the head of all HTML pages you wish to display the widget -->
 
@@ -230,40 +102,44 @@
 
 </head>
 
-<body class="min-h-screen bg-gray-50">
-    <div class="max-w-5xl mx-auto flex items-center justify-end gap-3 px-4 pt-6">
-        <a href="/guide-builder.html"
-            class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                <circle cx="5" cy="6" r="2"></circle>
-                <circle cx="5" cy="18" r="2"></circle>
-                <circle cx="19" cy="12" r="2"></circle>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
-                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
-            </svg>
-            Guide Builder
-        </a>
-        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode"
-            title="Toggle dark mode">
-            <span id="themeIcon" aria-hidden="true"></span>
-            <span id="themeLabel">Dark</span>
-        </button>
-    </div>
-
+<body class="min-h-screen">
     <div id="app" class="max-w-5xl mx-auto px-4 py-8 space-y-6">
-        <div>
-            <h1 class="text-2xl font-semibold">Stonly KB Builder</h1>
+        <div class="flex items-start justify-between gap-4">
+            <div>
+            <h1 class="text-2xl font-semibold flex items-center gap-2">
+                <img src="/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+                <img src="/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
+                <span class="title-text">KB Builder</span>
+            </h1>
             <p class="text-sm text-slate-500 dark:text-slate-400">
               Create knowledge-base folders from YAML or Tree builder with the Stonly API.
             </p>
           </div>
+          <div class="flex items-center gap-3 pt-1">
+            <a href="/guide-builder.html"
+                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-white text-sm font-medium shadow hover:bg-slate-50 transition">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                    <circle cx="5" cy="6" r="2"></circle>
+                    <circle cx="5" cy="18" r="2"></circle>
+                    <circle cx="19" cy="12" r="2"></circle>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+                </svg>
+                Guide Builder
+            </a>
+            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+                <span id="themeIcon" aria-hidden="true"></span>
+                <span id="themeLabel">Dark</span>
+            </button>
+          </div>
+        </div>
           
 
-        <div class="mb-4 p-4 bg-white rounded-xl shadow">
-            <div class="flex items-center justify-between mb-2">
+        <div class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-4">
+            <!-- <div class="flex items-center justify-between mb-2">
                 <h2 class="text-lg font-semibold">Settings</h2>
-            </div>
+            </div> -->
 
             <!-- Admin token + Stonly API Base URL on one row -->
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
@@ -273,16 +149,16 @@
                         Admin token <span class="text-red-600">*</span>
                     </label>
                     <input id="token" type="password" required aria-required="true"
-                        class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="The token can be found on Confluence" />
                 </div>
 
                 <!-- Stonly API base URL -->
                 <div>
                     <label class="block text-sm font-medium">
-                        Stonly API base URL
+                        Stonly API Base URL
                     </label>
-                    <input id="st_base" class="mt-1 w-full border border-neutral rounded-lg p-2 text-sm"
+                    <input id="st_base" class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
                 </div>
             </div>
@@ -291,12 +167,12 @@
 
 
             <!-- Stonly credentials -->
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div>
                     <label class="block text-sm font-medium">
                         Stonly username <span class="text-red-600">*</span>
                     </label>
-                    <input id="st_user" required aria-required="true" class="mt-1 w-full border rounded p-2 text-sm"
+                    <input id="st_user" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm"
                         placeholder="email@company.com" />
                 </div>
                 <div>
@@ -304,54 +180,44 @@
                         Stonly token <span class="text-red-600">*</span>
                     </label>
                     <input id="st_pass" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded p-2 text-sm" placeholder="Your Stonly integration token" />
+                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
                 </div>
             </div>
 
-            <!-- Row: Parent folder ID + Team ID -->
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2">
+            <!-- Global creation settings: 4 fields on one row -->
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                 <div>
-                    <label class="block text-sm font-medium">
-                        Team ID <span class="text-red-600">*</span>
-                    </label>
-                    <input id="st_team" type="number" required aria-required="true"
-                        class="mt-1 w-full border rounded p-2 text-sm" placeholder="e.g. 39539" />
+                    <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+                    <input id="st_team" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium">
-                        Parent Folder ID <span class="text-red-600">*</span>
-                    </label>
-                    <input id="parentId" type="number" required aria-required="true"
-                        class="mt-1 w-full border rounded p-2 text-sm" placeholder="e.g. 494710" />
+                    <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
+                    <input id="parentId" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 494710" />
                 </div>
-            </div>
-
-            <!-- Global creation settings -->
-            <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 items-end">
                 <div>
                     <label class="block text-sm font-medium"><span id="forStonly">Visibility</span></label>
-                    <select id="publicAccess" class="mt-1 w-full border rounded p-2 text-sm">
+                    <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
                         <option value="1" selected>Public (1)</option>
                         <option value="0">Private (0)</option>
                     </select>
                 </div>
                 <div>
-                    <div class="flex items-end justify-between gap-2">
-                        <div>
-                            <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
-                            <input id="lang" class="mt-1 w-24 text-center border rounded p-2 text-sm" value="en" placeholder="en" />
-                        </div>
-                        <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap mb-1">
-                            <input id="dryRun" type="checkbox" class="h-4 w-4" />
-                            Dry-run
-                        </label>
-                    </div>
+                    <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
+                    <input id="lang" class="mt-1 w-full md:w-24 text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
                 </div>
             </div>
 
+            <!-- Dry-run on its own row -->
+            <div>
+                <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap font-medium">
+                    <input id="dryRun" type="checkbox" class="h-4 w-4" />
+                    Dry-run
+                </label>
+            </div>
+
             <!-- YAML (optional) -->
-            <label class="block text-sm font-medium mt-2">structure.yaml <i>(optional)</i></label>
-            <textarea id="yaml" class="mt-1 w-full border rounded p-2 text-sm h-36" placeholder="root:
+            <label class="block text-sm font-medium">KB YAML <i>(optional)</i></label>
+            <textarea id="yaml" class="mt-1 w-full border rounded-lg p-2 text-sm h-36" placeholder="root:
             - name: Support
               description: 'Public info & help center'
               children:
@@ -370,9 +236,9 @@
 
 
 
-        <div class="mb-4 p-4 bg-white rounded-xl shadow">
+        <div class="mb-4 bg-card border rounded-xl shadow-sm p-5">
             <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Tree</h2>
+                <h2 class="text-lg font-semibold">Tree Builder</h2>
                 <button id="addRoot" class="px-3 py-1 rounded bg-black text-white">+ Root</button>
             </div>
             <div id="tree" class="space-y-2"></div>
@@ -392,7 +258,7 @@
 
         </div>
 
-        <div class="p-4 bg-white rounded-xl shadow mt-4">
+        <div class="bg-card border rounded-xl shadow-sm p-5 mt-4">
             <div class="flex items-center justify-between mb-2">
                 <h2 class="text-lg font-semibold">Response</h2>
                 <button id="copyOut"
