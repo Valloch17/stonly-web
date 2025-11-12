@@ -576,6 +576,13 @@ function renderPreview(parsed) {
         section.appendChild(header);
         section.appendChild(renderPreviewStep(p.firstStep, 0));
         tree.appendChild(section);
+
+        // Separator between guides when multiple are present
+        if (arr.length > 1 && i < arr.length - 1) {
+            const sep = document.createElement('div');
+            sep.className = 'my-4 border-t border-dashed border-neutral';
+            tree.appendChild(sep);
+        }
     });
     status.textContent = `${arr.length} guide(s) parsed. Review before creating.`;
 }

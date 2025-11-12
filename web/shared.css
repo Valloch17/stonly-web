@@ -99,3 +99,20 @@ html[data-theme="dark"] .contact-badge {
 .contact-badge .sep { opacity: .5; user-select: none; }
 .contact-badge .gh { display: inline-flex; align-items: center; gap: 6px; border-bottom: none; }
 .contact-badge .gh svg { width: 14px; height: 14px; display: block; }
+
+/* Preview (guide builder) contrast improvements
+   - In light mode, nested preview steps use a grey container. Ensure
+     text inside nested blocks stays highly legible by forcing white. */
+html[data-theme="light"] #previewTree .border-l { color: #ffffff; }
+/* Ensure common muted utility classes used in preview become white */
+html[data-theme="light"] #previewTree .border-l .text-slate-500,
+html[data-theme="light"] #previewTree .border-l .text-slate-600,
+html[data-theme="light"] #previewTree .border-l .text-slate-700,
+html[data-theme="light"] #previewTree .border-l .font-medium,
+html[data-theme="light"] #previewTree .border-l a { color: #ffffff !important; }
+
+/* Choice blocks at depth 0 (no border-l) still use a grey card background.
+   Force label + helper text to white there too, with slight opacity for labels. */
+html[data-theme="light"] #previewTree .rounded-md .text-slate-500 { color: #ffffff !important; opacity: .9; }
+html[data-theme="light"] #previewTree .rounded-md .text-slate-600 { color: #ffffff !important; }
+html[data-theme="light"] #previewTree .rounded-md .italic { color: #ffffff !important; opacity: .9; }
