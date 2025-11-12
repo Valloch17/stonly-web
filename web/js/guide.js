@@ -241,12 +241,11 @@ function setupPlanToggle() {
         btn.textContent = hidden ? 'Show' : 'Hide';
     });
 }
-// Prefer same-origin if we are on the API host; otherwise hard-code your backend
-const DEFAULT_BACKEND = "https://stonly-web.onrender.com";
-const BASE = (window.location.origin.includes("stonly-web.onrender.com")
-    ? window.location.origin
-    : DEFAULT_BACKEND).replace(/\/+$/, '');
-// Expose on window to avoid scope surprises in handlers
+// Backend base resolution
+// Prefer an existing global (set by shared.js). In local dev, default to localhost:8000.
+const __isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.*\.local)$/i.test(window.location.hostname);
+const DEFAULT_BACKEND = window.DEFAULT_BACKEND || (__isLocal ? 'http://localhost:8000' : 'https://stonly-web.onrender.com');
+const BASE = (window.BASE || DEFAULT_BACKEND).replace(/\/+$/, '');
 window.DEFAULT_BACKEND = DEFAULT_BACKEND;
 window.BASE = BASE;
 
@@ -399,6 +398,7 @@ function normalizeStep(step, path) {
         title: step.title.trim(),
         content: normalizeContent(step.content),
         language: typeof step.language === 'string' && step.language.trim() ? step.language.trim() : null,
+        key: (typeof step.key === 'string' && step.key.trim()) ? step.key.trim() : null,
         media: (() => {
             if (Array.isArray(step.media)) {
                 return step.media.map(x => String(x).trim()).filter(Boolean).slice(0, 3);
@@ -425,12 +425,23 @@ function normalizeStep(step, path) {
         if (!choice || typeof choice !== 'object') {
             throw new Error(`${path}.choices[${idx}] must be an object`);
         }
+        const hasRef = typeof choice.ref === 'string' && choice.ref.trim();
         const nested = choice.step || choice.nextStep;
-        if (!nested) {
-            throw new Error(`${path}.choices[${idx}] is missing a nested step`);
+        if (hasRef && nested) {
+            throw new Error(`${path}.choices[${idx}] must define either 'ref' or 'step', not both`);
         }
         const label = choice.label != null ? String(choice.label) : null;
         const position = choice.position != null ? Number(choice.position) : null;
+        if (hasRef) {
+            return {
+                label,
+                position: Number.isFinite(position) ? position : null,
+                ref: String(choice.ref).trim()
+            };
+        }
+        if (!nested) {
+            throw new Error(`${path}.choices[${idx}] is missing a nested step (or 'ref')`);
+        }
         return {
             label,
             position: Number.isFinite(position) ? position : null,
@@ -526,7 +537,14 @@ function renderPreviewStep(step, depth) {
             const label = choice.label ? choice.label : `Choice ${idx + 1}`;
             const pos = choice.position != null ? `· position ${choice.position}` : '';
             choiceBlock.innerHTML = `<div class="text-xs font-semibold uppercase tracking-wide text-slate-500">${label} ${pos}</div>`;
-            choiceBlock.appendChild(renderPreviewStep(choice.step, depth + 1));
+            if (choice && choice.ref) {
+                const info = document.createElement('div');
+                info.className = 'text-xs text-slate-600 italic';
+                info.textContent = `Link to existing step key: ${choice.ref}`;
+                choiceBlock.appendChild(info);
+            } else {
+                choiceBlock.appendChild(renderPreviewStep(choice.step, depth + 1));
+            }
             list.appendChild(choiceBlock);
         });
         container.appendChild(list);
@@ -608,7 +626,22 @@ function collectPlan(parsed, settings) {
 
         while (queue.length) {
             const { parentTitle, parentPath, choice, index } = queue.shift();
-            const defaultPosition = choice.position ?? choice.step?.position ?? index ?? 0;
+            const defaultPosition = choice.position ?? (choice.step?.position ?? index ?? 0);
+            if (choice && choice.ref) {
+                plan.push({
+                    action: `Link to step: ${choice.ref}`,
+                    endpoint: 'POST /guide/step/link',
+                    note: `Parent step: ${parentTitle} (${parentPath})`,
+                    payload: {
+                        guideId: '<from create guide response>',
+                        sourceStepId: `<stepId for "${parentTitle}">`,
+                        targetStepId: `<stepId for key "${choice.ref}">`,
+                        choiceLabel: choice.label || null,
+                        position: defaultPosition,
+                    }
+                });
+                continue;
+            }
             plan.push({
                 action: `Append step: ${choice.step.title}`,
                 endpoint: 'POST /guide/step',
@@ -841,3 +874,67 @@ onReady(() => el('createGuideBtn')?.addEventListener('click', async () => {
 }));
 
 onReady(() => { try { setupCopyOut(); } catch {} });
+
+// REUSE example (step key/ref) injection for the examples dropdown
+function addReuseExample() {
+    try {
+        const reuseYaml = `guide:\n  contentTitle: Reuse Existing Steps (Demo)\n  contentType: GUIDE\n  language: en\n  firstStep:\n    key: intro\n    title: Welcome\n    content: |\n      <p>Start here.</p>\n    choices:\n      - label: Go to Billing setup\n        ref: billing\n      - label: Create account\n        step:\n          key: account\n          title: Create account\n          content: |\n            <p>Fill out the registration form.</p>\n          choices:\n            - label: Continue to Billing\n              step:\n                key: billing\n                title: Billing setup\n                content: |\n                  <p>Enter your payment details.</p>\n            - label: Back to start\n              ref: intro`;
+        if (typeof EXAMPLES === 'object' && !EXAMPLES.reuse) {
+            EXAMPLES.reuse = reuseYaml;
+        }
+        const menu = document.getElementById('examplesMenu');
+        const btn = document.getElementById('btnExample');
+        const area = document.getElementById('guideYaml');
+        const parseBtn = document.getElementById('parseYamlBtn');
+        if (!menu || !btn || !area) return;
+        if (!menu.querySelector('button[data-example="reuse"]')) {
+            const b = document.createElement('button');
+            b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
+            b.setAttribute('data-example', 'reuse');
+            b.textContent = 'GUIDE — reuse steps';
+            b.addEventListener('click', () => {
+                area.value = reuseYaml;
+                menu.classList.add('hidden');
+                btn.setAttribute('aria-expanded', 'false');
+                if (parseBtn) parseBtn.click();
+            });
+            // Place at the end of the first group, before the MULTI separator if present
+            const firstSep = menu.querySelector('div.border-t.my-1');
+            if (firstSep) menu.insertBefore(b, firstSep); else menu.appendChild(b);
+        }
+    } catch { /* no-op */ }
+}
+
+onReady(addReuseExample);
+
+// Load a full MULTI example from /assets/prompt.yaml and add to the examples menu (at the very end)
+function addPromptMultiExample() {
+    try {
+        const menu = document.getElementById('examplesMenu');
+        const btn = document.getElementById('btnExample');
+        const area = document.getElementById('guideYaml');
+        const parseBtn = document.getElementById('parseYamlBtn');
+        if (!menu || !btn || !area) return;
+        if (!menu.querySelector('button[data-example="multi_prompt"]')) {
+            const b = document.createElement('button');
+            b.className = 'w-full text-left px-3 py-2 text-sm hover:bg-neutral/10';
+            b.setAttribute('data-example', 'multi_prompt');
+            b.textContent = 'MULTI — ultimate example';
+            b.addEventListener('click', async () => {
+                try {
+                    const res = await fetch('/assets/prompt.yaml');
+                    const text = await res.text();
+                    area.value = text;
+                    menu.classList.add('hidden');
+                    btn.setAttribute('aria-expanded', 'false');
+                    if (parseBtn) parseBtn.click();
+                } catch {
+                    alert('Failed to load /assets/prompt.yaml');
+                }
+            });
+            // Ensure it appears at the very end of the menu
+            menu.appendChild(b);
+        }
+    } catch { /* no-op */ }
+}
+onReady(addPromptMultiExample);

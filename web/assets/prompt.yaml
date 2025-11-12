@@ -1,0 +1,407 @@
+---
+# ARTICLE — single step (simple HTML, no choices)
+guide:
+  contentTitle: Company Security Policy (Quick Read)
+  contentType: ARTICLE
+  language: en
+  firstStep:
+    title: Security Policy Overview
+    content: |
+      <h3>Welcome</h3>
+      <p>This article summarizes the core security practices.</p>
+      <ul>
+        <li><strong>MFA</strong> required for all accounts</li>
+        <li>Use a <em>password manager</em></li>
+        <li>Report phishing via the <code>Phish Alert</code> button</li>
+      </ul>
+      <p>For details, see the full handbook.</p>
+
+---
+# GUIDE — branching sub-steps with media (demonstrates key/ref reuse)
+guide:
+  contentTitle: Laptop Setup Wizard
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: choose_os
+    title: Choose Your OS
+    content: |
+      <p>Pick your operating system to see tailored steps.</p>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Windows_logo_and_wordmark_-_2021.svg/langfr-500px-Windows_logo_and_wordmark_-_2021.svg.png
+      - https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg
+    choices:
+      - label: macOS
+        step:
+          title: macOS Setup
+          content: |
+            <ol>
+              <li>Open <strong>System Settings</strong> → <em>Privacy & Security</em></li>
+              <li>Enable FileVault</li>
+              <li>Install Rosetta if prompted</li>
+            </ol>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg
+          choices:
+            - label: Done
+              step:
+                key: setup_done
+                title: You're all set
+                content: "<p>Installation complete. Enjoy!</p>"
+
+      - label: Windows
+        step:
+          title: Windows Setup
+          content: |
+            <ol>
+              <li>Run <code>Windows Update</code> until fully patched</li>
+              <li>Turn on BitLocker</li>
+              <li>Install company apps from the portal</li>
+            </ol>
+          media: https://upload.wikimedia.org/wikipedia/commons/thumb/e/e2/Windows_logo_and_wordmark_-_2021.svg/langfr-500px-Windows_logo_and_wordmark_-_2021.svg.png
+          choices:
+            - label: Done
+              ref: setup_done
+
+---
+# GUIDED_TOUR — linear "Next" steps (adds a link back to start)
+guide:
+  contentTitle: Product Onboarding Tour
+  contentType: GUIDED_TOUR
+  language: en
+  firstStep:
+    key: tour_start
+    title: Welcome to the Dashboard
+    content: "<p>This brief tour highlights key areas of the product.</p>"
+    choices:
+      - label: Next
+        step:
+          title: Create Your First Project
+          content: "<p>Click <strong>New Project</strong> in the top right.</p>"
+          choices:
+            - label: Next
+              step:
+                title: Invite Your Team
+                content: "<p>Open <em>Settings → Members</em> and invite colleagues.</p>"
+                choices:
+                  - label: Back to start
+                    ref: tour_start
+
+---
+# GUIDE — rich HTML (table + pre/code) + media
+guide:
+  contentTitle: Troubleshoot VPN Issues
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: basics
+    title: Check Basics
+    content: |
+      <p>Before advanced steps, verify:</p>
+      <table border="1" cellpadding="6">
+        <tr><th>Item</th><th>Expected</th></tr>
+        <tr><td>Internet</td><td>Working</td></tr>
+        <tr><td>Credentials</td><td>Valid</td></tr>
+      </table>
+      <p>Then try reconnecting.</p>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/1/17/OOjs_UI_icon_reload.svg
+    choices:
+      - label: Still not working
+        step:
+          title: Reset Configuration
+          content: |
+            <p>Run this command and retry:</p>
+            <pre><code>vpncli reset --profile default</code></pre>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/e/ed/Cog.png
+
+---
+# GUIDE — Rich Text + emojis + tip & warning boxes + nested sub-steps
+guide:
+  contentTitle: Account Portal | Access Reset (Example)
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: overview
+    title: "🧭 Overview"
+    content: |
+      <p>This workflow is for <strong>Tier 2 Support</strong> teams handling escalated <strong>account access reset</strong> requests.</p>
+      <p>Use it when Tier 1 confirms the situation and the user needs a reset or 2FA reconfiguration.</p>
+      <aside class="tip"><p>📌 <strong>Before you begin:</strong> Check in your admin tool that the user’s <strong>Status</strong> is <strong><span style="color:#16a34a">Active</span></strong>.</p></aside>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/7/71/Portal.svg
+    choices:
+      - label: "🪪 Step 1 — Verify Identity"
+        step:
+          key: verify_identity
+          title: "🪪 Verify Identity"
+          content: |
+            <p>Identity requirements depend on how the request arrived.</p>
+            <h4>🧩 Phone or Video</h4>
+            <ul><li>Verify the user’s <strong>full name</strong> and <strong>email address</strong> verbally.</li></ul>
+            <h4>🧩 Email Request</h4>
+            <ul>
+              <li>Send a template that confirms the request and explains the next steps.</li>
+              <li>Reference your internal macros (e.g., <code>Support::Access Reset::Verify Identity</code>).</li>
+            </ul>
+            <h4>🔒 Redact Sensitive Data Before Merging</h4>
+            <ol>
+              <li>Select text or attachments containing sensitive info and mark them for redaction.</li>
+              <li>Finalize redactions before merging related tickets.</li>
+            </ol>
+            <aside class="warning"><p>⚠️ <strong><span style="color:#dc2626">Never request a user’s secret key or OTP code.</span></strong> They must enter secrets only on their device.</p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/6/6e/Ionicons_id-card.svg
+          choices:
+            - label: "🔍 Confirm Communication Channel"
+              step:
+                title: "🔍 Confirm Communication Channel"
+                content: |
+                  <p>Identify the medium used for verification:</p>
+                  <ul>
+                    <li>If <em>Phone or Video</em> → ask for verbal confirmation of identity details.</li>
+                    <li>If <em>Email</em> → verify reply comes from the registered address.</li>
+                  </ul>
+                  <aside class="tip"><p>📞 Callbacks from a recorded number can substitute for email verification in low-risk cases.</p></aside>
+                media:
+                  - https://upload.wikimedia.org/wikipedia/commons/3/30/Phone_font_awesome.svg
+                choices:
+                  - label: "📧 Email Verification Example"
+                    step:
+                      title: "📧 Email Verification Example"
+                      content: |
+                        <p>Send a confirmation message similar to:</p>
+                        <blockquote>
+                          <p><em>Hello [Name], please confirm this email is associated with your account so we can proceed with your reset request.</em></p>
+                        </blockquote>
+                        <p>Proceed to the next step once confirmation is received.</p>
+                      media:
+                        - https://upload.wikimedia.org/wikipedia/commons/4/4c/Email_font_awesome.svg
+                      choices:
+                        - label: Back to verify
+                          ref: verify_identity
+
+      - label: "🔁 Step 2 — Perform Reset"
+        step:
+          title: "🔁 Perform Reset"
+          content: |
+            <ol>
+              <li>Open the <strong>Admin Console</strong> and locate the user by <em>name</em>, <em>email</em>, or <em>ID</em>.</li>
+              <li>Choose <strong>Reset login</strong> or <strong>Initiate password reset</strong> as appropriate.</li>
+              <li>Confirm all prerequisites (identity verification, eligibility, etc.) have been completed.</li>
+              <li>Click <strong><span style="color:#3b82f6">Confirm reset</span></strong>.</li>
+            </ol>
+            <p>Inform the user that they will receive a <strong>temporary password</strong> or a reset link. They must sign in, change their password, and reconfigure <strong>MFA</strong> if needed.</p>
+            <aside class="tip"><p>✅ <b>Note:</b> If the user specifically requests a <b><span style="color:#3b82f6">manual 2FA secret key</span></b> method, provide instructions only if your policy allows it.</p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/1/1f/Reset_Icon.svg
+          choices:
+            - label: "🧩 Choose Reset Type"
+              step:
+                title: "🧩 Choose Reset Type"
+                content: |
+                  <ul>
+                    <li><strong>Full Reset</strong> – clears MFA and requires password change on next login.</li>
+                    <li><strong>Password-Only Reset</strong> – preserves existing 2FA setup.</li>
+                  </ul>
+                  <aside class="tip"><p>ℹ️ Select Full Reset if the user lost their authenticator device.</p></aside>
+                media:
+                  - https://upload.wikimedia.org/wikipedia/commons/9/92/Settings_font_awesome.svg
+                choices:
+                  - label: "🔒 Full Reset Procedure"
+                    step:
+                      title: "🔒 Full Reset Procedure"
+                      content: |
+                        <ol>
+                          <li>Confirm <em>Active</em> status again in the admin tool.</li>
+                          <li>Click <strong>Reset MFA and Password</strong>.</li>
+                          <li>Send confirmation email template <code>Support::AccessReset::Full</code>.</li>
+                        </ol>
+                        <aside class="warning"><p>⚠️ This action revokes all sessions immediately.</p></aside>
+                      media:
+                        - https://upload.wikimedia.org/wikipedia/commons/2/25/Lock_font_awesome.svg
+                      choices:
+                        - label: Continue
+                          ref: confirm_close
+
+                  - label: "🔓 Password-Only Reset"
+                    step:
+                      title: "🔓 Password-Only Reset"
+                      content: |
+                        <p>Use <code>Reset Password</code> option to generate a temporary credential. MFA tokens remain intact.</p>
+                        <aside class="tip"><p>✅ Ideal when the user forgot their password but still has their authenticator device.</p></aside>
+                      media:
+                        - https://upload.wikimedia.org/wikipedia/commons/1/1b/Unlock_font_awesome.svg
+                      choices:
+                        - label: Continue
+                          ref: confirm_close
+
+      - label: "✅ Step 3 — Confirm & Close"
+        step:
+          key: confirm_close
+          title: "✅ Confirm & Close"
+          content: |
+            <p>After the user regains access:</p>
+            <ul>
+              <li>Confirm successful sign-in and that MFA is configured.</li>
+              <li>Apply the correct closing macro for your team.</li>
+            </ul>
+            <table>
+              <tr><th>Team</th><th>Macro</th></tr>
+              <tr><td><strong>Support A</strong></td><td><code>Support A::Account Reset::Solved</code></td></tr>
+              <tr><td><strong>Support B</strong></td><td><code>Support B::Account Reset::Solved</code></td></tr>
+            </table>
+            <aside class="tip"><p><strong>🎯 End of Workflow – Account Access Reset</strong></p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/b/bd/Green_check.svg
+
+---
+# GUIDE — Flight Attendant Scheduling | Backfill Decision Tree (reuses steps)
+guide:
+  contentTitle: "✈️ Flight Attendant Backfill | United Airlines Hotline"
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: fa_overview
+    title: "🧭 Overview"
+    content: |
+      <p>This workflow assists <strong>Scheduling Hotline Agents</strong> in determining the best backfill option when a flight attendant reports sick, misses a connection, or cannot operate a flight.</p>
+      <p>The goal is to <strong>avoid flight cancellations</strong> by finding qualified and available replacements efficiently — while considering location, timing, weather, and crew return logistics.</p>
+      <aside class="tip"><p>📌 <strong>Before you begin:</strong> Ensure the absence is <strong>confirmed in the scheduling system</strong> and the affected flight details are verified in <strong>Crew Portal</strong>.</p></aside>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/3/3a/Airplane_silhouette.svg
+    choices:
+      - label: "🗺️ Step 1 — Capture Flight Info"
+        step:
+          title: "🗺️ Capture Flight Info"
+          content: |
+            <p>Begin by entering the key flight details into the hotline system:</p>
+            <ul>
+              <li>Departure Airport Code</li>
+              <li>Destination Airport Code</li>
+              <li>Scheduled Departure Time (Local)</li>
+            </ul>
+            <aside class="tip"><p>💡 Cross-check time zones and ensure the flight number is correct before continuing.</p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/d/dc/Airport_font_awesome.svg
+          choices:
+            - label: "👥 Step 2 — Check Local Crew Availability"
+              step:
+                title: "👥 Check Local Crew Availability"
+                content: |
+                  <p>Determine if there are standby flight attendants <strong>on the bench</strong> at the departure location.</p>
+                  <aside class="tip"><p>📋 Use the <strong>United Crew Scheduling System</strong> to filter by base, qualification, and time availability.</p></aside>
+                media:
+                  - https://upload.wikimedia.org/wikipedia/commons/f/f7/Team_font_awesome.svg
+                choices:
+                  - label: "✅ Crew Available at Departure"
+                    step:
+                      title: "✅ Crew Available at Departure"
+                      content: |
+                        <p>If crew are available, proceed to check for a <strong>viable return flight</strong> for them after duty.</p>
+                      media:
+                        - https://upload.wikimedia.org/wikipedia/commons/4/49/Check_font_awesome.svg
+                      choices:
+                        - label: "🔄 Step 3 — Check Return Flights"
+                          step:
+                            title: "🔄 Check Return Flights"
+                            content: |
+                              <p>Search for return flights that can bring the crew back to their home base after their assignment.</p>
+                              <ol>
+                                <li>Search for return flights within <strong>24 hours</strong> of arrival.</li>
+                                <li>Validate <strong>duty hours</strong> and <strong>rest periods</strong>.</li>
+                              </ol>
+                              <aside class="tip"><p>✈️ Use the “Crew Return Finder” tab in your scheduling dashboard.</p></aside>
+                            media:
+                              - https://upload.wikimedia.org/wikipedia/commons/5/50/Arrow_rotate_right_font_awesome.svg
+                            choices:
+                              - label: "🟢 Return Flight Available"
+                                step:
+                                  key: fa_success
+                                  title: "🟢 Return Flight Available"
+                                  content: |
+                                    <p>Book the available crew and confirm their return flight.</p>
+                                    <aside class="tip"><p>✅ Success — Flight fully covered. Mark as “Backfill Complete.”</p></aside>
+                                  media:
+                                    - https://upload.wikimedia.org/wikipedia/commons/b/bd/Green_check.svg
+
+                              - label: "🔴 No Return Flight Found"
+                                step:
+                                  title: "🔴 No Return Flight Found"
+                                  content: |
+                                    <p>If no return flight exists, proceed to evaluate other options.</p>
+                                    <aside class="warning"><p>⚠️ Proceed to evaluate risk factors and nearby bases.</p></aside>
+                                  choices:
+                                    - label: "🌦️ Step 4 — Evaluate Disruption Risk"
+                                      step:
+                                        key: evaluate_risk
+                                        title: "🌦️ Evaluate Disruption Risk"
+                                        content: |
+                                          <p>Check if the <strong>departure airport</strong> is under a <strong>weather alert</strong>.</p>
+                                          <p>Refer to the <a href="https://www.fly.faa.gov/flyfaa/usmap.jsp" target="_blank">FAA Weather Status Map</a> for live updates.</p>
+                                          <aside class="tip"><p>💡 Weather delays may allow extra time to bring in a crew from another city.</p></aside>
+                                        media:
+                                          - https://upload.wikimedia.org/wikipedia/commons/3/37/Weather_font_awesome.svg
+                                        choices:
+                                          - label: "☁️ Delays Expected"
+                                            step:
+                                              title: "☁️ Delays Expected"
+                                              content: |
+                                                <p>If delays are likely, search nearby bases for available crew that can make it in time.</p>
+                                              choices:
+                                                - label: "🏙️ Step 5 — Search Nearby Bases"
+                                                  step:
+                                                    key: nearby_bases
+                                                    title: "🏙️ Search Nearby Bases"
+                                                    content: |
+                                                      <p>Identify the closest bases (within ~1 hour flight) that have available flight attendants.</p>
+                                                      <aside class="tip"><p>🌐 Use the “Regional Availability Map” in your system to visualize nearby resources.</p></aside>
+                                                    media:
+                                                      - https://upload.wikimedia.org/wikipedia/commons/1/1e/Map_marker_font_awesome.svg
+                                                    choices:
+                                                      - label: "🟢 Backfill Realistic"
+                                                        ref: fa_success
+
+                                                      - label: "🔴 Backfill Not Realistic"
+                                                        step:
+                                                          title: "🔴 Backfill Not Realistic"
+                                                          content: |
+                                                            <p>If no viable backup can be found, proceed to final triage and escalation.</p>
+                                                            <aside class="warning"><p>⚠️ Notify scheduling supervisor for alternate routing or possible cancellation.</p></aside>
+                                                          media:
+                                                            - https://upload.wikimedia.org/wikipedia/commons/e/e9/Exclamation_triangle_font_awesome.svg
+                                                          choices:
+                                                            - label: Continue to Final Triage
+                                                              ref: final_triage
+
+                                          - label: "🌤️ No Delays Expected"
+                                            ref: fa_success
+
+                  - label: "❌ No Crew Available at Departure"
+                    step:
+                      title: "❌ No Crew Available at Departure"
+                      content: |
+                        <p>If no crew are available locally, proceed to check for weather impacts or nearby bases.</p>
+                        <aside class="warning"><p>⚠️ Lack of local standby — prioritize nearest alternate bases.</p></aside>
+                      media:
+                        - https://upload.wikimedia.org/wikipedia/commons/e/e9/Exclamation_triangle_font_awesome.svg
+                      choices:
+                        - label: "🌦️ Step 4 — Evaluate Disruption Risk"
+                          ref: evaluate_risk
+
+      - label: "🚨 Step 6 — Final Triage"
+        step:
+          key: final_triage
+          title: "🚨 Final Triage"
+          content: |
+            <p>If all previous steps fail to secure crew coverage:</p>
+            <ul>
+              <li>Escalate to <strong>Scheduling Supervisor</strong>.</li>
+              <li>Prepare for <strong>potential flight cancellation</strong>.</li>
+              <li>Document all attempted options in <strong>Case Notes</strong>.</li>
+            </ul>
+            <aside class="warning"><p>⚠️ <strong>Critical step:</strong> include timestamped logs for regulatory compliance.</p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/f/fc/Triangle_warning_font_awesome.svg
+

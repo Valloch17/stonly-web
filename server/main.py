@@ -7,6 +7,14 @@ import os, time
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
+try:
+    # pydantic v2
+    from pydantic import model_validator  # type: ignore
+except Exception:  # pragma: no cover - fallback (older pydantic)
+    def model_validator(*args, **kwargs):  # type: ignore
+        def deco(f):
+            return f
+        return deco
 import requests
 import yaml
 import uuid
@@ -280,6 +288,35 @@ class Stonly:
             raise HTTPException(502, detail={"error": "Missing stepId from append step response", "payload": data})
         return {"stepId": step_id, "raw": data}
 
+    def link_steps(
+        self,
+        *,
+        guide_id: str,
+        source_step_id: Any,
+        target_step_id: Any,
+        choice_label: Optional[str] = None,
+        position: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        """Create a navigation link from an existing source step to an existing
+        target step. Mirrors POST /guide/step/link.
+        """
+        body = {
+            "guideId": guide_id,
+            "sourceStepId": source_step_id,
+            "targetStepId": target_step_id,
+        }
+        if choice_label is not None:
+            body["choiceLabel"] = choice_label
+        if position is not None:
+            body["position"] = position
+
+        logger.info("GUIDE link payload=%s", body)
+        data = self._req("POST", "/guide/step/link", json=body)
+        # Stonly may not return identifiers here; forward raw payload
+        if not isinstance(data, (dict, list, str)):
+            data = {"raw": data}
+        return {"raw": data}
+
     def create_folder(
         self,
         name: str,
@@ -364,7 +401,20 @@ class GuideDefaults(BaseModel):
 class GuideStepChoice(BaseModel):
     label: Optional[str] = None
     position: Optional[int] = None
-    step: "GuideStep"
+    # Either create a new step or link to an existing one by key
+    step: Optional["GuideStep"] = None
+    ref: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_step_or_ref(self):
+        has_step = self.step is not None
+        has_ref = isinstance(self.ref, str) and bool(self.ref.strip())
+        if has_step == has_ref:  # both or none
+            raise ValueError("Each choice must define either 'step' or 'ref' (but not both)")
+        # normalize ref
+        if has_ref:
+            self.ref = self.ref.strip()
+        return self
 
 class GuideStep(BaseModel):
     title: str
@@ -372,6 +422,8 @@ class GuideStep(BaseModel):
     language: Optional[str] = None
     media: List[str] = Field(default_factory=list)
     position: Optional[int] = None
+    # Optional key to make this step addressable for reuse (linking)
+    key: Optional[str] = None
     choices: List["GuideStepChoice"] = Field(default_factory=list)
 
     @field_validator("content", mode="before")
@@ -407,6 +459,17 @@ class GuideStep(BaseModel):
         if len(v) > 3:
             raise ValueError("media accepts up to 3 URLs")
         return v
+
+    @field_validator("key", mode="before")
+    @classmethod
+    def key_clean(cls, v):
+        if v is None:
+            return None
+        s = str(v).strip()
+        if not s:
+            return None
+        # Keep simple slug-like keys; allow dashes/underscores
+        return s
 
 class GuideDefinition(BaseModel):
     contentTitle: str
@@ -605,6 +668,9 @@ def _build_one_guide(
     Returns a dict similar to the legacy response (without 'ok').
     """
     steps_created: List[Dict[str, Any]] = []
+    links_created: List[Dict[str, Any]] = []
+    # key -> stepId mapping for reuse
+    by_key: Dict[str, Any] = {}
     if dry_run:
         guide_id: Any = "dry-run-guide"
         first_step_id: Any = "dry-step-1"
@@ -614,6 +680,12 @@ def _build_one_guide(
             "parent": None,
             "choiceLabel": None,
         })
+        # Register first step key once (enables refs like 'intro')
+        k = getattr(definition.firstStep, "key", None)
+        if k:
+            if k in by_key:
+                raise HTTPException(400, detail={"error": f"Duplicate step key: {k}"})
+            by_key[k] = first_step_id
     else:
         allow_media = (str(definition.contentType).upper() != "ARTICLE")
         created = st.create_guide(
@@ -627,6 +699,12 @@ def _build_one_guide(
         )
         guide_id = created["guideId"]
         first_step_id = created["firstStepId"]
+        # Register first step key if provided (non-dry-run path)
+        if getattr(definition.firstStep, "key", None):
+            k = definition.firstStep.key
+            if k in by_key:
+                raise HTTPException(400, detail={"error": f"Duplicate step key: {k}"})
+            by_key[k] = first_step_id
         steps_created.append({
             "title": definition.firstStep.title,
             "stepId": first_step_id,
@@ -639,9 +717,53 @@ def _build_one_guide(
     for idx, choice in enumerate(definition.firstStep.choices):
         queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id, idx))
 
+    # Deferred links if target key is not yet created
+    pending_links: List[Tuple[str, Any, Optional[str], Optional[int], str, str]] = []
+    # tuple: (target_key, source_step_id, choice_label, position, parent_title, path)
+
     while queue:
         choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
-        step = choice.step
+
+        if choice.ref:  # create a link to an existing step
+            position_value = choice.position if choice.position is not None else choice_index
+            target_id = by_key.get(choice.ref)
+            if dry_run:
+                links_created.append({
+                    "action": "link",
+                    "sourceStepId": parent_step_id,
+                    "targetKey": choice.ref,
+                    "targetStepId": (target_id if target_id is not None else "<pending>"),
+                    "choiceLabel": choice.label,
+                    "position": position_value,
+                    "parent": parent_title,
+                    "parentPath": path,
+                })
+            else:
+                if target_id is not None:
+                    st.link_steps(
+                        guide_id=guide_id,
+                        source_step_id=parent_step_id,
+                        target_step_id=target_id,
+                        choice_label=choice.label,
+                        position=position_value,
+                    )
+                    links_created.append({
+                        "action": "link",
+                        "sourceStepId": parent_step_id,
+                        "targetKey": choice.ref,
+                        "targetStepId": target_id,
+                        "choiceLabel": choice.label,
+                        "position": position_value,
+                        "parent": parent_title,
+                        "parentPath": path,
+                    })
+                else:
+                    pending_links.append((choice.ref, parent_step_id, choice.label, position_value, parent_title, path))
+            # Do not traverse into referenced step (already part of the tree)
+            continue
+
+        # else: create a brand new step
+        step = choice.step  # type: ignore
         language = step.language or definition.language
         position_value = choice.position if choice.position is not None else (
             step.position if step.position is not None else choice_index
@@ -672,8 +794,42 @@ def _build_one_guide(
             "position": position_value,
         })
 
+        # Register step key for reuse
+        if step.key:
+            if step.key in by_key:
+                raise HTTPException(400, detail={"error": f"Duplicate step key: {step.key}"})
+            by_key[step.key] = step_id
+
         for idx, child in enumerate(step.choices):
             queue.append((child, f"{path}.step.choices[{idx}]", step.title, step_id, idx))
+
+    # Resolve deferred links now that all steps have been created
+    if not dry_run and pending_links:
+        unresolved: List[str] = []
+        for target_key, source_id, label, pos, parent_title, path in pending_links:
+            tgt = by_key.get(target_key)
+            if tgt is None:
+                unresolved.append(target_key)
+                continue
+            st.link_steps(
+                guide_id=guide_id,
+                source_step_id=source_id,
+                target_step_id=tgt,
+                choice_label=label,
+                position=pos,
+            )
+            links_created.append({
+                "action": "link",
+                "sourceStepId": source_id,
+                "targetKey": target_key,
+                "targetStepId": tgt,
+                "choiceLabel": label,
+                "position": pos,
+                "parent": parent_title,
+                "parentPath": path,
+            })
+        if unresolved:
+            raise HTTPException(400, detail={"error": "Unknown step key(s) referenced", "keys": sorted(set(unresolved))})
 
     # Publish? (skipped in dry-run)
     published = False
@@ -691,6 +847,7 @@ def _build_one_guide(
         "guideId": guide_id,
         "firstStepId": first_step_id,
         "steps": steps_created,
+        "links": links_created,
         "summary": {
             "stepCount": len(steps_created),
             "branchCount": max(len(steps_created) - 1, 0),

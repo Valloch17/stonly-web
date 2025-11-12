@@ -126,6 +126,32 @@
 
   // (Guide YAML persistence lives in guide.js)
 })();
+
+// Dev-only: persist sensitive tokens locally when running on localhost
+(function devTokenPersistence(){
+  try {
+    const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.*\.local)$/i.test(window.location.hostname);
+    if (!isLocal) return; // never persist tokens on non-local hosts
+
+    const pairs = [
+      { id: 'token', key: 'dev_admin_token' },          // Admin token (backend auth)
+      { id: 'password', key: 'dev_stonly_password' },   // Guide Builder credential
+      { id: 'st_pass', key: 'dev_stonly_password' },    // KB Builder credential
+    ];
+
+    pairs.forEach(({ id, key }) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      try {
+        const v = localStorage.getItem(key);
+        if (typeof el.value === 'string' && v && !el.value) el.value = v;
+      } catch {}
+      el.addEventListener('input', () => {
+        try { localStorage.setItem(key, (el.value || '').trim()); } catch {}
+      });
+    });
+  } catch {}
+})();
   // 4) Generic copy-to-clipboard helper that pages can use
   window.attachCopyButton = function attachCopyButton(opts) {
     const {
@@ -182,7 +208,8 @@
   // 5) Shared backend BASE detection (sets window.BASE if not present)
   try {
     if (!window.BASE) {
-      const DEFAULT_BACKEND = 'https://stonly-web.onrender.com';
+      const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.*\.local)$/i.test(window.location.hostname);
+      const DEFAULT_BACKEND = isLocal ? 'http://localhost:8000' : 'https://stonly-web.onrender.com';
       const base = (window.location.origin.includes('stonly-web.onrender.com')
         ? window.location.origin
         : DEFAULT_BACKEND).replace(/\/+$/, '');
