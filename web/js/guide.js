@@ -691,18 +691,7 @@ function setupCopyOut() {
     }
 }
 
-function warnMissingSettings(settings) {
-    const missing = [];
-    if (!settings.token) missing.push('Admin token');
-    if (!settings.user) missing.push('Stonly username');
-    if (!settings.password) missing.push('Stonly token');
-    if (!settings.teamId) missing.push('Team ID');
-    if (!settings.folderId) missing.push('Folder ID');
-    if (missing.length) {
-        return `Missing required settings: ${missing.join(', ')}`;
-    }
-    return null;
-}
+// KB-style highlighting is performed via shared.js: window.validateRequired
 
 function describeError(payload, status) {
     if (!payload) return `HTTP ${status}`;
@@ -805,9 +794,9 @@ onReady(() => el('parseYamlBtn')?.addEventListener('click', () => {
 
 onReady(() => el('createGuideBtn')?.addEventListener('click', async () => {
     const settings = collectSettings();
-    const warning = warnMissingSettings(settings);
-    if (warning) {
-        alert(warning);
+    if (!(window.validateRequired && window.validateRequired(["token","teamId","folderId","user","password"]))) {
+        const out = el('out');
+        if (out) out.textContent = 'Please fill all required fields (*).';
         return;
     }
     const yamlText = getGuideYamlText();

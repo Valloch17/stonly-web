@@ -228,18 +228,7 @@ function getRoot(nodesFromUI) {
 }
 
 // Ajoute/retire un liserǸ rouge sur les champs vides requis
-function validateRequired() {
-    const ids = ["token", "parentId", "st_team", "st_user", "st_pass"];
-    let ok = true;
-    ids.forEach(id => {
-        const el = document.getElementById(id);
-        const empty = !el || !String(el.value || "").trim();
-        el.classList.toggle("ring-2", empty);
-        el.classList.toggle("ring-red-500", empty);
-        if (empty) ok = false;
-    });
-    return ok;
-}
+// Use shared validateRequired from shared.js
 
 
 function App() {
@@ -347,7 +336,7 @@ function App() {
     React.useEffect(() => {
         document.getElementById('addRoot').onclick = addRoot;
         document.getElementById('btnApply').onclick = () => {
-            if (!validateRequired()) {
+            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -362,7 +351,7 @@ function App() {
 
 
         document.getElementById('btnVerify').onclick = () => {
-            if (!validateRequired()) {
+            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -372,8 +361,8 @@ function App() {
         };
 
         document.getElementById('btnDump').onclick = () => {
-            if (!validateRequired()) {
-                document.getElementById('out').textContent = "Veuillez remplir tous les champs requis (*).";
+            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
+                document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
             call('/api/dump-structure', getCommon());

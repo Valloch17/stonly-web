@@ -12,6 +12,8 @@
       try { fn(); } catch (_) {}
     }
   }
+  // Expose on window so app scripts can reuse
+  window.onReady = onReady;
 
   // 1) Stonly widget bootstrap (id is shared across pages)
   onReady(function initStonlyWidget() {
@@ -70,6 +72,34 @@
       }
     } catch (_) { /* no-op */ }
   });
+
+  // 3) Shared required-field highlighter
+  window.validateRequired = function validateRequired(ids) {
+    let ok = true;
+    const invalidEls = [];
+    (ids || []).forEach(id => {
+      const el = document.getElementById(id);
+      const val = (el && typeof el.value === 'string') ? el.value.trim() : '';
+      const empty = !el || !val;
+      if (el) {
+        el.classList.toggle('ring-2', empty);
+        el.classList.toggle('ring-red-500', empty);
+        el.setAttribute('aria-invalid', empty ? 'true' : 'false');
+      }
+      if (empty) { ok = false; if (el) invalidEls.push(el); }
+    });
+    if (!ok) {
+      try {
+        // Focus the first invalid field (without scrolling to it), then scroll page to top
+        const first = invalidEls[0];
+        if (first && typeof first.focus === 'function') {
+          try { first.focus({ preventScroll: true }); } catch { first.focus(); }
+        }
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } catch { /* no-op */ }
+    }
+    return ok;
+  };
 
   // 3) Shared persistence for Stonly user/team/folder between apps (no legacy migration)
   onReady(function initSharedPersistence() {
