@@ -1,7 +1,11 @@
-# Stonly Folder Builder
+# Stonly Builders (Folders + Guides)
 
-A lightweight web + API tool to **design, preview, verify, and create** folder trees in **Stonly** using the public API.
-Non-technical teammates can define the information architecture visually or via YAML, and technical users can automate repeatable provisioning safely.
+This repository contains two small tools built on the Stonly public API:
+
+- Folder Builder (knowledge base folders)
+- Guide Builder (create Guides/Articles/Guided Tours from YAML)
+
+Both are simple static pages backed by the same FastAPI server.
 
 ---
 
@@ -160,6 +164,39 @@ root:
 
 ---
 
+## Guide Builder (YAML → Guides)
+
+Create and publish Stonly Guides from YAML with nested steps, choices, optional media, multi‑guide batches, and step reuse (linking existing steps).
+
+### Key features
+
+- Parse and preview YAML as a visual tree with an execution plan
+- Dry‑run mode (no API calls) and real mode with optional publish
+- Multi‑guide YAML via `---` or a top‑level `guides: []`
+- Per‑guide overrides (`folderId`, `publish`, `contentType`, `language`)
+- Step reuse via Stonly’s `POST /guide/step/link`:
+  - Add `key` on any step you want to jump to later
+  - In a choice, set `ref: <key>` to link the parent step to that step
+  - Use for cross‑branch jumps or multi‑step returns (avoid one‑step “Back”) 
+- Examples menu includes a full multi‑guide prompt: `web/assets/prompt.yaml`
+
+### Running locally
+
+1) Start the backend at `http://localhost:8000` (see Quick Start above).
+2) Open `web/guide-builder.html` or serve the `web/` folder. On localhost the page auto‑targets `http://localhost:8000`.
+3) Fill Admin token + Stonly credentials. On localhost, tokens persist across refresh.
+
+### YAML schema (short)
+
+- `guide`: `{ contentTitle, contentType, language, firstStep }`
+- `Step`: `{ title, content, language?, media[≤3]?, position?, key?, choices? }`
+- `Choice`: `{ label?, position?, step? | ref? }` (exactly one of `step` or `ref`)
+- `contentType`: `GUIDE | ARTICLE | GUIDED_TOUR`
+
+See `samples/prompt.yaml` and the Examples menu for full patterns.
+
+---
+
 ## API (Backend)
 
 Base URL = your backend (e.g., `https://stonly-web.onrender.com`)
@@ -246,7 +283,8 @@ Returns:
 ### Frontend
 
 * Static site (no build); just serve `web/` (Render static site or any CDN)
-* In `index.html`, set `const BASE = "<your-backend-url>"`
+* The pages are `index.html` (Folder Builder) and `guide-builder.html` (Guide Builder).
+* In production, serve both with the same backend origin or set `window.BASE` with a small inline script if needed.
 
 ---
 
@@ -340,3 +378,16 @@ Returns:
 * **Repository**: [https://github.com/Valloch17/stonly-web](https://github.com/Valloch17/stonly-web)
 
 ---
+
+### Guide Builder Files
+
+```
+web/
+├─ guide-builder.html       # Guide Builder UI
+├─ assets/
+│  └─ prompt.yaml           # Full multi‑guide example (keys/refs)
+├─ js/
+│  ├─ guide.js              # Guide Builder logic (parsing, preview, plan)
+│  └─ shared.js             # Shared: BASE autodetect, token persistence, widget boot
+└─ shared.css               # Theme + preview styling
+```
