@@ -54,7 +54,18 @@ if not ADMIN_TOKEN:
 # Ils arrivent depuis le frontend dans chaque requête (payload ou query).
 
 
-app = FastAPI(title="Stonly Web Backend")
+tags_metadata = [
+    {"name": "Health", "description": "Health and readiness probes"},
+    {"name": "Debug", "description": "Diagnostics and server logs"},
+    {"name": "Structure", "description": "Folder and tree operations"},
+    {"name": "Builder", "description": "Build/verify/apply guide trees"},
+]
+
+app = FastAPI(
+    title="Stonly Web Backend",
+    openapi_tags=tags_metadata,
+    swagger_ui_parameters={"docExpansion": "list", "defaultModelsExpandDepth": -1},
+)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -69,7 +80,7 @@ import os, itertools, collections
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
 
-@app.get("/api/debug/logs", response_class=PlainTextResponse)
+@app.get("/api/debug/logs", response_class=PlainTextResponse, tags=["Debug"], summary="Tail server logs")
 def tail_logs(lines: int = Query(300, ge=1, le=5000)):
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
@@ -856,7 +867,7 @@ def _build_one_guide(
     }
 
 # ---- endpoints ----
-@app.post("/api/apply")
+@app.post("/api/apply", tags=["Builder"], summary="Apply folder structure")
 def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)):
     ensure_admin(f"Bearer {payload.token}")
     st = Stonly(base=payload.creds.base, user=payload.creds.user,
@@ -926,7 +937,7 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
     dfs(payload.root, payload.parentId, "")
     return {"ok": True, "mapping": mapping}
 
-@app.post("/api/verify")
+@app.post("/api/verify", tags=["Builder"], summary="Verify folder structure")
 def api_verify(payload: VerifyPayload):
     ensure_admin(f"Bearer {payload.token}")
     st = Stonly(base=payload.creds.base, user=payload.creds.user,
@@ -960,7 +971,7 @@ def api_verify(payload: VerifyPayload):
     return {"ok": True, "missing": missing, "extra": extra}
 
 
-@app.post("/api/guides/build")
+@app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")
 def api_build_guide(payload: GuideBuildPayload):
     request_id = str(uuid.uuid4())
     logger.info("REQUEST %s :: /api/guides/build", request_id)
@@ -1110,7 +1121,7 @@ def api_build_guide(payload: GuideBuildPayload):
         resp["bulkPublishError"] = bulk_publish_error
     return resp
 
-@app.get("/api/dump-structure")
+@app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(
     token: str,
     user: str,
@@ -1173,7 +1184,7 @@ def api_dump(
     return {"root": roots}
 
 
-@app.get("/api/ping")
+@app.get("/api/ping", tags=["Health"], summary="Health check")
 def ping():
     return {"ok": True}
 
