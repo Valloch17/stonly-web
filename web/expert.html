@@ -136,6 +136,10 @@
           <p class="text-sm text-slate-500">Build guides/articles/tours. Follows Guide Builder format.</p>
         </div>
         <div class="flex items-center gap-2">
+          <label class="inline-flex items-center gap-2 text-sm">
+            <input id="guidePublish" type="checkbox" class="h-4 w-4" checked />
+            <span>Publish</span>
+          </label>
           <a href="https://gemini.google.com/gem/1MHO5r8g7AGpvPyMOP8LvYEbDmU3q2wCU?usp=sharing" target="_blank" rel="noopener noreferrer"
              class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
             <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
@@ -145,10 +149,6 @@
             <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
             Guide Organiser
           </a>
-          <label class="inline-flex items-center gap-2 text-sm ml-2">
-            <input id="guidePublish" type="checkbox" class="h-4 w-4" checked />
-            <span>Publish</span>
-          </label>
           <button id="guideParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
           <button id="guideRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run</button>
         </div>
