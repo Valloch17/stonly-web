@@ -44,6 +44,26 @@
         <p class="text-sm text-slate-500 dark:text-slate-400">Lean KB + Guide creation. No preview.</p>
       </div>
       <div class="flex items-center gap-3 pt-1">
+        <a href="/"
+           class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+          </svg>
+          KB Builder
+        </a>
+        <a href="/guide-builder.html"
+           class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+            <circle cx="5" cy="6" r="2"></circle>
+            <circle cx="5" cy="18" r="2"></circle>
+            <circle cx="19" cy="12" r="2"></circle>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+          </svg>
+          Guide Builder
+        </a>
         <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
           <span id="themeIcon"></span>
           <span id="themeLabel">Dark</span>
@@ -118,7 +138,7 @@
         </div>
       </header>
       <div>
-        <textarea id="kbYaml" rows="10" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
+        <textarea id="kbYaml" rows="6" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
         <p id="kbYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
       <div class="flex items-center justify-between">
@@ -145,16 +165,12 @@
             <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
             Guide YAML
           </a>
-          <a href="https://gemini.google.com/gem/1pitQK02-ouz4NV-KuhtQddRB-vUeQuG_?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
-            Guide Organiser
-          </a>
           <button id="guideParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
           <button id="guideRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run</button>
         </div>
       </header>
       <div>
-        <textarea id="guideYaml" rows="12" class="w-full border rounded-lg p-2 text-sm" placeholder="# See Guide Builder examples"></textarea>
+        <textarea id="guideYaml" rows="8" class="w-full border rounded-lg p-2 text-sm" placeholder="# See Guide Builder examples"></textarea>
         <p id="guideYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
       <div class="flex items-center justify-between">
@@ -162,6 +178,27 @@
         <button id="copyGuideOut" class="px-3 py-1.5 rounded-md border text-sm">Copy</button>
       </div>
       <pre id="guideOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>
+    </section>
+
+    <!-- Guide Organiser YAML -->
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
+      <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Guide Organiser YAML</h2>
+          <p class="text-sm text-slate-500">Map guides to folder IDs using multi-document YAML.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <a href="https://gemini.google.com/gem/1pitQK02-ouz4NV-KuhtQddRB-vUeQuG_?usp=sharing" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
+            <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
+            Guide Organiser
+          </a>
+          <button id="organiserParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
+        </div>
+      </header>
+      <div>
+        <textarea id="organiserYaml" rows="8" class="w-full border rounded-lg p-2 text-sm" placeholder="---&#10;folderId: 500058&#10;guide:&#10;  contentTitle: &quot;🚢 Procedure | Damaged Container&quot;&#10;  contentType: GUIDE&#10;---&#10;folderId: 500073&#10;guide:&#10;  contentTitle: &quot;✍️ Creator | Using SOP Templates&quot;&#10;  contentType: ARTICLE"></textarea>
+        <p id="organiserYamlError" class="text-sm text-red-600 mt-1"></p>
+      </div>
     </section>
 
     <!-- Logs -->

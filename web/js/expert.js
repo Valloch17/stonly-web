@@ -118,6 +118,68 @@
     catch(e){ if (err) err.textContent = 'Invalid YAML: ' + (e?.message || e); }
   }
 
+  async function onOrganiserParse(){
+    const t = (el('organiserYaml')?.value || '').trim();
+    const err = el('organiserYamlError');
+    if (!t) { if (err) err.textContent = ''; return; }
+    try {
+      const docs = [];
+      jsyaml.loadAll(t, (d) => { docs.push(d); });
+      if (!docs.length) throw new Error('Empty YAML');
+      if (err) err.textContent = '';
+    } catch(e){
+      if (err) err.textContent = 'Invalid YAML: ' + (e?.message || e);
+    }
+  }
+
+  function applyOrganiserMapping(guideYaml, organiserYaml){
+    const orgText = (organiserYaml || '').trim();
+    if (!orgText) return guideYaml;
+
+    const guideDocs = [];
+    jsyaml.loadAll(guideYaml || '', (d) => { guideDocs.push(d); });
+    if (!guideDocs.length) throw new Error('No guides found in Guide YAML');
+
+    const organiserDocs = [];
+    jsyaml.loadAll(orgText, (d) => { organiserDocs.push(d); });
+    if (!organiserDocs.length) return guideYaml;
+
+    const titleTypeToFolder = new Map();
+    for (const raw of organiserDocs) {
+      if (!raw || typeof raw !== 'object') continue;
+      const folderId = raw.folderId ?? raw.folder_id;
+      const g = (raw.guide && typeof raw.guide === 'object') ? raw.guide : raw;
+      const title = g && typeof g.contentTitle === 'string' ? g.contentTitle.trim() : '';
+      const ct = g && typeof g.contentType === 'string' ? g.contentType.trim() : (typeof raw.contentType === 'string' ? raw.contentType.trim() : 'GUIDE');
+      if (!title || !ct) continue;
+      const idNum = Number(folderId);
+      if (!Number.isFinite(idNum) || idNum <= 0) continue;
+      const key = `${title}||${ct.toUpperCase()}`;
+      if (!titleTypeToFolder.has(key)) titleTypeToFolder.set(key, idNum);
+    }
+
+    if (!titleTypeToFolder.size) return guideYaml;
+
+    const transformed = guideDocs.map((raw) => {
+      if (!raw || typeof raw !== 'object') return raw;
+      const g = (raw.guide && typeof raw.guide === 'object') ? raw.guide : raw;
+      const title = g && typeof g.contentTitle === 'string' ? g.contentTitle.trim() : '';
+      const ct = g && typeof g.contentType === 'string'
+        ? g.contentType.trim()
+        : (typeof raw.contentType === 'string' ? raw.contentType.trim() : 'GUIDE');
+      if (!title || !ct) return raw;
+      const key = `${title}||${ct.toUpperCase()}`;
+      const idNum = titleTypeToFolder.get(key);
+      if (idNum == null) return raw;
+      const copy = Array.isArray(raw) ? raw.slice() : { ...raw };
+      copy.folderId = idNum;
+      return copy;
+    });
+
+    const docsYaml = transformed.map((d) => jsyaml.dump(d, { noRefs: true }).trimEnd());
+    return docsYaml.join('\n---\n');
+  }
+
   async function onGuideRun(){
     if (!(window.validateRequired && window.validateRequired(['token','st_user','st_pass','st_team','parentId']))) {
       setOut('guideOut', 'Please fill all required fields (*).');
@@ -131,12 +193,23 @@
       if (!docs.length) throw new Error('Empty YAML');
     } catch(e){ setOut('guideOut', 'Invalid YAML: ' + (e?.message || e)); return; }
 
+    const organiserText = (el('organiserYaml')?.value || '').trim();
+    let finalYaml = yamlText;
+    if (organiserText) {
+      try {
+        finalYaml = applyOrganiserMapping(yamlText, organiserText);
+      } catch(e){
+        setOut('guideOut', 'Invalid Guide Organiser YAML: ' + (e?.message || e));
+        return;
+      }
+    }
+
     const c = collectCommon();
     const body = {
       token: c.token,
       dryRun: false,
       folderId: c.parentId,
-      yaml: yamlText,
+      yaml: finalYaml,
       defaults: { language: c.language },
       publish: !!(el('guidePublish') && el('guidePublish').checked),
       creds: { user: c.user, password: c.password, teamId: c.teamId, base: c.base }
@@ -188,6 +261,7 @@
     el('kbParseBtn')?.addEventListener('click', onKbParse);
     el('kbRunBtn')?.addEventListener('click', onKbRun);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
+    el('organiserParseBtn')?.addEventListener('click', onOrganiserParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
