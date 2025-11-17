@@ -83,6 +83,17 @@ button:not(.theme-toggle):focus-visible {
   outline-offset: 2px;
 }
 
+/* Dark-mode: slightly stronger hover affordance for buttons */
+html[data-theme="dark"] button:not(.theme-toggle):hover {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.7);
+}
+
+html[data-theme="dark"] button:not(.theme-toggle):active {
+  filter: brightness(0.92);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
+}
+
 /* Button-like links (gems, menu pills, etc.) */
 a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium,
 a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium {
@@ -109,6 +120,19 @@ a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.fon
 a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
+}
+
+/* Dark-mode hover for button-like links */
+html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:hover,
+html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:hover {
+  filter: brightness(1.08);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.7);
+}
+
+html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:active,
+html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:active {
+  filter: brightness(0.92);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
 }
 
 /* Top navigation pills: use builder page accent colors in light mode */
