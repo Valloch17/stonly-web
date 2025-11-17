@@ -52,7 +52,7 @@ if not ADMIN_TOKEN:
 
 # Session / cookie configuration (admin login)
 SESSION_COOKIE_NAME = "st_session"
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "28800"))
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "259200"))  # 72h default
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
 
