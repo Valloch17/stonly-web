@@ -1,3 +1,7 @@
+if (typeof window.requireAdmin === 'function') {
+    window.requireAdmin();
+}
+
 const EXAMPLES = {
     article: `# ARTICLE — single step (simple HTML, no choices)
         guide:
@@ -250,7 +254,7 @@ window.DEFAULT_BACKEND = DEFAULT_BACKEND;
 window.BASE = BASE;
 
 async function apiFetch(path, init) {
-    const res = await fetch(BASE + path, init);
+    const res = await fetch(BASE + path, { credentials: 'include', ...(init || {}) });
     const ct = (res.headers.get('content-type') || '').toLowerCase();
     const text = await res.text();
 
@@ -369,11 +373,13 @@ function getGuideYamlText() {
 
 function collectSettings() {
     return {
-        token: (el('token')?.value || '').trim(),
         dryRun: !!el('dryRun')?.checked,
         base: (el('base')?.value || '').trim(),
         teamId: el('teamId')?.value ? Number(el('teamId').value) : null,
-        user: (el('user')?.value || '').trim(),
+        user: (() => {
+            const v = (el('user')?.value || '').trim();
+            return v || "Undefined";
+        })(),
         password: (el('password')?.value || '').trim(),
         folderId: el('folderId')?.value ? Number(el('folderId').value) : null,
         contentTitle: (el('contentTitle')?.value || '').trim(),
@@ -597,7 +603,6 @@ function collectPlan(parsed, settings) {
             return s.length > chars ? s.slice(0, chars) + ' …' : s;
         };
         const merged = {
-            token: settings.token,
             dryRun: settings.dryRun,
             base: settings.base,
             teamId: settings.teamId,
@@ -755,7 +760,6 @@ function describeError(payload, status) {
 
 function buildGuidePayload(settings, yamlText) {
     return {
-        token: settings.token,
         dryRun: settings.dryRun,
         folderId: settings.folderId,
         yaml: yamlText,
@@ -834,7 +838,7 @@ onReady(() => el('parseYamlBtn')?.addEventListener('click', () => {
 
 onReady(() => el('createGuideBtn')?.addEventListener('click', async () => {
     const settings = collectSettings();
-    if (!(window.validateRequired && window.validateRequired(["token","teamId","folderId","user","password"]))) {
+    if (!(window.validateRequired && window.validateRequired(["teamId","folderId","user","password"]))) {
         const out = el('out');
         if (out) out.textContent = 'Please fill all required fields (*).';
         return;

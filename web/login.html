@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="/assets/favicon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <title>Stonly Builder Login</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+</head>
+
+<body class="min-h-screen flex items-center justify-center px-4">
+  <main class="w-full max-w-md">
+    <div class="bg-card border rounded-xl shadow-sm p-6 space-y-4">
+      <header class="space-y-1">
+        <div class="flex items-center gap-3">
+          <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-8 w-auto logo-light">
+          <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-8 w-auto logo-dark">
+        </div>
+        <h1 class="text-xl font-semibold mt-2">Builder access</h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          Enter the admin token to access KB / Guide builders.
+        </p>
+      </header>
+
+      <form class="space-y-4" onsubmit="return false;">
+        <div>
+          <label for="st_user" class="block text-sm font-medium">Stonly username</label>
+          <input id="st_user" type="email" autocomplete="off"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="email@company.com (optional)" />
+        </div>
+        <div>
+          <label for="token" class="block text-sm font-medium">Admin token <span class="text-red-600">*</span></label>
+          <input id="token" type="password" autocomplete="off"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="The token can be found on Confluence" />
+        </div>
+        
+        <p id="loginError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
+        <button id="loginBtn" type="button"
+                class="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
+          Log in
+        </button>
+      </form>
+    </div>
+  </main>
+
+  <script src="/js/shared.js?v=1"></script>
+  <script>
+    (window.onReady || (fn => fn()))(function () {
+      const input = document.getElementById('token');
+      const btn = document.getElementById('loginBtn');
+      const err = document.getElementById('loginError');
+
+      async function doLogin() {
+        const token = (input.value || '').trim();
+        if (err) err.textContent = '';
+        if (!token) {
+          if (err) err.textContent = 'Please enter the admin token.';
+          return;
+        }
+        const base = ((window.BASE || window.DEFAULT_BACKEND || window.location.origin) || '').replace(/\/+$/, '');
+        try {
+          const res = await fetch(base + '/api/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ token }),
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            if (err) err.textContent = 'Invalid token.';
+            return;
+          }
+          const params = new URLSearchParams(window.location.search || '');
+          const next = params.get('next') || '/';
+          window.location.href = next;
+        } catch (e) {
+          if (err) err.textContent = 'Login failed. Please retry.';
+        }
+      }
+
+      if (btn) {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          doLogin();
+        });
+      }
+      if (input) {
+        input.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            doLogin();
+          }
+        });
+      }
+    });
+  </script>
+</body>
+
+</html>

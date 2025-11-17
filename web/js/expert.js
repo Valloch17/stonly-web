@@ -1,5 +1,8 @@
 // Expert mode JS: lean KB + Guide builders using existing backend endpoints
 (function(){
+  if (typeof window.requireAdmin === 'function') {
+    window.requireAdmin();
+  }
   const el = (id) => document.getElementById(id);
 
   function getBASE(){
@@ -9,7 +12,7 @@
   async function apiFetch(path, init){
     const base = getBASE();
     const url = base + path;
-    const res = await fetch(url, init);
+    const res = await fetch(url, { credentials: 'include', ...(init || {}) });
     const ct = (res.headers.get('content-type') || '').toLowerCase();
     const text = await res.text();
     let json;
@@ -47,15 +50,15 @@
   }
 
   function collectCommon(){
-    const token = (el('token')?.value || '').trim();
-    const user = (el('st_user')?.value || '').trim();
+    const rawUser = (el('st_user')?.value || '').trim();
+    const user = rawUser || "Undefined";
     const password = (el('st_pass')?.value || '').trim();
     const teamId = el('st_team')?.value ? Number(el('st_team').value) : null;
     const base = (el('st_base')?.value || '').trim() || 'https://public.stonly.com/api/v3';
     const parentId = el('parentId')?.value ? Number(el('parentId').value) : null;
     const publicAccess = parseInt((el('publicAccess')?.value || '1'), 10);
     const language = (el('lang')?.value || 'en').trim() || 'en';
-    return { token, user, password, teamId, base, parentId, publicAccess, language };
+    return { user, password, teamId, base, parentId, publicAccess, language };
   }
 
   function setOut(id, value){
@@ -77,7 +80,7 @@
 
   async function onKbRun(){
     // Validate required settings
-    if (!(window.validateRequired && window.validateRequired(['token','st_user','st_pass','st_team','parentId']))) {
+    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
       setOut('kbOut', 'Please fill all required fields (*).');
       return;
     }
@@ -89,7 +92,6 @@
 
     const c = collectCommon();
     const body = {
-      token: c.token,
       parentId: c.parentId,
       creds: { user: c.user, password: c.password, teamId: c.teamId, base: c.base },
       settings: { publicAccess: c.publicAccess, language: c.language },
@@ -181,7 +183,7 @@
   }
 
   async function onGuideRun(){
-    if (!(window.validateRequired && window.validateRequired(['token','st_user','st_pass','st_team','parentId']))) {
+    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
       setOut('guideOut', 'Please fill all required fields (*).');
       return;
     }
@@ -206,7 +208,6 @@
 
     const c = collectCommon();
     const body = {
-      token: c.token,
       dryRun: false,
       folderId: c.parentId,
       yaml: finalYaml,
@@ -247,14 +248,29 @@
 
   async function fetchLogs(){
     const ta = el('logBox');
+    const content = el('logsContent');
     try {
       const textOrJson = await apiFetch('/api/debug/logs?lines=400', { method: 'GET' });
       const raw = typeof textOrJson === 'string' ? textOrJson : JSON.stringify(textOrJson, null, 2);
       const t = (raw || '').trim();
-      ta.value = t ? `--- backend logs (tail) ---\n${t}\n--- end logs ---\n` : '';
-    } catch(e){ ta.value = String(e.message || e); }
+      if (ta) {
+        ta.value = t ? `--- backend logs (tail) ---\n${t}\n--- end logs ---\n` : '';
+      }
+      if (content) {
+        if (t) content.classList.remove('hidden');
+        else content.classList.add('hidden');
+      }
+    } catch(e){
+      if (ta) ta.value = String(e.message || e);
+      if (content) content.classList.remove('hidden');
+    }
   }
-  function clearLogs(){ const ta = el('logBox'); if (ta) ta.value = ''; }
+  function clearLogs(){
+    const ta = el('logBox');
+    const content = el('logsContent');
+    if (ta) ta.value = '';
+    if (content) content.classList.add('hidden');
+  }
 
   // Wire events on DOM ready (shared.js exposes window.onReady)
   (window.onReady || ((fn)=>fn()))(() => {

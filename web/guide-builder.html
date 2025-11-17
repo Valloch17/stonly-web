@@ -73,16 +73,29 @@
         </div>
 
         <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <!-- Admin token -->
+            <!-- Row 1: IDs + token + base -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                    <label for="token" class="block text-sm font-medium">Admin token <span
-                            class="text-red-600">*</span></label>
-                    <input id="token" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="The token can be found on Confluence" />
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+                            <input id="teamId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                                placeholder="e.g. 39539" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
+                            <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                                placeholder="e.g. 456234" />
+                        </div>
+                    </div>
                 </div>
-
-                <!-- Stonly API Base URL -->
+                <div>
+                    <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
+                    <input id="password" type="password" required aria-required="true"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token"
+                        autocomplete="off" />
+                    <input id="user" type="hidden" autocomplete="off" />
+                </div>
                 <div>
                     <label for="base" class="block text-sm font-medium">Stonly API Base URL</label>
                     <input id="base" type="text" placeholder="https://public.stonly.com/api/v3"
@@ -90,20 +103,7 @@
                 </div>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-sm font-medium">Stonly username <span class="text-red-600">*</span></label>
-                    <input id="user" type="text" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="email@company.com"
-                        autocomplete="off" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium">Stonly token <span class="text-red-600">*</span></label>
-                    <input id="password" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token"
-                        autocomplete="off" />
-                </div>
-            </div>
+            <!-- Row 2: Publish / Dry-run -->
             <div class="flex flex-wrap items-center gap-x-6 gap-y-2">
                 <label class="inline-flex items-center gap-2">
                     <input id="publishAfter" type="checkbox" class="h-4 w-4" checked>
@@ -114,20 +114,6 @@
                     <input id="dryRun" type="checkbox" class="h-4 w-4">
                     <span class="text-sm font-medium">Dry-run</span>
                 </label>
-            </div>
-
-
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
-                    <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-                    <input id="teamId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="e.g. 39539" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
-                    <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="e.g. 456234" />
-                </div>
             </div>
         </section>
 
@@ -160,7 +146,7 @@
                 <div class="md:col-span-2 md:justify-self-end">
                     <label class="block text-sm font-medium">Language</label>
                     <input id="language" type="text"
-                        class="mt-1 w-full md:w-24 text-center border border-neutral rounded-lg p-2 text-sm"
+                        class="mt-1 w-full text-center border border-neutral rounded-lg p-2 text-sm"
                         placeholder="en" value="en" />
                 </div>
             </div>

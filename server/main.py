@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass, field
 import os, time
 
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 try:
@@ -50,6 +50,15 @@ ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
 if not ADMIN_TOKEN:
     raise RuntimeError("Missing env: APP_ADMIN_TOKEN")
 
+# Session / cookie configuration (admin login)
+SESSION_COOKIE_NAME = "st_session"
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "28800"))
+SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
+SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
+
+# Stockage en mémoire des sessions : session_id -> timestamp d'expiration
+SESSIONS: Dict[str, float] = {}
+
 # IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
 # Ils arrivent depuis le frontend dans chaque requête (payload ou query).
 
@@ -66,12 +75,29 @@ app = FastAPI(
     openapi_tags=tags_metadata,
     swagger_ui_parameters={"docExpansion": "list", "defaultModelsExpandDepth": -1},
 )
+
+# CORS : autoriser seulement les frontends connus (+ localhost optionnel)
+FRONTEND_ORIGINS = [
+    "https://api-stonly-internal.onrender.com",
+    "https://ai-builder.stonly.com",
+]
+if os.getenv("CORS_ALLOW_LOCALHOST") == "1":
+    FRONTEND_ORIGINS.extend(
+        [
+            "http://localhost",
+            "http://localhost:3000",
+            "http://localhost:5173",
+            "http://localhost:4173",
+            "http://127.0.0.1:8000",
+        ]
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=FRONTEND_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"]
+    allow_headers=["*"],
 )
 
 from fastapi import Query
@@ -93,12 +119,42 @@ def tail_logs(lines: int = Query(300, ge=1, le=5000)):
 from fastapi.responses import JSONResponse
 import traceback
 
+
 def mask_secret(value: Optional[str]) -> Optional[str]:
     if value is None:
         return None
     if len(value) <= 4:
         return "*" * len(value)
     return f"{value[:3]}***{value[-2:]}"
+
+
+def shorten_for_log(text: Any, limit: int = 50) -> Any:
+    """
+    Truncate long step/content strings for logs so we don't dump full HTML.
+    Non-string values are returned unchanged.
+    """
+    if not isinstance(text, str):
+        return text
+    s = text.replace("\n", " ").strip()
+    if len(s) <= limit:
+        return s
+    return s[:limit] + "…"
+
+
+def shorten_payload_for_log(obj: Any) -> Any:
+    """
+    Best-effort truncation of large HTML/text fields in request/response
+    payloads. Only shortens keys whose name contains 'content'.
+    """
+    if not isinstance(obj, dict):
+        return obj
+    out: Dict[str, Any] = {}
+    for k, v in obj.items():
+        if isinstance(v, str) and "content" in str(k).lower():
+            out[k] = shorten_for_log(v)
+        else:
+            out[k] = v
+    return out
 
 @app.exception_handler(Exception)
 async def unhandled_exc(_, exc: Exception):
@@ -110,12 +166,53 @@ async def unhandled_exc(_, exc: Exception):
     )
 
 
+def _create_session() -> str:
+    sid = uuid.uuid4().hex
+    SESSIONS[sid] = time.time() + SESSION_TTL_SECONDS
+    return sid
+
+
+def _clear_session(session_id: str) -> None:
+    SESSIONS.pop(session_id, None)
+
+
+def _has_valid_session(request: Optional[Request]) -> bool:
+    if request is None:
+        return False
+    sid = request.cookies.get(SESSION_COOKIE_NAME)
+    if not sid:
+        return False
+    expires_at = SESSIONS.get(sid)
+    now = time.time()
+    if not expires_at or expires_at < now:
+        SESSIONS.pop(sid, None)
+        return False
+    return True
+
+
 # ---- Auth guard ----
-def ensure_admin(auth_header: Optional[str]):
-    if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(401, detail="Missing bearer token")
-    token = auth_header.split(" ", 1)[1]
-    if token != ADMIN_TOKEN:
+def ensure_admin(
+    auth_header: Optional[str] = None,
+    *,
+    request: Optional[Request] = None,
+    token: Optional[str] = None,
+) -> None:
+    # 1) Session via cookie
+    if _has_valid_session(request):
+        return
+
+    # 2) Fallback : jeton brut (header ou payload)
+    candidate: Optional[str] = None
+    if token:
+        candidate = token
+    elif auth_header:
+        if not auth_header.startswith("Bearer "):
+            raise HTTPException(401, detail="Missing bearer token")
+        candidate = auth_header.split(" ", 1)[1]
+
+    if not candidate:
+        raise HTTPException(401, detail="Missing admin token or session")
+    if candidate != ADMIN_TOKEN:
         raise HTTPException(403, detail="Invalid token")
 
 # ---- Client API Stonly ----
@@ -195,10 +292,15 @@ class Stonly:
         for _ in range(5):
             r = self.s.request(method, url, params=p, json=json, timeout=30)
             # log minimal
-            # Just before returning/raising inside _req(...)
-            logger.info("REQ %s %s params=%s status=%s json=%s",
-                        method, r.url, p, r.status_code,
-                        json if method in ("POST","PUT","PATCH") else None)
+            log_json = shorten_payload_for_log(json) if method in ("POST", "PUT", "PATCH") else None
+            logger.info(
+                "REQ %s %s params=%s status=%s json=%s",
+                method,
+                r.url,
+                p,
+                r.status_code,
+                log_json,
+            )
 
             if not r.ok:
                 try:
@@ -218,7 +320,7 @@ class Stonly:
                 ):
                     logger.error("UPSTREAM LOGICAL ERROR %s %s -> %s", method, r.url, data)
                     raise HTTPException(400, detail={"upstream": data, "url": str(r.url)})
-                logger.debug("RESP %s %s -> %s", method, r.url, data)
+                logger.debug("RESP %s %s -> %s", method, r.url, shorten_payload_for_log(data))
                 return data
 
             logger.debug("RESP %s %s (non-json) -> %s", method, r.url, r.text[:500])
@@ -249,7 +351,9 @@ class Stonly:
         if media:
             body["media"] = media
 
-        logger.info("GUIDE create payload=%s", body)
+        body_log = dict(body)
+        body_log["content"] = shorten_for_log(body_log.get("content"))
+        logger.info("GUIDE create payload=%s", body_log)
         data = self._req("POST", "/guide", json=body)
         if not isinstance(data, dict):
             raise HTTPException(502, detail={"error": "Unexpected response creating guide", "payload": data})
@@ -290,7 +394,9 @@ class Stonly:
         if media:
             body["media"] = media
 
-        logger.info("GUIDE append payload=%s", body)
+        body_log = dict(body)
+        body_log["content"] = shorten_for_log(body_log.get("content"))
+        logger.info("GUIDE append payload=%s", body_log)
         data = self._req("POST", "/guide/step", json=body)
         if not isinstance(data, dict):
             raise HTTPException(502, detail={"error": "Unexpected response appending step", "payload": data})
@@ -387,10 +493,16 @@ class Stonly:
 # ---- modèles ----
 
 class Creds(BaseModel):
-    user: str
+    user: str = "Undefined"
     password: str
     teamId: int
     base: Optional[str] = "https://public.stonly.com/api/v3"
+
+    @field_validator("user", mode="before")
+    @classmethod
+    def default_user(cls, v):
+        s = str(v).strip() if v is not None else ""
+        return s or "Undefined"
 
 class UINode(BaseModel):
     name: str
@@ -493,7 +605,7 @@ GuideStep.model_rebuild()
 GuideDefinition.model_rebuild()
 
 class ApplyPayload(BaseModel):
-    token: str
+    token: Optional[str] = None
     creds: Creds
     parentId: Optional[int] = None
     dryRun: bool = False
@@ -501,19 +613,23 @@ class ApplyPayload(BaseModel):
     settings: Optional[Settings] = None
 
 class VerifyPayload(BaseModel):
-    token: str
+    token: Optional[str] = None
     creds: Creds
     parentId: Optional[int] = None
     root: List[UINode]
 
 class GuideBuildPayload(BaseModel):
-    token: str
+    token: Optional[str] = None
     creds: Creds
     folderId: int
     yaml: str
     dryRun: bool = False
     defaults: GuideDefaults = GuideDefaults()
     publish: bool = False
+
+
+class LoginPayload(BaseModel):
+    token: str
 
 
 
@@ -867,9 +983,43 @@ def _build_one_guide(
     }
 
 # ---- endpoints ----
+@app.post("/api/login", tags=["Auth"], summary="Obtain admin session")
+def api_login(payload: LoginPayload):
+    if payload.token != ADMIN_TOKEN:
+        raise HTTPException(401, detail="Invalid token")
+    sid = _create_session()
+    resp = JSONResponse({"ok": True})
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=sid,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite=SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/logout", tags=["Auth"], summary="Clear admin session")
+def api_logout(request: Request):
+    sid = request.cookies.get(SESSION_COOKIE_NAME)
+    if sid:
+        _clear_session(sid)
+    resp = JSONResponse({"ok": True})
+    resp.delete_cookie(SESSION_COOKIE_NAME, path="/")
+    return resp
+
+
+@app.get("/api/auth/status", tags=["Auth"], summary="Check admin session")
+def api_auth_status(request: Request):
+    ensure_admin(request=request)
+    return {"ok": True}
+
+
 @app.post("/api/apply", tags=["Builder"], summary="Apply folder structure")
-def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)):
-    ensure_admin(f"Bearer {payload.token}")
+def api_apply(payload: ApplyPayload, request: Request, authorization: Optional[str] = Header(None)):
+    ensure_admin(auth_header=authorization, request=request, token=payload.token)
     st = Stonly(base=payload.creds.base, user=payload.creds.user,
                 password=payload.creds.password, team_id=payload.creds.teamId)
     mapping: Dict[str, int] = {}
@@ -938,8 +1088,8 @@ def api_apply(payload: ApplyPayload, authorization: Optional[str] = Header(None)
     return {"ok": True, "mapping": mapping}
 
 @app.post("/api/verify", tags=["Builder"], summary="Verify folder structure")
-def api_verify(payload: VerifyPayload):
-    ensure_admin(f"Bearer {payload.token}")
+def api_verify(payload: VerifyPayload, request: Request):
+    ensure_admin(request=request, token=payload.token)
     st = Stonly(base=payload.creds.base, user=payload.creds.user,
                 password=payload.creds.password, team_id=payload.creds.teamId)
     # ... reste inchangé (collect expected vs real)
@@ -971,15 +1121,11 @@ def api_verify(payload: VerifyPayload):
     return {"ok": True, "missing": missing, "extra": extra}
 
 
-@app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")
 def api_build_guide(payload: GuideBuildPayload):
     request_id = str(uuid.uuid4())
     logger.info("REQUEST %s :: /api/guides/build", request_id)
     def _log(prefix, msg):
         logger.info("%s %s :: %s", prefix, request_id, msg)
-
-
-    ensure_admin(f"Bearer {payload.token}")
     # Parse YAML; may contain one or multiple guides
     items = parse_guides_multi(payload.yaml, payload.defaults)
 
@@ -1121,16 +1267,23 @@ def api_build_guide(payload: GuideBuildPayload):
         resp["bulkPublishError"] = bulk_publish_error
     return resp
 
+
+@app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")
+def api_build_guide_http(payload: GuideBuildPayload, request: Request):
+    ensure_admin(request=request, token=payload.token)
+    return api_build_guide(payload)
+
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(
-    token: str,
-    user: str,
-    password: str,
-    teamId: int,
+    request: Request,
+    token: Optional[str] = None,
+    user: str = ...,
+    password: str = ...,
+    teamId: int = ...,
     parentId: Optional[int] = None,
     base: str = "https://public.stonly.com/api/v3",
 ):
-    ensure_admin(f"Bearer {token}")
+    ensure_admin(request=request, token=token)
     st = Stonly(base=base, user=user, password=password, team_id=int(teamId))
 
     try:
@@ -1221,6 +1374,6 @@ if __name__ == "__main__":
         defaults=GuideDefaults(),
     )
 
-    # Call the same function the API uses so behavior matches /api/guides/build
+    # Call the same core logic the API uses so behavior matches /api/guides/build
     out = api_build_guide(payload)
     print(json.dumps(out, indent=2))

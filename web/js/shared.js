@@ -217,3 +217,28 @@
       window.BASE = base;
     }
   } catch (_) {}
+
+  // 6) Admin-session guard for builder pages
+  window.requireAdmin = function requireAdmin() {
+    (window.onReady || function (fn) {
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', fn, { once: true });
+      } else {
+        fn();
+      }
+    })(async function () {
+      try {
+        const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+        const res = await fetch(base + '/api/auth/status', {
+          method: 'GET',
+          credentials: 'include',
+        });
+        if (!res.ok) throw new Error('unauthorized');
+        const data = await res.json().catch(() => null);
+        if (!data || data.ok !== true) throw new Error('unauthorized');
+      } catch (_) {
+        const here = window.location.pathname + window.location.search;
+        window.location.href = '/login.html?next=' + encodeURIComponent(here || '/');
+      }
+    });
+  };

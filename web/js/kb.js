@@ -1,13 +1,17 @@
 // Extracted from web/index.html (all inline <script> tags, in order)
 // Stonly widget bootstrap moved to shared.js
 
+if (typeof window.requireAdmin === 'function') {
+    window.requireAdmin();
+}
+
 // Reset tree button handler
 document.getElementById('resetTree')?.addEventListener('click', () => {
     localStorage.removeItem(STORAGE_KEY_NODES);
     window.location.reload();
 });
 
-const BASE = "https://stonly-web.onrender.com"; // <-- corrige le ReferenceError (voir ��2)
+const KB_BASE = (window.BASE || "https://stonly-web.onrender.com").replace(/\/+$/, '');
 // --- Persistence helpers ---
 const STORAGE_KEY_NODES = "stonly_ui_nodes";
 const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML
@@ -265,10 +269,13 @@ function App() {
 
 
     const getCommon = () => ({
-        token: document.getElementById('token').value,   // APP_ADMIN_TOKEN
         parentId: (() => { const v = document.getElementById('parentId').value; return v ? Number(v) : null; })(),
         creds: {
-            user: document.getElementById('st_user').value,
+            user: (() => {
+                const el = document.getElementById('st_user');
+                const v = (el && typeof el.value === 'string') ? el.value.trim() : '';
+                return v || "Undefined";
+            })(),
             password: document.getElementById('st_pass').value,
             teamId: Number(document.getElementById('st_team').value),
             base: document.getElementById('st_base').value || "https://public.stonly.com/api/v3"
@@ -299,20 +306,20 @@ function App() {
             let res;
 
             if (path === '/api/dump-structure') {
-                const url = new URL(BASE + path);
+                const url = new URL(KB_BASE + path);
                 const c = bodyOrParams.creds;
-                url.searchParams.set('token', bodyOrParams.token);
                 url.searchParams.set('user', c.user);
                 url.searchParams.set('password', c.password);
                 url.searchParams.set('teamId', c.teamId);
                 url.searchParams.set('base', c.base || "https://public.stonly.com/api/v3");
                 if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
-                res = await fetch(url, { method: 'GET' });
+                res = await fetch(url.toString(), { method: 'GET', credentials: 'include' });
             } else {
-                res = await fetch(BASE + path, {
+                res = await fetch(KB_BASE + path, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(bodyOrParams),
+                    credentials: 'include',
                 });
             }
 
@@ -336,7 +343,7 @@ function App() {
     React.useEffect(() => {
         document.getElementById('addRoot').onclick = addRoot;
         document.getElementById('btnApply').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -351,7 +358,7 @@ function App() {
 
 
         document.getElementById('btnVerify').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -361,7 +368,7 @@ function App() {
         };
 
         document.getElementById('btnDump').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["token","parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }

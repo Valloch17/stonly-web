@@ -133,23 +133,29 @@
           
 
         <div class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-4">
-            <!-- <div class="flex items-center justify-between mb-2">
-                <h2 class="text-lg font-semibold">Settings</h2>
-            </div> -->
-
-            <!-- Admin token + Stonly API Base URL on one row -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
-                <!-- Admin token -->
+            <!-- Row 1: Team ID, Parent ID, token, base -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                    <label class="block text-sm font-medium">
-                        Admin token <span class="text-red-600">*</span>
-                    </label>
-                    <input id="token" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="The token can be found on Confluence" />
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+                            <input id="st_team" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
+                            <input id="parentId" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
+                        </div>
+                    </div>
                 </div>
-
-                <!-- Stonly API base URL -->
+                <div>
+                    <!-- Hidden username populated from login (optional) -->
+                    <input id="st_user" type="hidden" />
+                    <label class="block text-sm font-medium">
+                        Team token <span class="text-red-600">*</span>
+                    </label>
+                    <input id="st_pass" type="password" required aria-required="true"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
+                </div>
                 <div>
                     <label class="block text-sm font-medium">
                         Stonly API Base URL
@@ -159,84 +165,65 @@
                 </div>
             </div>
 
-
-
-
-            <!-- Stonly credentials -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- Global creation settings: visibility + language + dry-run -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
                 <div>
-                    <label class="block text-sm font-medium">
-                        Stonly username <span class="text-red-600">*</span>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium"><span id="forStonly">Visibility</span></label>
+                            <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
+                                <option value="1" selected>Public</option>
+                                <option value="0">Private</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
+                            <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
+                        </div>
+                    </div>
+                </div>
+                <div>
+                    <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap font-medium">
+                        <input id="dryRun" type="checkbox" class="h-4 w-4" />
+                        Dry-run
                     </label>
-                    <input id="st_user" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="email@company.com" />
                 </div>
-                <div>
-                    <label class="block text-sm font-medium">
-                        Stonly token <span class="text-red-600">*</span>
-                    </label>
-                    <input id="st_pass" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
-                </div>
+                <div></div>
             </div>
 
-            <!-- Global creation settings: 4 fields on one row -->
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-                <div>
-                    <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-                    <input id="st_team" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
-                    <input id="parentId" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
-                </div>
-                <div>
-                    <label class="block text-sm font-medium"><span id="forStonly">Visibility</span></label>
-                    <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
-                        <option value="1" selected>Public (1)</option>
-                        <option value="0">Private (0)</option>
-                    </select>
-                </div>
-                <div>
-                    <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
-                    <input id="lang" class="mt-1 w-full md:w-24 text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
-                </div>
-            </div>
+        </div>
 
-            <!-- Dry-run on its own row -->
-            <div>
-                <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap font-medium">
-                    <input id="dryRun" type="checkbox" class="h-4 w-4" />
-                    Dry-run
-                </label>
-            </div>
-
-            <!-- YAML (optional) -->
-            <div class="flex items-center justify-between">
-                <label class="block text-sm font-medium">KB YAML <i>(optional)</i></label>
+        <!-- KB YAML in its own container -->
+        <section class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-3">
+            <header class="flex items-center justify-between gap-3">
+                <div>
+                    <h2 class="text-lg font-semibold">KB YAML <span class="text-xs font-normal text-slate-500">(optional)</span></h2>
+                    <p class="text-sm text-slate-500">Describe folders using nested children arrays. Has priority over the Tree Builder.</p>
+                </div>
                 <a href="https://gemini.google.com/gem/1EtWRP99BcBjWW09p8DMx_RxtShU06d65?usp=sharing" target="_blank" rel="noopener noreferrer"
                    class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
                     <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
                     KB YAML
                 </a>
+            </header>
+            <div>
+                <textarea id="yaml" class="mt-1 w-full border rounded-lg p-2 text-sm h-36" placeholder="root:
+    - name: Support
+      description: 'Public info & help center'
+      children:
+        - name: FAQs
+          description: 'Common questions'
+          children: []
+        - name: Tutorials
+          children:
+            - name: Web
+              children: []
+            - name: Mobile
+              description: 'iOS & Android guides'
+              children: []"></textarea>
+                <small id="yamlError" class="text-red-600 text-xs"></small>
             </div>
-            <textarea id="yaml" class="mt-1 w-full border rounded-lg p-2 text-sm h-36" placeholder="root:
-            - name: Support
-              description: 'Public info & help center'
-              children:
-                - name: FAQs
-                  description: 'Common questions'
-                  children: []
-                - name: Tutorials
-                  children:
-                    - name: Web
-                      children: []
-                    - name: Mobile
-                      description: 'iOS & Android guides'
-                      children: []"></textarea>
-            <small id="yamlError" class="text-red-600 text-xs"></small>
-        </div>
-
+        </section>
 
 
         <div class="mb-4 bg-card border rounded-xl shadow-sm p-5">

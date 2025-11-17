@@ -73,11 +73,25 @@
 
     <!-- Settings -->
     <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <!-- Row 1: Team ID, Parent ID, token, base -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
-          <label class="block text-sm font-medium">Admin token <span class="text-red-600">*</span></label>
-          <input id="token" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                 placeholder="The token can be found on Confluence" />
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+              <input id="st_team" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
+              <input id="parentId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <!-- Hidden username populated from login (optional) -->
+          <input id="st_user" type="hidden" />
+          <label class="block text-sm font-medium">Stonly token <span class="text-red-600">*</span></label>
+          <input id="st_pass" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
         </div>
         <div>
           <label class="block text-sm font-medium">Stonly API Base URL</label>
@@ -86,36 +100,17 @@
         </div>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium">Stonly username <span class="text-red-600">*</span></label>
-          <input id="st_user" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="email@company.com" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium">Stonly token <span class="text-red-600">*</span></label>
-          <input id="st_pass" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
-        </div>
-      </div>
-
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
-        <div>
-          <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-          <input id="st_team" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
-          <input id="parentId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
-        </div>
+      <div class="grid grid-cols-1 md:grid-cols-6 gap-3 items-end">
         <div>
           <label class="block text-sm font-medium">Visibility</label>
           <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
-            <option value="1" selected>Public (1)</option>
-            <option value="0">Private (0)</option>
+            <option value="1" selected>Public</option>
+            <option value="0">Private</option>
           </select>
         </div>
         <div>
           <label class="block text-sm font-medium">Language</label>
-          <input id="lang" class="mt-1 w-full md:w-24 text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
+          <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
         </div>
       </div>
     </section>
@@ -202,16 +197,25 @@
     </section>
 
     <!-- Logs -->
-    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
-      <div class="flex items-center justify-between">
-        <h2 class="text-lg font-semibold">Logs</h2>
+    <div class="card">
+      <div class="card-header">
+        <div class="title">Logs</div>
         <div class="flex items-center gap-2">
-          <button id="btnFetchLogs" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Fetch logs</button>
-          <button id="btnClearLogs" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Clear</button>
+          <button id="btnFetchLogs" type="button"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral bg-card text-sm font-medium hover:brightness-105 transition">
+            Fetch
+          </button>
+          <button id="btnClearLogs" type="button"
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral bg-card text-sm font-medium hover:brightness-105 transition">
+            Clear
+          </button>
         </div>
       </div>
-      <textarea id="logBox" class="w-full border rounded-lg p-2 text-xs h-48" placeholder="Logs will appear here..."></textarea>
-    </section>
+      <div id="logsContent" class="card-content hidden">
+        <textarea id="logBox" class="text-xs"
+                  style="width:100%;height:220px;font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;"></textarea>
+      </div>
+    </div>
   </main>
 
   <script src="/js/shared.js"></script>
