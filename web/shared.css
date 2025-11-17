@@ -83,20 +83,10 @@ button:not(.theme-toggle):focus-visible {
   outline-offset: 2px;
 }
 
-/* Dark-mode: slightly stronger hover affordance for buttons */
-html[data-theme="dark"] button:not(.theme-toggle):hover {
-  filter: brightness(1.08);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.7);
-}
 
-html[data-theme="dark"] button:not(.theme-toggle):active {
-  filter: brightness(0.92);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
-}
 
 /* Button-like links (gems, menu pills, etc.) */
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium,
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium {
+a.inline-flex.items-center {
   transition:
     background-color 0.15s ease,
     border-color 0.15s ease,
@@ -104,35 +94,42 @@ a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.fon
     filter 0.15s ease;
 }
 
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:hover,
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:hover {
+a.inline-flex.items-center:hover {
   filter: brightness(1.03);
   box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
 }
 
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:active,
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:active {
+a.inline-flex.items-center:active {
   filter: brightness(0.97);
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
 }
 
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:focus-visible,
-a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:focus-visible {
+a.inline-flex.items-center:focus-visible {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
 
-/* Dark-mode hover for button-like links */
-html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:hover,
-html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:hover {
-  filter: brightness(1.08);
+/* Dark-mode: slightly stronger hover affordance for buttons and button-like links */
+html[data-theme="dark"] button:not(.theme-toggle):hover,
+html[data-theme="dark"] a.inline-flex.items-center:hover {
+  filter: brightness(1.10);
   box-shadow: 0 4px 14px rgba(15, 23, 42, 0.7);
 }
 
-html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:active,
-html[data-theme="dark"] a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:active {
+html[data-theme="dark"] button:not(.theme-toggle):active,
+html[data-theme="dark"] a.inline-flex.items-center:active {
   filter: brightness(0.92);
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.7);
+}
+
+
+/* Expert incognito icon: invert to white in dark mode */
+.expert-incognito-icon {
+  display: block;
+}
+
+html[data-theme="dark"] .expert-incognito-icon {
+  filter: brightness(0) invert(1);
 }
 
 /* Top navigation pills: use builder page accent colors in light mode */
