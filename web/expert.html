@@ -29,6 +29,17 @@
       border-color: var(--border);
       color: var(--text);
     }
+    /* Expert Guide YAML parse button success state */
+    #guideParseBtn.guide-parse-copied {
+      background-color: #dcfce7 !important; /* green-100 */
+      border-color: #bbf7d0 !important;    /* green-200 */
+      color: #166534 !important;           /* green-700 */
+    }
+    html[data-theme="dark"] #guideParseBtn.guide-parse-copied {
+      background-color: rgba(22, 163, 74, 0.24) !important;
+      border-color: rgba(74, 222, 128, 0.75) !important;
+      color: #bbf7d0 !important;
+    }
   </style>
 </head>
 
@@ -115,33 +126,32 @@
       </div>
     </section>
 
-    <!-- KB YAML -->
-    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
-      <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+      <!-- KB YAML -->
+      <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
+        <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">KB YAML</h2>
+            <p class="text-sm text-slate-500">Describe folders. Use nested children arrays.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <a href="https://gemini.google.com/gem/1EtWRP99BcBjWW09p8DMx_RxtShU06d65?usp=sharing" target="_blank" rel="noopener noreferrer"
+               class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
+              <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
+              KB YAML
+            </a>
+            <button id="kbRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run</button>
+          </div>
+        </header>
         <div>
-          <h2 class="text-lg font-semibold">KB YAML</h2>
-          <p class="text-sm text-slate-500">Describe folders. Use nested children arrays.</p>
+          <textarea id="kbYaml" rows="6" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
+          <p id="kbYamlError" class="text-sm text-red-600 mt-1"></p>
         </div>
-        <div class="flex items-center gap-2">
-          <a href="https://gemini.google.com/gem/1EtWRP99BcBjWW09p8DMx_RxtShU06d65?usp=sharing" target="_blank" rel="noopener noreferrer"
-             class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
-            <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
-            KB YAML
-          </a>
-          <button id="kbParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
-          <button id="kbRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run</button>
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-medium">Response</h3>
+          <button id="copyKbOut" class="px-3 py-1.5 rounded-md border text-sm">Copy</button>
         </div>
-      </header>
-      <div>
-        <textarea id="kbYaml" rows="6" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
-        <p id="kbYamlError" class="text-sm text-red-600 mt-1"></p>
-      </div>
-      <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium">Response</h3>
-        <button id="copyKbOut" class="px-3 py-1.5 rounded-md border text-sm">Copy</button>
-      </div>
-      <pre id="kbOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>
-    </section>
+        <pre id="kbOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>
+      </section>
 
     <!-- Guide YAML -->
     <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
@@ -160,7 +170,7 @@
             <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
             Guide YAML
           </a>
-          <button id="guideParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
+          <button id="guideParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML | Copy</button>
           <button id="guideRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run</button>
         </div>
       </header>
@@ -187,7 +197,6 @@
             <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
             Guide Organiser
           </a>
-          <button id="organiserParseBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Parse YAML</button>
         </div>
       </header>
       <div>

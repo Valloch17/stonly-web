@@ -68,16 +68,6 @@
     catch { out.textContent = String(value); }
   }
 
-  async function onKbParse(){
-    const t = (el('kbYaml')?.value || '').trim();
-    const err = el('kbYamlError');
-    try {
-      const root = parseKBYaml(t);
-      if (err) err.textContent = '';
-      // Optional: quick success flash via console
-    } catch(e){ if (err) err.textContent = String(e.message || e); }
-  }
-
   async function onKbRun(){
     // Validate required settings
     if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
@@ -108,29 +98,90 @@
     } catch(e){ setOut('kbOut', String(e.message || e)); }
   }
 
+  function stripContentKeysDeep(node){
+    if (Array.isArray(node)) {
+      return node.map(stripContentKeysDeep);
+    }
+    if (node && typeof node === 'object') {
+      const out = {};
+      for (const key of Object.keys(node)) {
+        if (key === 'content' || key === 'media') continue;
+        out[key] = stripContentKeysDeep(node[key]);
+      }
+      return out;
+    }
+    return node;
+  }
+
+  function buildGuideSummaryYaml(docs){
+    const chunks = [];
+    for (const raw of docs) {
+      if (raw == null) continue;
+      const stripped = stripContentKeysDeep(raw);
+      try {
+        const dumped = jsyaml.dump(stripped, { noRefs: true }).trimEnd();
+        if (dumped) chunks.push('---\n' + dumped);
+      } catch {
+        // If dumping somehow fails, skip this document
+      }
+    }
+    return chunks.join('\n\n');
+  }
+
+  async function copyGuideSummaryToClipboard(docs){
+    const summary = buildGuideSummaryYaml(docs);
+    if (!summary) return;
+    try {
+      if (typeof navigator !== 'undefined' &&
+          navigator.clipboard &&
+          typeof navigator.clipboard.writeText === 'function') {
+        await navigator.clipboard.writeText(summary);
+      }
+    } catch {
+      // Swallow clipboard errors so parsing still feels smooth.
+    }
+  }
+
   async function onGuideParse(){
     const t = (el('guideYaml')?.value || '').trim();
     const err = el('guideYamlError');
+    const btn = el('guideParseBtn');
+    const defaultLabel = 'Parse YAML | Copy';
+    const successClass = 'guide-parse-copied';
+    if (btn) {
+      btn.textContent = defaultLabel;
+      btn.classList.remove(successClass);
+    }
     try {
       const docs = [];
       jsyaml.loadAll(t || '', (d) => { docs.push(d); });
       if (!docs.length) throw new Error('Empty YAML');
       if (err) err.textContent = '';
+      try {
+        await copyGuideSummaryToClipboard(docs);
+      } catch {}
+      if (btn) {
+        btn.textContent = 'YAML Copied';
+        btn.classList.add(successClass);
+        try {
+          setTimeout(() => {
+            const current = el('guideParseBtn');
+            if (current) {
+              if (current.textContent === 'YAML Copied') {
+                current.textContent = defaultLabel;
+              }
+              current.classList.remove(successClass);
+            }
+          }, 1200);
+        } catch {}
+      }
     }
-    catch(e){ if (err) err.textContent = 'Invalid YAML: ' + (e?.message || e); }
-  }
-
-  async function onOrganiserParse(){
-    const t = (el('organiserYaml')?.value || '').trim();
-    const err = el('organiserYamlError');
-    if (!t) { if (err) err.textContent = ''; return; }
-    try {
-      const docs = [];
-      jsyaml.loadAll(t, (d) => { docs.push(d); });
-      if (!docs.length) throw new Error('Empty YAML');
-      if (err) err.textContent = '';
-    } catch(e){
+    catch(e){
       if (err) err.textContent = 'Invalid YAML: ' + (e?.message || e);
+      if (btn) {
+        btn.textContent = defaultLabel;
+        btn.classList.remove(successClass);
+      }
     }
   }
 
@@ -274,10 +325,8 @@
 
   // Wire events on DOM ready (shared.js exposes window.onReady)
   (window.onReady || ((fn)=>fn()))(() => {
-    el('kbParseBtn')?.addEventListener('click', onKbParse);
     el('kbRunBtn')?.addEventListener('click', onKbRun);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
-    el('organiserParseBtn')?.addEventListener('click', onOrganiserParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
@@ -288,6 +337,30 @@
         window.attachCopyButton({ buttonId: 'copyKbOut', sourceId: 'kbOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'copyGuideOut', sourceId: 'guideOut', disableWhenEmpty: true });
       }
+    } catch {}
+
+    // Persist YAML editors between refreshes (localStorage, per-field keys)
+    try {
+      const yamlFields = [
+        { id: 'kbYaml', key: 'expert_kb_yaml' },
+        { id: 'guideYaml', key: 'expert_guide_yaml' },
+        { id: 'organiserYaml', key: 'expert_organiser_yaml' },
+      ];
+      yamlFields.forEach(({ id, key }) => {
+        const field = el(id);
+        if (!field) return;
+        try {
+          const stored = localStorage.getItem(key);
+          if (typeof stored === 'string' && stored.length) {
+            field.value = stored;
+          }
+        } catch {}
+        field.addEventListener('input', () => {
+          try {
+            localStorage.setItem(key, field.value || '');
+          } catch {}
+        });
+      });
     } catch {}
   });
 })();
