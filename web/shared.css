@@ -7,6 +7,10 @@
   --text: #0f172a;
   --muted: #475569;
   --border: #e2e8f0;
+  /* Builder accent colors: softer tints than page backgrounds */
+  --kb-accent: #f3f1ff;      /* light lavender pill */
+  --guide-accent: #fff1f7;   /* light pink pill */
+  --expert-accent: #f9fafb;  /* very light grey pill */
   --heading-font: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
 }
 
@@ -33,9 +37,103 @@ body {
 input,
 textarea,
 select {
-  background: var(--card);
+  background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%);
   color: var(--text);
   border-color: var(--border);
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+  background: var(--card);
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 1px #4f46e5;
+}
+
+/* Global button polish (excluding the floating theme toggle) */
+button:not(.theme-toggle) {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.15s ease;
+}
+
+button:not(.theme-toggle):hover {
+  filter: brightness(1.03);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+button:not(.theme-toggle):active {
+  filter: brightness(0.97);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+button:not(.theme-toggle):focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Button-like links (gems, menu pills, etc.) */
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium,
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium {
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    filter 0.15s ease;
+}
+
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:hover,
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:hover {
+  filter: brightness(1.03);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.12);
+}
+
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:active,
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:active {
+  filter: brightness(0.97);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-md.border.bg-card.text-sm.font-medium:focus-visible,
+a.inline-flex.items-center.gap-2.px-3.py-2.rounded-lg.border.bg-card.text-sm.font-medium:focus-visible {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+/* Top navigation pills: use builder page accent colors in light mode */
+html[data-theme="light"] a[href="/"].inline-flex {
+  background-color: var(--kb-accent) !important;
+}
+
+html[data-theme="light"] a[href="/"].inline-flex:hover {
+  background-color: var(--kb-accent) !important;
+}
+
+html[data-theme="light"] a[href="/guide-builder.html"].inline-flex {
+  background-color: var(--guide-accent) !important;
+}
+
+html[data-theme="light"] a[href="/guide-builder.html"].inline-flex:hover {
+  background-color: var(--guide-accent) !important;
+}
+
+html[data-theme="light"] a[href="/expert.html"].inline-flex {
+  background-color: var(--expert-accent) !important;
+}
+
+html[data-theme="light"] a[href="/expert.html"].inline-flex:hover {
+  background-color: var(--expert-accent) !important;
 }
 
 /* Response area subtle tint */

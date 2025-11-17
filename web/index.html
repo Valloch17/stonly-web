@@ -116,14 +116,18 @@
                 Guide Builder
             </a>
             <a href="/expert.html"
-               class="inline-flex items-center justify-center w-9 h-9 rounded-full border border-slate-200 bg-card text-slate-400 hover:text-slate-600 hover:border-slate-300 transition"
-               title="Expert mode" aria-label="Expert mode">
-              <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
-                <path d="M4 9h16l-1.5-4h-13z"></path>
-                <path d="M8.5 11a2.5 2.5 0 1 0 0 5h7a2.5 2.5 0 1 0 0-5h-7z"></path>
-                <path d="M9 14.5a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm6 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"></path>
-              </svg>
-            </a>
+                class="inline-flex items-center justify-center w-9 h-9 rounded-full border border-slate-200 bg-card text-slate-400 hover:text-slate-600 hover:border-slate-300 transition"
+                title="Expert mode" aria-label="Expert mode">
+               <svg viewBox="0 0 24 24" fill="currentColor" class="w-5 h-5">
+                 <!-- Hat brim + crown -->
+                 <path d="M6 10.5h12l-1.3-4H7.3L6 10.5Z" />
+                 <!-- Glasses frames -->
+                 <rect x="6.5" y="13" width="4" height="2.6" rx="0.7" />
+                 <rect x="13.5" y="13" width="4" height="2.6" rx="0.7" />
+                 <!-- Bridge -->
+                 <rect x="10.4" y="13.7" width="3.2" height="1" rx="0.5" />
+               </svg>
+             </a>
             <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
                 <span id="themeIcon" aria-hidden="true"></span>
                 <span id="themeLabel">Dark</span>
@@ -234,10 +238,10 @@
             <div id="tree" class="space-y-2"></div>
         </div>
 
-        <div class="flex gap-2">
-            <button id="btnApply" class="px-4 py-2 rounded bg-emerald-600 text-white">Apply</button>
-            <button id="btnVerify" class="px-4 py-2 rounded bg-blue-600 text-white">Verify</button>
-            <button id="btnDump" class="px-4 py-2 rounded bg-gray-700 text-white">Dump structure</button>
+          <div class="flex gap-2">
+            <button id="btnApply" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium">Apply</button>
+              <button id="btnVerify" class="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium">Verify</button>
+              <button id="btnDump" class="px-3 py-2 rounded-md bg-gray-700 text-white text-sm font-medium">Dump structure</button>
             <button id="resetTree" type="button" class="px-2 py-1 rounded border">Reset tree</button>
             
 
