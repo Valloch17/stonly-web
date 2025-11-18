@@ -10,6 +10,7 @@
   /* Builder accent colors: softer tints than page backgrounds */
   --kb-accent: #f3f1ff;      /* light lavender pill */
   --guide-accent: #fff1f7;   /* light pink pill */
+  --publisher-accent: #eaf6ff; /* light blue pill */
   --expert-accent: #f9fafb;  /* very light grey pill */
   --heading-font: 'Space Grotesk', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans', 'Liberation Sans', sans-serif;
 }
@@ -147,6 +148,14 @@ html[data-theme="light"] a[href="/guide-builder.html"].inline-flex {
 
 html[data-theme="light"] a[href="/guide-builder.html"].inline-flex:hover {
   background-color: var(--guide-accent) !important;
+}
+
+html[data-theme="light"] a[href="/guide-publisher.html"].inline-flex {
+  background-color: var(--publisher-accent) !important;
+}
+
+html[data-theme="light"] a[href="/guide-publisher.html"].inline-flex:hover {
+  background-color: var(--publisher-accent) !important;
 }
 
 html[data-theme="light"] a[href="/expert.html"].inline-flex {

@@ -236,6 +236,47 @@ class Stonly:
                 json=payload,
             )
 
+    def list_guides_in_folder(
+        self,
+        folder_id: int,
+        *,
+        recursive: bool = False,
+        guide_status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """
+        List guides inside a folder (optionally recursive) using GET /folder/guide.
+        Paginates until the server stops returning more items.
+        """
+        page = 1
+        acc: List[Dict[str, Any]] = []
+        limit = max(1, min(int(limit or 100), 100))
+        while True:
+            params = {
+                "folderId": int(folder_id),
+                "page": page,
+                "limit": limit,
+                "recursive": "true" if recursive else "false",
+            }
+            if guide_status:
+                params["guideStatus"] = guide_status
+
+            data = self._req("GET", "/folder/guide", params=params)
+            items = []
+            has_next = False
+            if isinstance(data, dict):
+                items = data.get("items") or []
+                has_next = bool(data.get("existsNext"))
+            elif isinstance(data, list):
+                items = data
+                has_next = len(items) >= limit
+
+            acc.extend(items)
+            if not has_next or len(items) < limit:
+                break
+            page += 1
+        return acc
+
     def get_structure_flat(self, parent_id: Optional[int]):
         """
         Appelle GET /folder/structure (payload 'flat' observé : { items: [{id,name,parentId}, ...] }).
@@ -603,6 +644,13 @@ class GuideDefinition(BaseModel):
 GuideStepChoice.model_rebuild()
 GuideStep.model_rebuild()
 GuideDefinition.model_rebuild()
+
+class PublishDraftsPayload(BaseModel):
+    token: Optional[str] = None
+    creds: Creds
+    folderId: int
+    includeSubfolders: bool = True
+    limit: int = Field(default=100, ge=1, le=100)
 
 class ApplyPayload(BaseModel):
     token: Optional[str] = None
@@ -1266,6 +1314,82 @@ def api_build_guide(payload: GuideBuildPayload):
     if bulk_publish_error:
         resp["bulkPublishError"] = bulk_publish_error
     return resp
+
+
+@app.post("/api/guides/publish-drafts", tags=["Builder"], summary="Publish draft guides already present in a folder")
+def api_publish_drafts(payload: PublishDraftsPayload, request: Request):
+    ensure_admin(request=request, token=payload.token)
+    st = Stonly(
+        base=payload.creds.base or "https://public.stonly.com/api/v3",
+        user=payload.creds.user,
+        password=payload.creds.password,
+        team_id=payload.creds.teamId,
+    )
+
+    try:
+        items = st.list_guides_in_folder(
+            folder_id=payload.folderId,
+            recursive=payload.includeSubfolders,
+            guide_status="draft",
+            limit=payload.limit,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("list draft guides failed")
+        raise HTTPException(502, detail={"error": "Failed to list draft guides", "msg": str(e)})
+
+    drafts: List[Dict[str, Any]] = []
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        status = str(it.get("entityStatus") or it.get("status") or "").lower()
+        if status != "draft":
+            continue
+        gid = it.get("entityId") or it.get("id")
+        if not gid:
+            continue
+        drafts.append({
+            "id": gid,
+            "name": it.get("entityName") or it.get("name"),
+            "folder": it.get("entityFolder"),
+            "languages": it.get("entityLanguages") or it.get("languages") or [],
+            "status": status,
+        })
+
+    published_ids: list[str] = []
+    if drafts:
+        ids = [str(d["id"]) for d in drafts if d.get("id")]
+        try:
+            # Stonly publish endpoint accepts max 100 per request; chunk accordingly
+            def chunks(seq, size=100):
+                for i in range(0, len(seq), size):
+                    yield seq[i:i + size]
+            for batch in chunks(ids, 100):
+                st.publish_guides(batch)
+                published_ids.extend(batch)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.exception("publish draft guides failed")
+            raise HTTPException(
+                502,
+                detail={
+                    "error": "Failed to publish guides",
+                    "msg": str(e),
+                    "guideIds": ids,
+                    "publishedSoFar": published_ids,
+                },
+            )
+
+    return {
+        "ok": True,
+        "recursive": payload.includeSubfolders,
+        "draftCount": len(drafts),
+        "publishedCount": len(published_ids),
+        "publishedIds": published_ids,
+        "drafts": drafts,
+    }
 
 
 @app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")

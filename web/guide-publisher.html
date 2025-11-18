@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="/assets/favicon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <title>Stonly Guide Publisher</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    /* Page-level override */
+    :root {
+      --bg: #eaf6ff;
+    }
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold flex items-center gap-2">
+          <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+          <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
+          <span class="title-text">Guide Publisher</span>
+        </h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          Find draft guides in a folder (optionally subfolders) and publish them automatically.
+        </p>
+      </div>
+      <div class="flex items-center gap-3 pt-1">
+        <a href="/"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+          </svg>
+          KB Builder
+        </a>
+        <a href="/guide-builder.html"
+          class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+            <circle cx="5" cy="6" r="2"></circle>
+            <circle cx="5" cy="18" r="2"></circle>
+            <circle cx="19" cy="12" r="2"></circle>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+          </svg>
+          Guide Builder
+        </a>
+        <a href="/expert.html"
+          class="inline-flex items-center justify-center w-9 h-9 rounded-full border border-slate-200 bg-card text-slate-400 hover:text-slate-600 hover:border-slate-300 transition"
+          title="Expert mode" aria-label="Expert mode">
+          <img src="/assets/incognito.svg" alt="" class="w-5 h-5 expert-incognito-icon" />
+        </a>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+          <span id="themeIcon">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+            </svg>
+          </span>
+          <span id="themeLabel">Dark</span>
+        </button>
+      </div>
+    </div>
+
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+              <input id="teamId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                placeholder="e.g. 39539" />
+            </div>
+            <div>
+              <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
+              <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                placeholder="e.g. 456234" />
+            </div>
+          </div>
+        </div>
+        <div>
+          <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
+          <input id="password" type="password" required aria-required="true"
+            class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token"
+            autocomplete="off" />
+          <input id="user" type="hidden" autocomplete="off" />
+        </div>
+        <div>
+          <label for="base" class="block text-sm font-medium">Stonly API Base URL</label>
+          <input id="base" type="text" placeholder="https://public.stonly.com/api/v3"
+            value="https://public.stonly.com/api/v3" class="mt-1 w-full border rounded-lg p-2 text-sm" />
+        </div>
+      </div>
+
+      <div class="flex flex-wrap items-center gap-4">
+        <label class="inline-flex items-center gap-2">
+          <input id="includeSubfolders" type="checkbox" class="h-4 w-4" checked>
+          <span class="text-sm font-medium">Include subfolders (recursive)</span>
+        </label>
+      </div>
+    </section>
+
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div class="space-y-1">
+          <h2 class="text-lg font-semibold">Publish drafts</h2>
+          <p class="text-sm text-slate-500">Fetch draft guides from the folder, then bulk publish them.</p>
+          <p id="statusText" class="text-sm text-slate-500"></p>
+        </div>
+        <div class="flex items-center gap-2">
+          <button id="publishBtn"
+            class="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            type="button">
+            Publish draft guides
+          </button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4">
+        <div class="border rounded-lg overflow-hidden">
+          <div class="px-3 py-2 text-sm font-medium border-b bg-card/80 flex items-center justify-between">
+            <span>Draft guides</span>
+            <span id="summaryCounts" class="text-xs text-slate-500"></span>
+          </div>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+              <thead class="bg-card/60">
+                <tr class="text-left">
+                  <th class="px-3 py-2 border-b">Guide ID</th>
+                  <th class="px-3 py-2 border-b">Name</th>
+                  <th class="px-3 py-2 border-b">Folder</th>
+                  <th class="px-3 py-2 border-b">Languages</th>
+                  <th class="px-3 py-2 border-b">Status</th>
+                </tr>
+              </thead>
+              <tbody id="draftTable">
+                <tr>
+                  <td colspan="5" class="px-3 py-3 text-center text-slate-500">No results yet.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <h3 class="text-sm font-medium">Activity log</h3>
+            <button id="clearLog"
+              class="px-2 py-1 rounded border border-neutral text-xs bg-card hover:bg-neutral/10 transition"
+              type="button">Clear</button>
+          </div>
+          <textarea id="logBox" class="w-full border rounded-lg p-3 text-sm font-mono h-40"
+            placeholder="Logs will appear here..." readonly></textarea>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/shared.js?v=1"></script>
+  <script src="/js/publisher.js?v=1"></script>
+</body>
+
+</html>
