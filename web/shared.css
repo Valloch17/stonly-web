@@ -29,6 +29,14 @@ body {
   color: var(--text);
 }
 
+html.auth-check-pending body {
+  visibility: hidden;
+}
+
+html.auth-check-ready body {
+  visibility: visible;
+}
+
 /* Card + borders */
 .bg-card { background: var(--card) !important; }
 

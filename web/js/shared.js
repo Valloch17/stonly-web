@@ -219,26 +219,38 @@
   } catch (_) {}
 
   // 6) Admin-session guard for builder pages
+  const AUTH_PENDING_CLASS = 'auth-check-pending';
+  const AUTH_READY_CLASS = 'auth-check-ready';
+  function markAuthPending() {
+    const root = document.documentElement;
+    if (!root) return;
+    root.classList.add(AUTH_PENDING_CLASS);
+    root.classList.remove(AUTH_READY_CLASS);
+  }
+  function markAuthReady() {
+    const root = document.documentElement;
+    if (!root) return;
+    root.classList.remove(AUTH_PENDING_CLASS);
+    root.classList.add(AUTH_READY_CLASS);
+  }
+
   window.requireAdmin = function requireAdmin() {
-    (window.onReady || function (fn) {
-      if (document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', fn, { once: true });
-      } else {
-        fn();
-      }
-    })(async function () {
+    if (window.__authCheckPromise) {
+      return window.__authCheckPromise;
+    }
+    markAuthPending();
+    const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+    const here = window.location.pathname + window.location.search;
+    window.__authCheckPromise = (async function runAuthCheck() {
       try {
-        const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
-        const res = await fetch(base + '/api/auth/status', {
-          method: 'GET',
-          credentials: 'include',
-        });
+        const res = await fetch(base + '/api/auth/status', { method: 'GET', credentials: 'include' });
         if (!res.ok) throw new Error('unauthorized');
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) throw new Error('unauthorized');
+        markAuthReady();
       } catch (_) {
-        const here = window.location.pathname + window.location.search;
-        window.location.href = '/login.html?next=' + encodeURIComponent(here || '/');
+        window.location.replace('/login.html?next=' + encodeURIComponent(here || '/'));
       }
-    });
+    })();
+    return window.__authCheckPromise;
   };
