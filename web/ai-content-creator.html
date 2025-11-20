@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="/assets/favicon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <title>AI Content Creator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    :root { --bg: #eef3ff; }
+    .workflow-summary-card {
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    html[data-theme="dark"] .workflow-summary-card {
+      background-color: #0f172a;
+      border-color: #1f2937;
+      color: #e2e8f0;
+    }
+    html[data-theme="dark"] .workflow-summary-card .workflow-summary-title {
+      color: #f8fafc;
+    }
+    html[data-theme="dark"] .workflow-summary-card .workflow-summary-text {
+      color: #cbd5f5;
+    }
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold flex items-center gap-2">
+          <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+          <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
+          <span class="title-text">AI Content Creator</span>
+        </h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400">
+          Automatically create Stonly articles and guides from a simple prompt.
+        </p>
+      </div>
+      <div class="flex items-center gap-3 pt-1">
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+          <span id="themeIcon"></span>
+          <span id="themeLabel">Dark</span>
+        </button>
+        <button id="testingModeToggle" type="button" class="testing-mode-toggle hidden" aria-pressed="false">
+          <span class="testing-mode-dot" aria-hidden="true"></span>
+          <span class="testing-mode-copy">
+            <span class="testing-mode-title">Testing mode</span>
+            <span class="testing-mode-status" id="testingModeToggleLabel">Gemini live</span>
+          </span>
+        </button>
+      </div>
+    </div>
+
+    <div id="testingModeBanner" class="testing-mode-banner hidden" role="status" aria-live="polite">
+      <strong>Testing mode:</strong> Gemini calls are skipped so you can preview the refine flow instantly.
+    </div>
+
+    <form id="creatorForm" class="space-y-6">
+      <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div class="md:col-span-2 space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <label for="prompt" class="block text-sm font-medium">Prompt for AI <span class="text-red-600">*</span></label>
+              <span class="text-xs text-slate-500">Be explicit about tone, branching, media, and content type.</span>
+            </div>
+            <textarea id="prompt" rows="6" class="w-full border rounded-lg p-3 text-sm"
+              placeholder="Example: Create a troubleshooting decision tree for VPN login failures with tip/warning boxes, emojis, and up to 3 media links."></textarea>
+          </div>
+          <div class="bg-muted rounded-lg p-3 space-y-2 text-sm">
+            <h3 class="text-sm font-semibold flex items-center gap-2">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6V4m0 16v-2m8-6h2M2 12h2m12.95-5.95-1.414 1.414M7.464 16.536 6.05 17.95m0-11.9 1.414 1.414m11.486 8.072-1.414-1.414" />
+              </svg>
+              Tips for a strong prompt
+            </h3>
+            <ul class="list-disc list-inside space-y-1 text-slate-600 dark:text-slate-400">
+              <li>Describe the final output (e.g. “Guide for troubleshooting shipping delays with Purpose/Steps/Exceptions”).</li>
+              <li>Mention tone, structure, media needs, and any required sections.</li>
+              <li>Highlight branching/looping needs (“Offer compliance branch”, “Add glossary step”).</li>
+              <li>Ask for links/tables/tips if you need them.</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+        <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
+          <div>
+            <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+            <input id="teamId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
+            <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
+          </div>
+          <div>
+            <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
+            <input id="password" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" autocomplete="off" />
+            <input id="user" type="hidden" autocomplete="off" />
+          </div>
+          <div class="lg:col-span-2 space-y-3">
+            <label class="block text-sm font-medium">Publishing</label>
+            <div class="flex flex-wrap items-center gap-6">
+              <label class="inline-flex items-center gap-2">
+                <input id="publish" type="checkbox" class="h-4 w-4" checked>
+                <span class="text-sm whitespace-nowrap">Publish after build</span>
+              </label>
+              <label class="inline-flex items-center gap-2">
+                <input id="previewBeforePublish" type="checkbox" class="h-4 w-4">
+                <span class="text-sm whitespace-nowrap">Refine guides before build</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex flex-wrap items-end gap-4 mt-4">
+          <button id="runBtn" type="submit"
+            class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium shadow hover:bg-blue-700 transition">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+            Generate &amp; Build
+          </button>
+          <span id="statusText" class="text-sm text-slate-500 mt-2"></span>
+          <div class="workflow-summary-card rounded-lg border border-slate-200 bg-slate-50 text-xs text-slate-600 p-2 w-full sm:w-auto sm:ml-auto min-w-[220px] lg:min-w-[calc(40%)]">
+            <p class="workflow-summary-title font-semibold text-slate-700">Workflow summary</p>
+            <p id="workflowSummary" class="workflow-summary-text mt-1 text-slate-600">Generate Preview → Build → Publish</p>
+          </div>
+        </div>
+      </section>
+</form>
+
+    <section id="refineSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-3 hidden">
+      <header class="space-y-1">
+        <h2 class="text-lg font-semibold">Refine guides</h2>
+        <p class="text-sm text-slate-500">Adjust the preview before creating/updating guides in Stonly.</p>
+      </header>
+      <label class="block text-sm font-medium" for="refineInput">Refine prompt</label>
+      <textarea id="refineInput" rows="3" class="w-full border rounded-lg p-3 text-sm"
+        placeholder="Example: Add another escalation branch, include a glossary step, add more tips."></textarea>
+      <div class="flex flex-wrap items-center gap-3">
+        <button id="refineBtn" type="button"
+          class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+          Refine &amp; Preview
+        </button>
+        <span id="refineStatus" class="text-sm text-slate-500 min-h-[1.25rem]"></span>
+      </div>
+    </section>
+
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4" id="previewSection">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Guide preview</h2>
+          <p class="text-sm text-slate-500">Lightweight structure preview of the generated guides.</p>
+        </div>
+        <div class="flex items-center gap-3 flex-wrap justify-end">
+          <div id="previewSpinner" class="hidden items-center gap-2 text-sm text-slate-500">
+            <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+            <span id="previewSpinnerText">Building preview…</span>
+          </div>
+          <div id="previewActions" class="flex items-center gap-2 hidden">
+            <button id="publishBtn" type="button"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium shadow hover:bg-blue-700 transition">
+              Validate &amp; Publish
+            </button>
+            <button id="discardBtn" type="button"
+              class="inline-flex items-center gap-2 px-4 py-2 rounded-lg border border-red-200 bg-red-50 text-sm font-medium text-red-600 shadow hover:bg-red-100 transition">
+              Discard guides
+            </button>
+          </div>
+        </div>
+      </div>
+      <p id="previewPlaceholder" class="text-sm text-slate-500">Run Generate &amp; Build to see the preview.</p>
+      <div id="previewContent" class="hidden space-y-4"></div>
+    </section>
+
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+      <div class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Output from Gemini</h2>
+            <p class="text-sm text-slate-500">Clean output is validated before build.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="toggleYaml" type="button" class="text-xs px-3 py-1 rounded-lg border border-slate-300 bg-card hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              Show
+            </button>
+            <button id="copyYaml" type="button" class="text-xs px-3 py-1 rounded-lg border border-slate-300 bg-card hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              Copy
+            </button>
+          </div>
+        </div>
+        <pre id="yamlOutput" hidden class="hidden min-h-[180px] whitespace-pre-wrap text-xs bg-muted border rounded-lg p-3 overflow-auto"></pre>
+      </div>
+
+      <div class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
+        <div class="flex items-center justify-between gap-3">
+          <div>
+            <h2 class="text-lg font-semibold">Build response</h2>
+            <p class="text-sm text-slate-500">Includes guideId, publish status, and step summary.</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <button id="toggleBuild" type="button" class="text-xs px-3 py-1 rounded-lg border border-slate-300 bg-card hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              Show
+            </button>
+            <button id="copyBuild" type="button" class="text-xs px-3 py-1 rounded-lg border border-slate-300 bg-card hover:bg-slate-50 dark:hover:bg-slate-800 transition">
+              Copy
+            </button>
+          </div>
+        </div>
+        <pre id="buildOutput" hidden class="hidden min-h-[180px] whitespace-pre-wrap text-xs bg-muted border rounded-lg p-3 overflow-auto"></pre>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/shared.js?v=1"></script>
+  <script src="/js/ai.js?v=1"></script>
+</body>
+
+</html>

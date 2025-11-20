@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any, Tuple
 import re
 from dataclasses import dataclass, field
-import os, time
+import os, time, html, ipaddress
 
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -75,6 +75,8 @@ app = FastAPI(
     openapi_tags=tags_metadata,
     swagger_ui_parameters={"docExpansion": "list", "defaultModelsExpandDepth": -1},
 )
+
+ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
 
 # CORS : autoriser seulement les frontends connus (+ localhost optionnel)
 FRONTEND_ORIGINS = [
@@ -676,6 +678,52 @@ class GuideBuildPayload(BaseModel):
     publish: bool = False
 
 
+class AIGuidePayload(BaseModel):
+    token: Optional[str] = None
+    prompt: str = ""
+    teamId: int
+    folderId: int
+    teamToken: str
+    publish: bool = False
+    dryRun: bool = False
+    base: Optional[str] = "https://public.stonly.com/api/v3"
+    previewOnly: bool = False
+    baseYaml: Optional[str] = None
+    refinePrompt: Optional[str] = None
+    yamlOverride: Optional[str] = None
+    testingMode: bool = False
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_required(cls, v: str):
+        text = (v or "").strip()
+        if len(text) > 8000:
+            raise ValueError("prompt is too long (max 8000 characters)")
+        return text
+
+    @field_validator("teamToken")
+    @classmethod
+    def team_token_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("teamToken is required")
+        return text
+
+    @field_validator("base")
+    @classmethod
+    def base_default(cls, v: Optional[str]):
+        s = (v or "").strip()
+        return s or "https://public.stonly.com/api/v3"
+
+    @field_validator("baseYaml", "yamlOverride", mode="before")
+    @classmethod
+    def trim_yaml(cls, v):
+        if v is None:
+            return None
+        s = str(v)
+        return s.strip()
+
+
 class LoginPayload(BaseModel):
     token: str
 
@@ -733,6 +781,577 @@ def normalize_html_content(html: Optional[str]) -> str:
     # Trim outer whitespace only
     s = s.strip()
     return s
+
+
+def strip_code_fences(text: str) -> str:
+    """Remove common Markdown fences/backticks the model may emit."""
+    if not text:
+        return ""
+    s = text.strip()
+    # Remove ```yaml ... ``` or ``` ... ``` fences
+    s = re.sub(r"^```[a-zA-Z0-9_-]*\s*", "", s)
+    s = re.sub(r"\s*```$", "", s)
+    return s.strip()
+
+
+def sanitize_titles_and_labels(defn: "GuideDefinition") -> "GuideDefinition":
+    """Replace ':' in titles/labels with '-' to avoid YAML/parse issues."""
+    defn.contentTitle = (defn.contentTitle or "").replace(":", "-")
+
+    def walk_step(step: "GuideStep"):
+        step.title = (step.title or "").replace(":", "-")
+        for ch in step.choices or []:
+            if ch.label:
+                ch.label = ch.label.replace(":", "-")
+            if ch.step:
+                walk_step(ch.step)
+
+    walk_step(defn.firstStep)
+    return defn
+
+
+def clamp_positions(defn: "GuideDefinition") -> "GuideDefinition":
+    """Ensure choice positions are within valid bounds per parent."""
+    def walk(step: "GuideStep"):
+        if step.choices:
+            max_idx = max(0, len(step.choices) - 1)
+            for ch in step.choices:
+                if ch.position is not None:
+                    ch.position = min(max(ch.position, 0), max_idx)
+                if ch.step:
+                    walk(ch.step)
+    walk(defn.firstStep)
+    return defn
+
+
+def resolve_missing_refs(defn: "GuideDefinition") -> "GuideDefinition":
+    """
+    If a choice uses ref to a key that is never defined, convert that choice to an inline
+    step with a placeholder so the build does not fail. This preserves the branching
+    intent while avoiding 400s for unknown keys.
+    """
+    existing_keys: set[str] = set()
+
+    def collect(step: "GuideStep"):
+        if step.key:
+            existing_keys.add(step.key)
+        for ch in step.choices or []:
+            if ch.step:
+                collect(ch.step)
+    collect(defn.firstStep)
+
+    def patch(step: "GuideStep"):
+        for ch in step.choices or []:
+            if ch.ref and ch.ref not in existing_keys:
+                # Swap ref for an inline placeholder step; register key
+                missing_key = ch.ref
+                ch.ref = None
+                ch.step = GuideStep(
+                    title=f"Placeholder for {missing_key}",
+                    content="<p>Replace this placeholder with the intended step.</p>",
+                    key=missing_key,
+                    choices=[],
+                    media=[],
+                )
+                existing_keys.add(missing_key)
+            if ch.step:
+                patch(ch.step)
+    patch(defn.firstStep)
+    return defn
+
+
+def wrap_root_if_needed(text: str) -> str:
+    """If YAML appears to be a bare guide object (contentTitle + firstStep) without a top-level 'guide:', wrap it."""
+    try:
+        data = yaml.safe_load(text)
+    except Exception:
+        return text
+    if isinstance(data, dict) and "guide" not in data:
+        keys = set(k.lower() for k in data.keys())
+        if {"contenttitle", "firststep"} & keys:
+            wrapped = {"guide": data}
+            return yaml.safe_dump(wrapped, sort_keys=False)
+    return text
+
+
+def normalize_ai_yaml(text: str) -> str:
+    """Best-effort cleanup for AI-generated YAML to reduce failures."""
+    if text is None:
+        return ""
+    s = strip_code_fences(text)
+    # Replace tabs with spaces to avoid YAML indentation errors
+    s = s.replace("\t", "  ")
+    # Wrap if missing top-level guide
+    s = wrap_root_if_needed(s)
+    return s
+
+
+def serialize_items_to_yaml(items: list[dict]) -> str:
+    """Serialize parsed guide items back to YAML (used for cleaned output)."""
+    docs = []
+    for it in items:
+        definition: GuideDefinition = it["definition"]
+        overrides = it.get("overrides") or {}
+        doc: dict = {}
+        # allowed top-level overrides
+        for k in ("folderId", "folder_id", "publish", "contentType", "language"):
+            if overrides.get(k) is not None:
+                doc[k] = overrides[k]
+        doc["guide"] = definition.model_dump(exclude_none=True)
+        docs.append(doc)
+    return yaml.safe_dump_all(docs, sort_keys=False)
+
+
+def _load_gemini_client():
+    """Import the Google GenAI client lazily to avoid hard dependency at import."""
+    try:
+        from google import genai  # type: ignore
+        from google.genai import types  # type: ignore
+    except Exception:
+        raise HTTPException(
+            500,
+            detail={
+                "error": "Missing dependency for Gemini",
+                "hint": "Install google-genai>=0.3.0 on the server",
+            },
+        )
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise HTTPException(500, detail={"error": "Missing env: GEMINI_API_KEY"})
+
+    client = genai.Client(api_key=api_key)
+    return client, types
+
+
+SYSTEM_PROMPT = """You are a GUIDE GENERATOR for Stonly. OUTPUT ONLY VALID STONLY GUIDE YAML — NO prose, NO Markdown fences, NO code blocks.
+
+ROLE & STYLE:
+- Impersonate a KNOWLEDGE MANAGER who builds step-by-step guides and articles for a knowledge base.
+- Create DECISION TREES with branching steps; branches can REJOIN via key/ref.
+- Produce BEAUTIFUL, LOGICAL content with rich HTML: <p>, <ul>/<ol>, tables (no <thead>/<tbody>), emojis, <aside class="tip|warning">, inline <code>. Prefer <h4>/<h5> over <h3>.
+
+OUTPUT RULES (MUST FOLLOW):
+- CONTENT TYPES: default GUIDE unless ARTICLE is clearly requested or it's a single step output; GUIDED_TOUR ONLY if explicitly asked. Articles MUST NOT use media property (inline <img> is fine).
+- REQUIRED: contentTitle, contentType, language, firstStep. Steps live only under guide.firstStep/choices.
+- STEP: title + HTML content; optional key (for reuse), media (<=3 URLs; ignored for ARTICLE), choices[].
+- CHOICE: label?, position?, EXACTLY ONE OF step OR ref. Use key/ref for branching/rejoining; avoid one-step “Back” links.
+- KEYS/REFS: Every ref MUST match a defined key. Define keyed steps inline first time; reuse via ref thereafter. NO YAML anchors (*, &). AVOID ":" in titles/labels to keep YAML safe.
+- MULTI-GUIDE: allow --- separators or guides: [] list.
+- FORMAT: keep HTML concise but rich; multi-line HTML in block scalar |. NO Markdown fences.
+
+Mini examples (structure only):
+---
+guide:
+  contentTitle: Company Security Policy (Quick Read)
+  contentType: ARTICLE
+  language: en
+  firstStep:
+    title: Security Policy Overview
+    content: |
+      <h4>Welcome</h4>
+      <ul>
+        <li>MFA required</li>
+        <li>Use a password manager</li>
+      </ul>
+
+---
+guide:
+  contentTitle: Laptop Setup Wizard
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: choose_os
+    title: Choose Your OS
+    content: "<p>Select your OS.</p>"
+    media:
+      - https://example.com/os.png
+    choices:
+      - label: macOS
+        step:
+          title: macOS Setup
+          content: "<p>Enable FileVault.</p>"
+          choices:
+            - label: Done
+              ref: finish
+      - label: Windows
+        step:
+          title: Windows Setup
+          content: "<p>Run Windows Update.</p>"
+          choices:
+            - label: Done
+              ref: finish
+      - label: Need help
+        step:
+          key: finish
+          title: You're all set
+          content: |
+            <p>Setup complete.</p>
+            <aside class="tip"><p>Reach out if you need help.</p></aside>
+"""
+
+
+def _testing_snippet(text: Optional[str], limit: int = 140) -> str:
+    cleaned = re.sub(r"\s+", " ", (text or ""))
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return ""
+    if len(cleaned) > limit:
+        return cleaned[:limit].rstrip() + "…"
+    return cleaned
+
+
+def _is_local_host(host: str) -> bool:
+    if not host:
+        return False
+    host = host.strip().lower()
+    try:
+        ip_obj = ipaddress.ip_address(host)
+        if ip_obj.is_loopback or ip_obj.is_private:
+            return True
+    except ValueError:
+        if host in {"localhost"} or host.endswith(".local"):
+            return True
+    return False
+
+
+def should_use_testing_mode(request: Request, requested: bool) -> bool:
+    if not requested or not ALLOW_LOCAL_TESTING_MODE:
+        return False
+    client = getattr(request, "client", None)
+    host = getattr(client, "host", "") if client else ""
+    return _is_local_host(host)
+
+
+def generate_testing_mode_yaml(prompt: str, refine_prompt: Optional[str], base_yaml: Optional[str]) -> str:
+    prompt_snippet = html.escape(_testing_snippet(prompt) or "No prompt provided")
+    refine_snippet = html.escape(_testing_snippet(refine_prompt) or "")
+    body_sections = [
+        "<p>Testing mode is active. Gemini calls stay offline so you can iterate on layout safely.</p>",
+        f'<aside class="tip"><p><strong>Prompt sample:</strong> {prompt_snippet}</p></aside>',
+    ]
+    if refine_snippet:
+        body_sections.append(f'<aside class="warning"><p><strong>Refine request:</strong> {refine_snippet}</p></aside>')
+    if base_yaml:
+        base_lines = len([ln for ln in base_yaml.splitlines() if ln.strip()]) or len(base_yaml.splitlines()) or 1
+        body_sections.append(
+            f'<aside class="tip"><p>Existing YAML detected ({base_lines} lines). It stays untouched in testing mode.</p></aside>'
+        )
+
+    confirmation_step = {
+        "key": "testing_confirmation",
+        "title": "Mock run complete",
+        "content": "<p>Switch off testing mode to call Gemini for real content.</p>",
+    }
+
+    guides = [
+        {
+            "guide": {
+                "contentTitle": "🧪 Testing Mode Preview · Primary Flow",
+                "contentType": "GUIDE",
+                "language": "en",
+                "firstStep": {
+                    "key": "testing_intro",
+                    "title": "Preview mocked Gemini output",
+                    "content": "\n".join(body_sections),
+                    "choices": [
+                        {
+                            "label": "📋 Branching sample",
+                            "step": {
+                                "key": "testing_branch",
+                                "title": "Branching sample",
+                                "content": "<p>Use this branch to check nested spacing, connectors, and typography.</p>",
+                                "choices": [
+                                    {"label": "↩ Return to confirmation", "ref": "testing_confirmation"},
+                                    {
+                                        "label": "➕ Deep dive",
+                                        "step": {
+                                            "title": "Deep nested branch",
+                                            "content": "<p>Verify secondary levels, muted labels, and looping back.</p>",
+                                            "choices": [
+                                                {"label": "Done", "ref": "testing_confirmation"}
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                        {
+                            "label": "🧭 Inline content",
+                            "step": {
+                                "title": "Inline helper content",
+                                "content": (
+                                    "<p>Testing mode lets you preview refine UI without waiting on a model.</p>"
+                                    "<ul><li>Prompts are echoed back for context.</li>"
+                                    "<li>Refine text, if any, shows as a warning block.</li></ul>"
+                                ),
+                                "choices": [{"label": "Looks good", "ref": "testing_confirmation"}],
+                            },
+                        },
+                        {"label": "✅ Approve mock", "step": confirmation_step},
+                    ],
+                },
+            }
+        },
+        {
+            "guide": {
+                "contentTitle": "📰 Testing Mode Notes",
+                "contentType": "ARTICLE",
+                "language": "en",
+                "firstStep": {
+                    "title": "Testing notes",
+                    "content": (
+                        "<h4>Why you're seeing mock data</h4>"
+                        f"<p>The local toggle is on, so we're returning canned YAML.</p>"
+                        f"<p><strong>Prompt recap:</strong> {prompt_snippet}</p>"
+                        + (f"<p><strong>Refine recap:</strong> {refine_snippet}</p>" if refine_snippet else "")
+                    ),
+                },
+            }
+        },
+    ]
+
+    return yaml.safe_dump_all(guides, sort_keys=False, allow_unicode=True).strip()
+
+
+FEW_SHOT_EXAMPLE = """Examples (structure only, for style/reference — do not copy literally):
+---
+guide:
+  contentTitle: Laptop Setup Wizard
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: choose_os
+    title: Choose Your OS
+    content: "<p>Pick your operating system.</p>"
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/f/fa/Apple_logo_black.svg
+    choices:
+      - label: macOS
+        step:
+          title: macOS Setup
+          content: |
+            <ol>
+              <li>Open <strong>System Settings</strong> → <em>Privacy & Security</em></li>
+              <li>Enable FileVault</li>
+            </ol>
+          choices:
+            - label: Done
+              ref: finish
+      - label: Windows
+        step:
+          title: Windows Setup
+          content: "<p>Run Windows Update, then enable BitLocker.</p>"
+          choices:
+            - label: Done
+              ref: finish
+      - label: Need help
+        step:
+          key: finish
+          title: You're all set
+          content: "<p>Setup complete.</p>"
+
+---
+guide:
+  contentTitle: Company Security Policy (Quick Read)
+  contentType: ARTICLE
+  language: en
+  firstStep:
+    title: Security Policy Overview
+    content: |
+      <h4>Welcome</h4>
+      <ul>
+        <li>MFA required for all accounts</li>
+        <li>Use a password manager</li>
+        <li>Report phishing via the <code>Phish Alert</code> button</li>
+      </ul>
+
+---
+guide:
+  contentTitle: Product Onboarding Tour
+  contentType: GUIDED_TOUR
+  language: en
+  firstStep:
+    key: tour_start
+    title: Welcome
+    content: "<p>This tour highlights key areas.</p>"
+    choices:
+      - label: Next
+        step:
+          title: Create Your First Project
+          content: "<p>Click <strong>New Project</strong> in the top right.</p>"
+          choices:
+            - label: Next
+              step:
+                title: Invite Your Team
+                content: "<p>Open <em>Settings → Members</em> and invite colleagues.</p>"
+                choices:
+                  - label: Back to start
+                    ref: tour_start
+
+---
+guide:
+  contentTitle: Account Portal | Access Reset (Example)
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: overview
+    title: "🧭 Overview"
+    content: |
+      <p>This workflow is for <strong>Tier 2 Support</strong> handling escalated <strong>account access reset</strong> requests.</p>
+      <aside class="tip"><p>📌 <strong>Before you begin:</strong> Confirm the user is <strong>Active</strong> in the admin tool.</p></aside>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/7/71/Portal.svg
+    choices:
+      - label: "🪪 Step 1 — Verify Identity"
+        step:
+          key: verify_identity
+          title: "🪪 Verify Identity"
+          content: |
+            <h4>🧩 Phone or Video</h4>
+            <ul><li>Verify full name and email.</li></ul>
+            <h4>🧩 Email Request</h4>
+            <ul><li>Send a confirmation template and await reply.</li></ul>
+            <aside class="warning"><p>⚠️ Never request OTP codes.</p></aside>
+          media:
+            - https://upload.wikimedia.org/wikipedia/commons/6/6e/Ionicons_id-card.svg
+          choices:
+            - label: "🔍 Confirm Channel"
+              step:
+                title: "🔍 Confirm Channel"
+                content: "<p>Ensure the reply comes from the registered address.</p>"
+                choices:
+                  - label: Back
+                    ref: verify_identity
+      - label: "🔁 Step 2 — Perform Reset"
+        step:
+          title: "🔁 Perform Reset"
+          content: |
+            <ol>
+              <li>Open the Admin Console.</li>
+              <li>Select Reset login or Initiate password reset.</li>
+              <li>Confirm prerequisites are complete.</li>
+            </ol>
+            <aside class="tip"><p>✅ Tell the user a temporary password or reset link is coming.</p></aside>
+      - label: "✅ Step 3 — Confirm & Close"
+        step:
+          key: confirm_close
+          title: "✅ Confirm & Close"
+          content: |
+            <ul>
+              <li>Confirm successful sign-in.</li>
+              <li>Apply the correct closing macro.</li>
+            </ul>
+            <aside class="tip"><p><strong>🎯 End of Workflow</strong></p></aside>
+
+---
+guide:
+  contentTitle: "✈️ Flight Attendant Backfill | Hotline"
+  contentType: GUIDE
+  language: en
+  firstStep:
+    key: fa_overview
+    title: "🧭 Overview"
+    content: |
+      <p>Helps scheduling agents find qualified replacements fast.</p>
+      <aside class="tip"><p>📌 Verify the absence in Crew Portal before proceeding.</p></aside>
+    media:
+      - https://upload.wikimedia.org/wikipedia/commons/3/3a/Airplane_silhouette.svg
+    choices:
+      - label: "🗺️ Step 1 — Capture Flight Info"
+        step:
+          title: "🗺️ Capture Flight Info"
+          content: |
+            <ul>
+              <li>Departure + Destination airport codes</li>
+              <li>Scheduled departure time (local)</li>
+            </ul>
+          choices:
+            - label: "👥 Step 2 — Check Local Crew"
+              step:
+                title: "👥 Check Local Crew"
+                content: "<p>Are standby flight attendants available at departure?</p>"
+                media:
+                  - https://upload.wikimedia.org/wikipedia/commons/f/f7/Team_font_awesome.svg
+                choices:
+                  - label: "✅ Crew Available"
+                    step:
+                      title: "🔄 Check Return Flights"
+                      content: |
+                        <p>Find return flights within 24h; validate duty hours & rest.</p>
+                      choices:
+                        - label: "🟢 Return Flight Available"
+                          step:
+                            key: fa_success
+                            title: "🟢 Success"
+                            content: "<p>Book crew and confirm return.</p>"
+                        - label: "🔴 No Return Flight"
+                          step:
+                            key: evaluate_risk
+                            title: "🌦️ Evaluate Disruption Risk"
+                            content: "<p>Check weather alerts. If delays expected, search nearby bases.</p>"
+                            choices:
+                              - label: "🏙️ Search Nearby Bases"
+                                step:
+                                  key: nearby_bases
+                                  title: "🏙️ Search Nearby Bases"
+                                  content: "<p>Identify closest bases with available crew.</p>"
+                                  choices:
+                                    - label: "🟢 Backfill Realistic"
+                                      ref: fa_success
+                                    - label: "🔴 Not Realistic"
+                                      step:
+                                        key: final_triage
+                                        title: "🚨 Final Triage"
+                                        content: "<p>Escalate to supervisor; prepare for possible cancellation.</p>"
+"""
+
+def generate_yaml_with_gemini(
+    prompt: str,
+    *,
+    base_yaml: Optional[str] = None,
+    refine_prompt: Optional[str] = None,
+) -> str:
+    client, types = _load_gemini_client()
+    user_prompt = (prompt or "").strip()
+    sections: list[str] = []
+    if user_prompt:
+        sections.append(f"User prompt:\n{user_prompt}")
+    if base_yaml:
+        sections.append("Existing YAML to refine:\n" + base_yaml.strip())
+    if refine_prompt:
+        sections.append("Refinement instructions:\n" + refine_prompt.strip())
+    if not sections:
+        sections.append("User prompt:\nGenerate an improved Stonly guide.")
+    sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
+    contents = ["\n\n".join(sections)]
+    cfg = types.GenerateContentConfig(
+        temperature=0.6,          # slightly higher to encourage fuller generations
+        top_p=0.9,
+        max_output_tokens=12288,
+        system_instruction=[types.Part.from_text(text=SYSTEM_PROMPT)],
+    )
+    try:
+        parts: list[str] = []
+        for chunk in client.models.generate_content_stream(
+            model="gemini-2.5-pro",
+            contents=contents,
+            config=cfg,
+        ):
+            if getattr(chunk, "text", None):
+                parts.append(str(chunk.text))
+        text = "".join(parts).strip()
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Gemini call failed")
+        raise HTTPException(502, detail={"error": "Gemini call failed", "message": str(e)})
+
+    cleaned = strip_code_fences(text)
+    if not cleaned:
+        raise HTTPException(502, detail={"error": "Gemini returned empty content"})
+    return cleaned
+
 
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
     text = (source or "").strip()
@@ -1396,6 +2015,109 @@ def api_publish_drafts(payload: PublishDraftsPayload, request: Request):
 def api_build_guide_http(payload: GuideBuildPayload, request: Request):
     ensure_admin(request=request, token=payload.token)
     return api_build_guide(payload)
+
+
+@app.post(
+    "/api/ai-guides/build",
+    tags=["Builder"],
+    summary="Generate guide YAML via Gemini, then build/publish it",
+)
+def api_ai_guides_build(payload: AIGuidePayload, request: Request):
+    ensure_admin(request=request, token=payload.token)
+    request_id = str(uuid.uuid4())
+    testing_mode_active = should_use_testing_mode(request, payload.testingMode)
+    logger.info(
+        "REQUEST %s :: /api/ai-guides/build team=%s folder=%s publish=%s previewOnly=%s testingMode=%s",
+        request_id,
+        payload.teamId,
+        payload.folderId,
+        payload.publish,
+        payload.previewOnly,
+        testing_mode_active,
+    )
+
+    # 1) Determine YAML source (manual override vs Gemini)
+    provided_yaml = (payload.yamlOverride or "").strip() or None
+    if provided_yaml:
+        raw_yaml = provided_yaml
+    elif testing_mode_active:
+        raw_yaml = generate_testing_mode_yaml(
+            payload.prompt or "",
+            refine_prompt=payload.refinePrompt,
+            base_yaml=payload.baseYaml,
+        )
+    else:
+        raw_yaml = generate_yaml_with_gemini(
+            payload.prompt or "",
+            base_yaml=payload.baseYaml,
+            refine_prompt=payload.refinePrompt,
+        )
+    yaml_text = normalize_ai_yaml(raw_yaml)
+
+    # 2) Parse YAML with leniency; apply auto-fixes for common issues
+    try:
+        items = parse_guides_multi(yaml_text, GuideDefaults())
+    except HTTPException:
+        # Try one more time after wrapping/dedenting if possible
+        try:
+            yaml_text = normalize_ai_yaml(yaml_text)
+            items = parse_guides_multi(yaml_text, GuideDefaults())
+        except HTTPException as e2:
+            detail = getattr(e2, "detail", str(e2))
+            if isinstance(detail, dict):
+                detail = {**detail, "modelText": raw_yaml}
+            else:
+                detail = {"error": detail, "modelText": raw_yaml}
+            raise HTTPException(getattr(e2, "status_code", 400), detail=detail)
+
+    # 3) Auto-sanitize titles/labels, clamp choice positions, and resolve missing refs to reduce failures
+    for item in items:
+        definition: GuideDefinition = item["definition"]
+        definition = sanitize_titles_and_labels(definition)
+        definition = clamp_positions(definition)
+        definition = resolve_missing_refs(definition)
+        item["definition"] = definition
+
+    # 4) Re-serialize cleaned YAML for display/traceability
+    yaml_text = serialize_items_to_yaml(items)
+
+    if payload.previewOnly:
+        return {"ok": True, "yaml": yaml_text, "previewOnly": True, "testingMode": testing_mode_active}
+
+    # 3) Build using existing pipeline (reuse team token as password)
+    dry_run_flag = bool(payload.dryRun or testing_mode_active)
+    build_payload = GuideBuildPayload(
+        token=payload.token,
+        creds=Creds(
+            user="Undefined",
+            password=payload.teamToken,
+            teamId=payload.teamId,
+            base=payload.base or "https://public.stonly.com/api/v3",
+        ),
+        folderId=payload.folderId,
+        yaml=yaml_text,
+        dryRun=dry_run_flag,
+        defaults=GuideDefaults(),
+        publish=False if testing_mode_active else payload.publish,
+    )
+
+    try:
+        build_result = api_build_guide(build_payload)
+    except HTTPException as e:
+        detail = getattr(e, "detail", str(e))
+        if isinstance(detail, dict):
+            detail = {**detail, "modelText": yaml_text}
+        else:
+            detail = {"error": detail, "modelText": yaml_text}
+        raise HTTPException(getattr(e, "status_code", 500), detail=detail)
+    except Exception as e:
+        logger.exception("AI build failed (request %s)", request_id)
+        raise HTTPException(502, detail={"error": "Guide build failed", "modelText": yaml_text, "message": str(e)})
+
+    resp = {"ok": True, "yaml": yaml_text, "build": build_result}
+    if testing_mode_active:
+        resp["testingMode"] = True
+    return resp
 
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(
