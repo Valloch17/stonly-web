@@ -937,6 +937,7 @@ OUTPUT RULES (MUST FOLLOW):
 - STEP: title + HTML content; optional key (for reuse), media (<=3 URLs; ignored for ARTICLE), choices[].
 - CHOICE: label?, position?, EXACTLY ONE OF step OR ref. Use key/ref for branching/rejoining; avoid one-step “Back” links.
 - KEYS/REFS: Every ref MUST match a defined key. Define keyed steps inline first time; reuse via ref thereafter. NO YAML anchors (*, &). AVOID ":" in titles/labels to keep YAML safe.
+- PROHIBITED TAGS: never emit <hr>, <hr/>, or <hr /> anywhere in the HTML.
 - MULTI-GUIDE: allow --- separators or guides: [] list.
 - FORMAT: keep HTML concise but rich; multi-line HTML in block scalar |. NO Markdown fences.
 
