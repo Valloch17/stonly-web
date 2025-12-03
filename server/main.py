@@ -199,6 +199,10 @@ def ensure_admin(
     request: Optional[Request] = None,
     token: Optional[str] = None,
 ) -> None:
+    # Allow bearer token via incoming request headers when not explicitly provided
+    if auth_header is None and request is not None:
+        auth_header = request.headers.get("Authorization")
+
     # 1) Session via cookie
     if _has_valid_session(request):
         return
