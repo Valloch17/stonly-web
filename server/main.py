@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import List, Optional, Dict, Any, Tuple
 import re
 from dataclasses import dataclass, field
-import os, time, html, ipaddress
+import os, time, html, ipaddress, base64, io
 
 from fastapi import FastAPI, HTTPException, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -692,6 +692,7 @@ class AIGuidePayload(BaseModel):
     refinePrompt: Optional[str] = None
     yamlOverride: Optional[str] = None
     testingMode: bool = False
+    attachments: list[dict] = Field(default_factory=list)
 
     @field_validator("prompt")
     @classmethod
@@ -722,6 +723,32 @@ class AIGuidePayload(BaseModel):
             return None
         s = str(v)
         return s.strip()
+
+    @field_validator("attachments", mode="after")
+    @classmethod
+    def validate_attachments(cls, v):
+        import base64
+        max_files = 3
+        max_bytes = 5 * 1024 * 1024  # 5MB per file
+        out: list[dict] = []
+        if not isinstance(v, list):
+            return out
+        for item in v[:max_files]:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip()[:160]
+            mime = str(item.get("mime") or "").strip()[:120] or "application/octet-stream"
+            data_b64 = item.get("data")
+            if not name or not data_b64:
+                continue
+            try:
+                raw = base64.b64decode(str(data_b64), validate=True)
+            except Exception:
+                continue
+            if len(raw) > max_bytes:
+                continue
+            out.append({"name": name, "mime": mime, "data": str(data_b64)})
+        return out
 
 
 class LoginPayload(BaseModel):
@@ -1312,6 +1339,7 @@ def generate_yaml_with_gemini(
     *,
     base_yaml: Optional[str] = None,
     refine_prompt: Optional[str] = None,
+    attachments: Optional[list[dict]] = None,
 ) -> str:
     client, types = _load_gemini_client()
     user_prompt = (prompt or "").strip()
@@ -1324,10 +1352,51 @@ def generate_yaml_with_gemini(
         sections.append("Refinement instructions:\n" + refine_prompt.strip())
     if not sections:
         sections.append("User prompt:\nGenerate an improved Stonly guide.")
+    attachment_count = len(attachments or [])
+    if attachment_count:
+        names = [str((att or {}).get("name") or "attachment") for att in (attachments or []) if isinstance(att, dict)]
+        sections.append("Attachments provided (use them as primary source):\n- " + "\n- ".join(names[:3]))
     sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
-    contents = ["\n\n".join(sections)]
+
+    text_block = "\n\n".join(sections)
+    content_parts: list[Any] = [types.Part.from_text(text=text_block)]
+
+    # Upload files to Gemini Files API and attach by URI so the model can read PDFs/images
+    def _upload_and_wait(att: dict):
+        data_b64 = att.get("data")
+        if not data_b64:
+            return None
+        raw = base64.b64decode(str(data_b64), validate=True)
+        mime = (att.get("mime") or "application/octet-stream").strip() or "application/octet-stream"
+        name = (att.get("name") or "attachment").strip() or "attachment"
+        fh = io.BytesIO(raw)
+        uploaded = client.files.upload(file=fh, mime_type=mime, display_name=name)
+        # Wait for processing to finish
+        state = str(getattr(uploaded, "state", "") or "").lower()
+        while state == "processing":
+            time.sleep(0.25)
+            uploaded = client.files.get(getattr(uploaded, "name", ""))
+            state = str(getattr(uploaded, "state", "") or "").lower()
+        if state and state not in ("active", "ready", "processed", "uploaded"):
+            return None
+        uri = getattr(uploaded, "name", None)
+        if not uri:
+            return None
+        mime_final = getattr(uploaded, "mime_type", mime) or mime
+        return types.Part.from_uri(file=uri, mime_type=mime_final)
+
+    if attachments:
+        for att in attachments[:3]:
+            try:
+                part = _upload_and_wait(att)
+                if part:
+                    content_parts.append(part)
+            except Exception:
+                logger.warning("Attachment upload failed", exc_info=True)
+                continue
+
     cfg = types.GenerateContentConfig(
-        temperature=0.6,          # slightly higher to encourage fuller generations
+        temperature=0.7,          # slightly higher to encourage fuller generations
         top_p=0.9,
         max_output_tokens=12288,
         system_instruction=[types.Part.from_text(text=SYSTEM_PROMPT)],
@@ -1336,7 +1405,7 @@ def generate_yaml_with_gemini(
         parts: list[str] = []
         for chunk in client.models.generate_content_stream(
             model="gemini-2.5-pro",
-            contents=contents,
+            contents=[types.Content(role="user", parts=content_parts)],
             config=cfg,
         ):
             if getattr(chunk, "text", None):
@@ -2052,6 +2121,7 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
             payload.prompt or "",
             base_yaml=payload.baseYaml,
             refine_prompt=payload.refinePrompt,
+            attachments=payload.attachments,
         )
     yaml_text = normalize_ai_yaml(raw_yaml)
 

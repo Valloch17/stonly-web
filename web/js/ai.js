@@ -16,6 +16,8 @@ if (typeof window.requireAdmin === "function") {
   const refineStatus = el("refineStatus");
   const discardBtn = el("discardBtn");
   const workflowSummary = el("workflowSummary");
+  const attachmentsInput = el("attachmentsInput");
+  const attachmentsList = el("attachmentsList");
   const previewActions = el("previewActions");
   const refineToggle = el("previewBeforePublish");
   const refineToggleLabel = refineToggle ? refineToggle.closest("label") : null;
@@ -26,6 +28,7 @@ if (typeof window.requireAdmin === "function") {
   const searchParams = new URLSearchParams(window.location.search || "");
   const allowTestingToggle = detectLocalHost() || ["1", "true", "on"].includes((searchParams.get("enableTesting") || "").toLowerCase());
   const REFRESH_GUARD_MESSAGE = "A preview is in progress. Refreshing now will discard it.";
+  const STORAGE_ATTACHMENTS = "ai_creator_attachments";
   let testingMode = false;
   let lastResponseTesting = false;
 
@@ -34,6 +37,7 @@ if (typeof window.requireAdmin === "function") {
   let runButtonLocked = false;
   const MIN_TESTING_PREVIEW_MS = 5000;
   let refineToggleStickyLock = false;
+  let cachedAttachments = [];
 
   const paramTesting = (searchParams.get("testingMode") || "").toLowerCase();
   if (["1", "true", "on", "yes"].includes(paramTesting)) {
@@ -79,6 +83,53 @@ if (typeof window.requireAdmin === "function") {
     syncTestingBanner();
   }
 
+  function persistAttachments() {
+    try {
+      localStorage.setItem(STORAGE_ATTACHMENTS, JSON.stringify(cachedAttachments.slice(0, 3)));
+    } catch (err) {
+      console.warn("Persisting attachments failed", err);
+    }
+  }
+
+  function loadAttachmentsFromStorage() {
+    if (!attachmentsList) return;
+    try {
+      const raw = localStorage.getItem(STORAGE_ATTACHMENTS);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        cachedAttachments = parsed.slice(0, 3).filter((it) => it && typeof it.data === "string");
+        renderAttachments();
+      }
+    } catch (err) {
+      console.warn("Loading attachments failed", err);
+    }
+  }
+
+  function renderAttachments() {
+    if (!attachmentsList) return;
+    attachmentsList.innerHTML = "";
+    cachedAttachments.forEach((att, idx) => {
+      const pill = document.createElement("span");
+      pill.className = "inline-flex items-center gap-2 px-2 py-1 rounded-full border border-slate-200 bg-slate-50 text-slate-600";
+      const name = document.createElement("span");
+      name.textContent = att.name || `File ${idx + 1}`;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "text-xs text-red-500 hover:text-red-700";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", () => {
+        cachedAttachments.splice(idx, 1);
+        renderAttachments();
+        persistAttachments();
+      });
+      pill.appendChild(name);
+      pill.appendChild(remove);
+      attachmentsList.appendChild(pill);
+    });
+    persistAttachments();
+  }
+
   function setRefineToggleStickyLock(active) {
     refineToggleStickyLock = !!active;
     updateRefineToggleDisabled();
@@ -100,6 +151,27 @@ if (typeof window.requireAdmin === "function") {
       return performance.now();
     }
     return Date.now();
+  }
+
+  function readAttachmentFiles(files) {
+    const maxFiles = 3;
+    const results = [];
+    const slice = Array.from(files || []).slice(0, maxFiles);
+    return Promise.all(slice.map((file) => new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result;
+        if (typeof dataUrl === "string") {
+          const base64 = dataUrl.split(",")[1];
+          if (base64) {
+            results.push({ name: file.name, mime: file.type || "application/octet-stream", data: base64 });
+          }
+        }
+        resolve(null);
+      };
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(file);
+    }))).then(() => results);
   }
 
   async function ensureTestingDelay(startedAt, testingActive) {
@@ -395,6 +467,7 @@ if (typeof window.requireAdmin === "function") {
     lastPromptValue = payload.prompt;
     payload.previewOnly = !!previewOnly;
     payload.testingMode = !!testingMode;
+    payload.attachments = cachedAttachments.slice(0, 3);
     if (baseYaml) payload.baseYaml = baseYaml;
     if (refinePrompt) payload.refinePrompt = refinePrompt;
     if (yamlOverride) payload.yamlOverride = yamlOverride;
@@ -541,6 +614,16 @@ if (typeof window.requireAdmin === "function") {
     if (form) form.addEventListener("submit", (e) => { e.preventDefault(); runCreator(); });
     const btn = el("runBtn");
     if (btn) btn.addEventListener("click", (e) => { e.preventDefault(); runCreator(); });
+
+    if (attachmentsInput) {
+      attachmentsInput.addEventListener("change", async (e) => {
+        const files = e.target?.files;
+        const parsed = await readAttachmentFiles(files);
+        cachedAttachments = parsed;
+        renderAttachments();
+      });
+    }
+    loadAttachmentsFromStorage();
 
     const updateWorkflowSummary = () => {
       if (!workflowSummary) return;

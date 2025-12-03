@@ -76,6 +76,12 @@
             </div>
             <textarea id="prompt" rows="6" class="w-full border rounded-lg p-3 text-sm"
               placeholder="Example: Create a troubleshooting decision tree for VPN login failures with tip/warning boxes, emojis, and up to 3 media links."></textarea>
+            <div class="space-y-2">
+              <label class="block text-sm font-medium">Attachments (up to 3)</label>
+              <input id="attachmentsInput" type="file" multiple accept="image/*,application/pdf,text/plain,text/html,.html,.htm" class="block w-full text-sm" />
+              <div id="attachmentsList" class="flex flex-wrap gap-2 text-xs text-slate-600"></div>
+              <p class="text-xs text-slate-500">Images, PDF, plain text, or HTML (.html/.htm). Max 5MB each.</p>
+            </div>
           </div>
           <div class="bg-muted rounded-lg p-3 space-y-2 text-sm">
             <h3 class="text-sm font-semibold flex items-center gap-2">
