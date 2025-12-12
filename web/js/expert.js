@@ -68,6 +68,57 @@
     catch { out.textContent = String(value); }
   }
 
+  function stripCodeFences(text){
+    if (!text) return '';
+    let s = text.trim();
+    s = s.replace(/^```[a-zA-Z0-9_-]*\s*/, '');
+    s = s.replace(/\s*```$/, '');
+    return s.trim();
+  }
+
+  function wrapRootIfNeeded(text){
+    const src = text || '';
+    try {
+      const data = jsyaml.load(src);
+      if (data && typeof data === 'object' && !Array.isArray(data) && !('guide' in data)) {
+        const keys = new Set(Object.keys(data).map((k) => String(k || '').toLowerCase()));
+        if (keys.has('contenttitle') || keys.has('firststep')) {
+          return jsyaml.dump({ guide: data }, { noRefs: true, sortKeys: false }).trim();
+        }
+      }
+    } catch { /* best-effort only */ }
+    return src;
+  }
+
+  function normalizeAiYaml(text){
+    if (text == null) return '';
+    let s = stripCodeFences(text);
+    s = s.replace(/\t/g, '  ');
+    s = wrapRootIfNeeded(s);
+    return s;
+  }
+
+  function parseGuideYamlWithFixes(rawText){
+    const attempts = [];
+    const base = (rawText || '').trim();
+    attempts.push({ text: base, normalized: false });
+    const normalized = normalizeAiYaml(base);
+    if (normalized && normalized !== base) attempts.push({ text: normalized, normalized: true });
+
+    const errors = [];
+    for (const attempt of attempts){
+      try {
+        const docs = [];
+        jsyaml.loadAll(attempt.text || '', (d) => { docs.push(d); });
+        if (!docs.length) throw new Error('Empty YAML');
+        return { docs, yamlText: attempt.text, normalized: attempt.normalized };
+      } catch(e){
+        errors.push(e);
+      }
+    }
+    throw errors[0] || new Error('Invalid YAML');
+  }
+
   async function onKbRun(){
     // Validate required settings
     if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
@@ -153,12 +204,17 @@
       btn.classList.remove(successClass);
     }
     try {
-      const docs = [];
-      jsyaml.loadAll(t || '', (d) => { docs.push(d); });
-      if (!docs.length) throw new Error('Empty YAML');
+      const parsed = parseGuideYamlWithFixes(t);
+      if (parsed.normalized) {
+        const field = el('guideYaml');
+        if (field) {
+          field.value = parsed.yamlText;
+          try { field.dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+        }
+      }
       if (err) err.textContent = '';
       try {
-        await copyGuideSummaryToClipboard(docs);
+        await copyGuideSummaryToClipboard(parsed.docs);
       } catch {}
       if (btn) {
         btn.textContent = 'YAML Copied';

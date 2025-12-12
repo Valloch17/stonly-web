@@ -175,6 +175,16 @@ html[data-theme="light"] a[href="/expert.html"].inline-flex:hover {
   background-color: var(--expert-accent) !important;
 }
 
+/* AI Builder nav pill: keep soft accent in light, switch to dark surfaces in dark mode */
+html[data-theme="dark"] a[href="/ai-content-creator.html"].inline-flex {
+  background-color: var(--card) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] a[href="/ai-content-creator.html"].inline-flex:hover {
+  background-color: color-mix(in srgb, var(--card) 85%, var(--bg) 15%) !important;
+}
+
 /* Response area subtle tint */
 #out { background: color-mix(in srgb, var(--card) 92%, var(--bg) 8%) !important; }
 

@@ -1331,9 +1331,9 @@ def generate_yaml_with_gemini(
     sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
     contents = ["\n\n".join(sections)]
     cfg = types.GenerateContentConfig(
-        temperature=0.6,          # slightly higher to encourage fuller generations
+        temperature=0.7,          # slightly higher to encourage fuller generations
         top_p=0.9,
-        max_output_tokens=12288,
+        max_output_tokens=15000,
         system_instruction=[types.Part.from_text(text=SYSTEM_PROMPT)],
     )
     try:
