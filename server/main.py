@@ -878,6 +878,82 @@ def wrap_root_if_needed(text: str) -> str:
     return text
 
 
+def _indent_len(line: str) -> int:
+    count = 0
+    for ch in line:
+        if ch == " ":
+            count += 1
+        elif ch == "\t":
+            count += 2
+        else:
+            break
+    return count
+
+
+def fix_pre_block_indentation(text: str) -> str:
+    """Fix YAML block scalar indentation issues caused by unindented <pre> lines."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    block_re = re.compile(r"^(?P<indent>[ \t]*)(?:-[ \t]+)?[^#\n]*:\s*[|>][0-9+-]*\s*$")
+    out: list[str] = []
+    in_block = False
+    in_pre = False
+    base_indent = 0
+    content_indent: Optional[int] = None
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not in_block:
+            out.append(line)
+            match = block_re.match(line)
+            if match:
+                in_block = True
+                in_pre = False
+                base_indent = _indent_len(match.group("indent"))
+                content_indent = None
+            i += 1
+            continue
+
+        if content_indent is None and line.strip():
+            indent_len = _indent_len(line)
+            content_indent = indent_len if indent_len > base_indent else base_indent + 2
+
+        line_has_pre = bool(re.search(r"<\s*pre\b", line, re.I))
+        line_has_pre_end = bool(re.search(r"</\s*pre\s*>", line, re.I))
+        is_pre_related = in_pre or line_has_pre or line_has_pre_end
+
+        indent_len = _indent_len(line)
+        if line.strip() and indent_len <= base_indent and not is_pre_related:
+            in_block = False
+            in_pre = False
+            content_indent = None
+            continue
+
+        if is_pre_related and line.strip():
+            if content_indent is None:
+                content_indent = base_indent + 2
+            if indent_len < content_indent:
+                line = (" " * content_indent) + line.lstrip()
+
+        out.append(line)
+
+        pre_starts = len(re.findall(r"<\s*pre\b", line, re.I))
+        pre_ends = len(re.findall(r"</\s*pre\s*>", line, re.I))
+        if pre_starts > pre_ends:
+            in_pre = True
+        elif pre_ends > pre_starts:
+            in_pre = False
+
+        i += 1
+
+    return "\n".join(out)
+
+
 def normalize_ai_yaml(text: str) -> str:
     """Best-effort cleanup for AI-generated YAML to reduce failures."""
     if text is None:
@@ -885,6 +961,8 @@ def normalize_ai_yaml(text: str) -> str:
     s = strip_code_fences(text)
     # Replace tabs with spaces to avoid YAML indentation errors
     s = s.replace("\t", "  ")
+    # Fix block scalar indentation for <pre> tags
+    s = fix_pre_block_indentation(s)
     # Wrap if missing top-level guide
     s = wrap_root_if_needed(s)
     return s
@@ -1362,6 +1440,7 @@ def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
     text = (source or "").strip()
     if not text:
         raise HTTPException(400, detail={"error": "YAML payload is required"})
+    text = fix_pre_block_indentation(text)
     try:
         data = yaml.safe_load(text)
     except Exception as e:
@@ -1401,6 +1480,7 @@ def parse_guides_multi(source: str, defaults: GuideDefaults) -> list[dict]:
     text = (source or "").strip()
     if not text:
         raise HTTPException(400, detail={"error": "YAML payload is required"})
+    text = fix_pre_block_indentation(text)
 
     try:
         docs = list(yaml.safe_load_all(text))

@@ -457,10 +457,86 @@ function normalizeStep(step, path) {
     return node;
 }
 
+function indentLen(line) {
+    let count = 0;
+    for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (ch === ' ') count += 1;
+        else if (ch === '\t') count += 2;
+        else break;
+    }
+    return count;
+}
+
+function fixPreBlockIndentation(text) {
+    if (!text) return '';
+    const lines = text.split(/\r?\n/);
+    const blockRe = /^(?<indent>[ \t]*)(?:-[ \t]+)?[^#\n]*:\s*[|>][0-9+-]*\s*$/;
+    const out = [];
+    let inBlock = false;
+    let inPre = false;
+    let baseIndent = 0;
+    let contentIndent = null;
+    let i = 0;
+
+    while (i < lines.length) {
+        let line = lines[i];
+        if (!inBlock) {
+            out.push(line);
+            const match = line.match(blockRe);
+            if (match) {
+                inBlock = true;
+                inPre = false;
+                const indentText = match.groups ? match.groups.indent : (match[1] || '');
+                baseIndent = indentLen(indentText);
+                contentIndent = null;
+            }
+            i += 1;
+            continue;
+        }
+
+        if (contentIndent === null && line.trim()) {
+            const indent = indentLen(line);
+            contentIndent = indent > baseIndent ? indent : baseIndent + 2;
+        }
+
+        const lineHasPre = /<\s*pre\b/i.test(line);
+        const lineHasPreEnd = /<\/\s*pre\s*>/i.test(line);
+        const isPreRelated = inPre || lineHasPre || lineHasPreEnd;
+
+        const indent = indentLen(line);
+        if (line.trim() && indent <= baseIndent && !isPreRelated) {
+            inBlock = false;
+            inPre = false;
+            contentIndent = null;
+            continue;
+        }
+
+        if (isPreRelated && line.trim()) {
+            const targetIndent = contentIndent == null ? baseIndent + 2 : contentIndent;
+            if (indent < targetIndent) {
+                line = ' '.repeat(targetIndent) + line.replace(/^[ \t]*/, '');
+            }
+        }
+
+        out.push(line);
+
+        const preStarts = (line.match(/<\s*pre\b/gi) || []).length;
+        const preEnds = (line.match(/<\/\s*pre\s*>/gi) || []).length;
+        if (preStarts > preEnds) inPre = true;
+        else if (preEnds > preStarts) inPre = false;
+
+        i += 1;
+    }
+
+    return out.join('\n');
+}
+
 function parseGuideYaml(source) {
     const err = el('yamlError');
     err.textContent = '';
-    const text = (typeof source === 'string' ? source : getGuideYamlText()).trim();
+    const raw = (typeof source === 'string' ? source : getGuideYamlText()).trim();
+    const text = fixPreBlockIndentation(raw);
     if (!text) {
         err.textContent = 'YAML input is required.';
         return null;
