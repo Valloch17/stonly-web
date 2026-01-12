@@ -822,6 +822,8 @@ def clamp_positions(defn: "GuideDefinition") -> "GuideDefinition":
             for ch in step.choices:
                 if ch.position is not None:
                     ch.position = min(max(ch.position, 0), max_idx)
+                if ch.step and ch.step.position is not None:
+                    ch.step.position = min(max(ch.step.position, 0), max_idx)
                 if ch.step:
                     walk(ch.step)
     walk(defn.firstStep)
