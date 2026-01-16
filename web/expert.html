@@ -145,15 +145,19 @@
           <!-- Hidden username populated from login (optional) -->
           <input id="st_user" type="hidden" />
         </div>
-        <div>
-          <label class="block text-sm font-medium">Visibility</label>
-          <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
-            <option value="1" selected>Public</option>
-            <option value="0">Private</option>
-          </select>
-          <label class="block text-sm font-medium mt-3">Language</label>
-          <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
-        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div>
+              <label class="block text-sm font-medium">Visibility</label>
+              <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
+                  <option value="1" selected>Public</option>
+                  <option value="0">Private</option>
+              </select>
+          </div>
+          <div>
+              <label class="block text-sm font-medium">Language</label>
+              <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
+          </div>
+      </div>
       </div>
 
       
