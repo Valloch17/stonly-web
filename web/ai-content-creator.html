@@ -153,7 +153,7 @@
 
       <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 items-start">
-          <div>
+          <div class="lg:col-span-2">
             <label class="block text-sm font-medium">Team <span class="text-red-600">*</span></label>
             <select id="teamSelect" class="team-select mt-1 w-full border rounded-lg p-2 text-sm">
               <option value="">Loading teams...</option>
@@ -164,10 +164,6 @@
             <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
             <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
             <input id="user" type="hidden" autocomplete="off" />
-          </div>
-          <div>
-            <label class="block text-sm font-medium">Team setup</label>
-            <p class="text-xs text-slate-500">Use Manage teams to add tokens.</p>
           </div>
           <div class="lg:col-span-2 space-y-3">
             <label class="block text-sm font-medium">Publishing</label>
