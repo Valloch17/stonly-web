@@ -114,22 +114,25 @@
           </select>
           <p id="teamMeta" class="text-xs text-slate-500 mt-1"></p>
                     </div>
-        <div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div> 
           <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
           <input id="folderId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm"
             placeholder="e.g. 456234" />
           <input id="user" type="hidden" autocomplete="off" />
+          </div>
+          <div class="md:pt-4 flex items-center">
+          <label class="inline-flex items-center gap-2">
+            <input id="includeSubfolders" type="checkbox" class="h-4 w-4" checked>
+            <span class="text-sm font-medium">Include subfolders (recursive)</span>
+          </label>
+          </div>
         </div>
       </div>
 
       
 
-      <div class="flex flex-wrap items-center gap-4">
-        <label class="inline-flex items-center gap-2">
-          <input id="includeSubfolders" type="checkbox" class="h-4 w-4" checked>
-          <span class="text-sm font-medium">Include subfolders (recursive)</span>
-        </label>
-      </div>
+
     </section>
 
     <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
