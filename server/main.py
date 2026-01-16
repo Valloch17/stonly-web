@@ -2246,7 +2246,7 @@ def api_dump(
             _id = int(_id)
         except Exception:
             continue
-        by_id[_id] = {"name": _nm, "children": []}
+        by_id[_id] = {"id": _id, "name": _nm, "children": []}
         if _pid is not None:
             try:
                 children_map.setdefault(int(_pid), []).append(_id)

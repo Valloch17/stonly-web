@@ -225,6 +225,55 @@
     } catch(e){ setOut('kbOut', String(e.message || e)); }
   }
 
+  function buildFolderMapping(rootNodes){
+    const mapping = {};
+    const walk = (nodes, parentPath) => {
+      if (!Array.isArray(nodes)) return;
+      for (const node of nodes) {
+        if (!node || typeof node !== 'object') continue;
+        const name = node.name != null ? String(node.name).trim() : '';
+        if (!name) {
+          if (Array.isArray(node.children) && node.children.length) {
+            walk(node.children, parentPath);
+          }
+          continue;
+        }
+        const path = parentPath ? `${parentPath}/${name}` : `/${name}`;
+        const rawId = node.id ?? node.folderId ?? node.entityId;
+        const idNum = Number(rawId);
+        if (path && Number.isFinite(idNum)) mapping[path] = idNum;
+        if (Array.isArray(node.children) && node.children.length) {
+          walk(node.children, path);
+        }
+      }
+    };
+    walk(rootNodes, '');
+    return mapping;
+  }
+
+  async function onKbDump(){
+    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
+      setOut('kbOut', 'Please fill all required fields (*).');
+      return;
+    }
+    const c = collectCommon();
+    const params = new URLSearchParams();
+    params.set('user', c.user);
+    params.set('password', c.password);
+    params.set('teamId', String(c.teamId));
+    params.set('base', c.base || 'https://public.stonly.com/api/v3');
+    if (c.parentId != null) params.set('parentId', String(c.parentId));
+
+    setOut('kbOut', 'Loading...');
+    try {
+      const data = await apiFetch(`/api/dump-structure?${params.toString()}`, { method: 'GET' });
+      const root = data && typeof data === 'object' ? data.root : null;
+      if (!Array.isArray(root)) throw new Error('Unexpected response from dump-structure.');
+      const mapping = buildFolderMapping(root);
+      setOut('kbOut', { ok: true, mapping });
+    } catch(e){ setOut('kbOut', String(e.message || e)); }
+  }
+
   function stripContentKeysDeep(node){
     if (Array.isArray(node)) {
       return node.map(stripContentKeysDeep);
@@ -459,6 +508,7 @@
   // Wire events on DOM ready (shared.js exposes window.onReady)
   (window.onReady || ((fn)=>fn()))(() => {
     el('kbRunBtn')?.addEventListener('click', onKbRun);
+    el('kbDumpBtn')?.addEventListener('click', onKbDump);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
