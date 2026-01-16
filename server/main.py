@@ -3,8 +3,9 @@ from typing import List, Optional, Dict, Any, Tuple
 import re
 from dataclasses import dataclass, field
 import os, time, html, ipaddress
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator
 try:
@@ -21,6 +22,20 @@ import uuid
 
 
 import logging, logging.handlers
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    DateTime,
+    ForeignKey,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.exc import IntegrityError
+from passlib.context import CryptContext
+from cryptography.fernet import Fernet, InvalidToken
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -50,20 +65,90 @@ ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
 if not ADMIN_TOKEN:
     raise RuntimeError("Missing env: APP_ADMIN_TOKEN")
 
-# Session / cookie configuration (admin login)
+# Allow local testing shortcuts (e.g., ephemeral keys, sqlite fallback)
+ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
+
+# Session / cookie configuration (account login)
 SESSION_COOKIE_NAME = "st_session"
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "259200"))  # 72h default
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
 
-# Stockage en mémoire des sessions : session_id -> timestamp d'expiration
-SESSIONS: Dict[str, float] = {}
+# ---- DB / Auth config ----
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    if ALLOW_LOCAL_TESTING_MODE:
+        DATABASE_URL = "sqlite:///./stonly.db"
+        logger.warning("DATABASE_URL missing; using local sqlite for testing.")
+    else:
+        raise RuntimeError("Missing env: DATABASE_URL")
+
+# SQLAlchemy requires "postgresql://" scheme
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+TEAM_TOKEN_ENCRYPTION_KEY = os.getenv("TEAM_TOKEN_ENCRYPTION_KEY")
+if not TEAM_TOKEN_ENCRYPTION_KEY:
+    if ALLOW_LOCAL_TESTING_MODE:
+        TEAM_TOKEN_ENCRYPTION_KEY = Fernet.generate_key().decode("utf-8")
+        logger.warning("Generated ephemeral TEAM_TOKEN_ENCRYPTION_KEY for testing.")
+    else:
+        raise RuntimeError("Missing env: TEAM_TOKEN_ENCRYPTION_KEY")
+
+pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
+try:
+    fernet = Fernet(TEAM_TOKEN_ENCRYPTION_KEY.encode("utf-8"))
+except Exception as exc:
+    raise RuntimeError("Invalid TEAM_TOKEN_ENCRYPTION_KEY") from exc
+
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=_connect_args, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+Base = declarative_base()
+
+# ---- DB models ----
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    email = Column(String(255), unique=True, nullable=False)
+    password_hash = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class Team(Base):
+    __tablename__ = "teams"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(Integer, nullable=False)
+    token_encrypted = Column(Text, nullable=False)
+    name = Column(String(255), nullable=True)
+    root_folder = Column(Integer, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("user_id", "team_id", name="uq_user_team_id"),
+    )
+
+
+class UserSession(Base):
+    __tablename__ = "sessions"
+    id = Column(String(64), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+def init_db() -> None:
+    Base.metadata.create_all(bind=engine)
+
 
 # IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
 # Ils arrivent depuis le frontend dans chaque requête (payload ou query).
 
 
 tags_metadata = [
+    {"name": "Auth", "description": "Account authentication and sessions"},
+    {"name": "Teams", "description": "Team registry for stored Stonly tokens"},
     {"name": "Health", "description": "Health and readiness probes"},
     {"name": "Debug", "description": "Diagnostics and server logs"},
     {"name": "Structure", "description": "Folder and tree operations"},
@@ -76,7 +161,9 @@ app = FastAPI(
     swagger_ui_parameters={"docExpansion": "list", "defaultModelsExpandDepth": -1},
 )
 
-ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
+@app.on_event("startup")
+def _startup_init_db() -> None:
+    init_db()
 
 # CORS : autoriser seulement les frontends connus (+ localhost optionnel)
 FRONTEND_ORIGINS = [
@@ -168,58 +255,95 @@ async def unhandled_exc(_, exc: Exception):
     )
 
 
-def _create_session() -> str:
+def _normalize_email(email: str) -> str:
+    return (email or "").strip().lower()
+
+
+def _hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def _verify_password(password: str, password_hash: str) -> bool:
+    try:
+        return pwd_context.verify(password, password_hash)
+    except Exception:
+        return False
+
+
+def _encrypt_team_token(token: str) -> str:
+    return fernet.encrypt(token.encode("utf-8")).decode("utf-8")
+
+
+def _decrypt_team_token(token_enc: str) -> str:
+    try:
+        return fernet.decrypt(token_enc.encode("utf-8")).decode("utf-8")
+    except InvalidToken:
+        raise HTTPException(500, detail="Failed to decrypt team token")
+
+
+def _create_session(db, user_id: int) -> str:
     sid = uuid.uuid4().hex
-    SESSIONS[sid] = time.time() + SESSION_TTL_SECONDS
+    expires_at = datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
+    db.add(UserSession(id=sid, user_id=user_id, expires_at=expires_at))
+    db.commit()
     return sid
 
 
-def _clear_session(session_id: str) -> None:
-    SESSIONS.pop(session_id, None)
-
-
-def _has_valid_session(request: Optional[Request]) -> bool:
-    if request is None:
-        return False
-    sid = request.cookies.get(SESSION_COOKIE_NAME)
-    if not sid:
-        return False
-    expires_at = SESSIONS.get(sid)
-    now = time.time()
-    if not expires_at or expires_at < now:
-        SESSIONS.pop(sid, None)
-        return False
-    return True
-
-
-# ---- Auth guard ----
-def ensure_admin(
-    auth_header: Optional[str] = None,
-    *,
-    request: Optional[Request] = None,
-    token: Optional[str] = None,
-) -> None:
-    # Allow bearer token via incoming request headers when not explicitly provided
-    if auth_header is None and request is not None:
-        auth_header = request.headers.get("Authorization")
-
-    # 1) Session via cookie
-    if _has_valid_session(request):
+def _clear_session(db, session_id: Optional[str]) -> None:
+    if not session_id:
         return
+    db.query(UserSession).filter(UserSession.id == session_id).delete()
+    db.commit()
 
-    # 2) Fallback : jeton brut (header ou payload)
-    candidate: Optional[str] = None
-    if token:
-        candidate = token
-    elif auth_header:
-        if not auth_header.startswith("Bearer "):
-            raise HTTPException(401, detail="Missing bearer token")
-        candidate = auth_header.split(" ", 1)[1]
 
-    if not candidate:
-        raise HTTPException(401, detail="Missing admin token or session")
-    if candidate != ADMIN_TOKEN:
-        raise HTTPException(403, detail="Invalid token")
+def _get_session_user_id(db, session_id: Optional[str]) -> Optional[int]:
+    if not session_id:
+        return None
+    session = db.query(UserSession).filter(UserSession.id == session_id).first()
+    if not session:
+        return None
+    if session.expires_at <= datetime.utcnow():
+        db.query(UserSession).filter(UserSession.id == session_id).delete()
+        db.commit()
+        return None
+    return session.user_id
+
+
+def get_user_from_request(db, request: Request) -> User:
+    sid = request.cookies.get(SESSION_COOKIE_NAME)
+    user_id = _get_session_user_id(db, sid)
+    if not user_id:
+        raise HTTPException(401, detail="Missing or expired session")
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(401, detail="Unknown session user")
+    return user
+
+
+def get_team_for_user(db, user_id: int, team_id: int) -> Team:
+    team = db.query(Team).filter(Team.user_id == user_id, Team.team_id == team_id).first()
+    if not team:
+        raise HTTPException(404, detail="Team not found")
+    return team
+
+
+def get_stonly_client_for_team(
+    db,
+    *,
+    user_id: int,
+    team_id: int,
+    base: Optional[str],
+    user_label: Optional[str],
+) -> Tuple["Stonly", Team]:
+    team = get_team_for_user(db, user_id, team_id)
+    token = _decrypt_team_token(team.token_encrypted)
+    st = Stonly(
+        base=(base or "https://public.stonly.com/api/v3"),
+        user=(user_label or "Undefined"),
+        password=token,
+        team_id=team.team_id,
+    )
+    return st, team
 
 # ---- Client API Stonly ----
 class Stonly:
@@ -541,15 +665,22 @@ class Stonly:
 
 class Creds(BaseModel):
     user: str = "Undefined"
-    password: str
     teamId: int
     base: Optional[str] = "https://public.stonly.com/api/v3"
+    password: Optional[str] = None  # deprecated: only used in local/testing
 
     @field_validator("user", mode="before")
     @classmethod
     def default_user(cls, v):
         s = str(v).strip() if v is not None else ""
         return s or "Undefined"
+
+    @field_validator("teamId")
+    @classmethod
+    def team_id_required(cls, v):
+        if v is None:
+            raise ValueError("teamId is required")
+        return int(v)
 
 class UINode(BaseModel):
     name: str
@@ -652,14 +783,12 @@ GuideStep.model_rebuild()
 GuideDefinition.model_rebuild()
 
 class PublishDraftsPayload(BaseModel):
-    token: Optional[str] = None
     creds: Creds
     folderId: int
     includeSubfolders: bool = True
     limit: int = Field(default=100, ge=1, le=100)
 
 class ApplyPayload(BaseModel):
-    token: Optional[str] = None
     creds: Creds
     parentId: Optional[int] = None
     dryRun: bool = False
@@ -667,13 +796,11 @@ class ApplyPayload(BaseModel):
     settings: Optional[Settings] = None
 
 class VerifyPayload(BaseModel):
-    token: Optional[str] = None
     creds: Creds
     parentId: Optional[int] = None
     root: List[UINode]
 
 class GuideBuildPayload(BaseModel):
-    token: Optional[str] = None
     creds: Creds
     folderId: int
     yaml: str
@@ -683,11 +810,9 @@ class GuideBuildPayload(BaseModel):
 
 
 class AIGuidePayload(BaseModel):
-    token: Optional[str] = None
     prompt: str = ""
     teamId: int
     folderId: int
-    teamToken: str
     publish: bool = False
     dryRun: bool = False
     base: Optional[str] = "https://public.stonly.com/api/v3"
@@ -703,14 +828,6 @@ class AIGuidePayload(BaseModel):
         text = (v or "").strip()
         if len(text) > 8000:
             raise ValueError("prompt is too long (max 8000 characters)")
-        return text
-
-    @field_validator("teamToken")
-    @classmethod
-    def team_token_required(cls, v: str):
-        text = (v or "").strip()
-        if not text:
-            raise ValueError("teamToken is required")
         return text
 
     @field_validator("base")
@@ -729,7 +846,158 @@ class AIGuidePayload(BaseModel):
 
 
 class LoginPayload(BaseModel):
-    token: str
+    email: str
+    password: str
+
+    @field_validator("email")
+    @classmethod
+    def email_required(cls, v: str):
+        text = _normalize_email(v)
+        if "@" not in text:
+            raise ValueError("email is required")
+        return text
+
+    @field_validator("password")
+    @classmethod
+    def password_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("password is required")
+        return text
+
+
+class SignupPayload(BaseModel):
+    email: str
+    password: str
+    adminToken: str
+
+    @field_validator("email")
+    @classmethod
+    def email_required(cls, v: str):
+        text = _normalize_email(v)
+        if "@" not in text:
+            raise ValueError("email is required")
+        return text
+
+    @field_validator("password")
+    @classmethod
+    def password_required(cls, v: str):
+        text = (v or "").strip()
+        if len(text) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return text
+
+    @field_validator("adminToken")
+    @classmethod
+    def admin_token_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("adminToken is required")
+        return text
+
+
+class ResetPasswordPayload(BaseModel):
+    email: str
+    newPassword: str
+    adminToken: str
+
+    @field_validator("email")
+    @classmethod
+    def email_required(cls, v: str):
+        text = _normalize_email(v)
+        if "@" not in text:
+            raise ValueError("email is required")
+        return text
+
+    @field_validator("newPassword")
+    @classmethod
+    def password_required(cls, v: str):
+        text = (v or "").strip()
+        if len(text) < 8:
+            raise ValueError("password must be at least 8 characters")
+        return text
+
+    @field_validator("adminToken")
+    @classmethod
+    def admin_token_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("adminToken is required")
+        return text
+
+
+class TeamCreatePayload(BaseModel):
+    teamId: int
+    teamToken: str
+    name: Optional[str] = None
+    rootFolder: Optional[int] = None
+
+    @field_validator("teamId")
+    @classmethod
+    def team_id_required(cls, v):
+        if v is None:
+            raise ValueError("teamId is required")
+        return int(v)
+
+    @field_validator("teamToken")
+    @classmethod
+    def team_token_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("teamToken is required")
+        return text
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_optional(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("rootFolder", mode="before")
+    @classmethod
+    def root_folder_optional(cls, v):
+        if v is None or v == "":
+            return None
+        return int(v)
+
+
+class TeamUpdatePayload(BaseModel):
+    teamId: Optional[int] = None
+    teamToken: Optional[str] = None
+    name: Optional[str] = None
+    rootFolder: Optional[int] = None
+
+    @field_validator("teamId")
+    @classmethod
+    def team_id_optional(cls, v):
+        if v is None:
+            return None
+        return int(v)
+
+    @field_validator("teamToken")
+    @classmethod
+    def team_token_optional(cls, v: Optional[str]):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def name_optional(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("rootFolder", mode="before")
+    @classmethod
+    def root_folder_optional(cls, v):
+        if v is None or v == "":
+            return None
+        return int(v)
 
 
 
@@ -1737,12 +2005,25 @@ def _build_one_guide(
     }
 
 # ---- endpoints ----
-@app.post("/api/login", tags=["Auth"], summary="Obtain admin session")
-def api_login(payload: LoginPayload):
-    if payload.token != ADMIN_TOKEN:
-        raise HTTPException(401, detail="Invalid token")
-    sid = _create_session()
-    resp = JSONResponse({"ok": True})
+@app.post("/api/signup", tags=["Auth"], summary="Create account and session")
+def api_signup(payload: SignupPayload):
+    if payload.adminToken != ADMIN_TOKEN:
+        raise HTTPException(401, detail="Invalid admin token")
+    email = _normalize_email(payload.email)
+    with SessionLocal() as db:
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            raise HTTPException(409, detail="Email already registered")
+        user = User(email=email, password_hash=_hash_password(payload.password))
+        db.add(user)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, detail="Email already registered")
+        db.refresh(user)
+        sid = _create_session(db, user.id)
+    resp = JSONResponse({"ok": True, "email": email})
     resp.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=sid,
@@ -1755,27 +2036,158 @@ def api_login(payload: LoginPayload):
     return resp
 
 
-@app.post("/api/logout", tags=["Auth"], summary="Clear admin session")
+@app.post("/api/login", tags=["Auth"], summary="Obtain account session")
+def api_login(payload: LoginPayload):
+    email = _normalize_email(payload.email)
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not _verify_password(payload.password, user.password_hash):
+            raise HTTPException(401, detail="Invalid email or password")
+        sid = _create_session(db, user.id)
+    resp = JSONResponse({"ok": True, "email": email})
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=sid,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite=SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return resp
+
+
+@app.post("/api/password/reset", tags=["Auth"], summary="Reset password with admin token")
+def api_reset_password(payload: ResetPasswordPayload):
+    if payload.adminToken != ADMIN_TOKEN:
+        raise HTTPException(401, detail="Invalid admin token")
+    email = _normalize_email(payload.email)
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            raise HTTPException(404, detail="User not found")
+        user.password_hash = _hash_password(payload.newPassword)
+        db.query(UserSession).filter(UserSession.user_id == user.id).delete()
+        db.commit()
+    return {"ok": True}
+
+
+@app.post("/api/logout", tags=["Auth"], summary="Clear session")
 def api_logout(request: Request):
     sid = request.cookies.get(SESSION_COOKIE_NAME)
-    if sid:
-        _clear_session(sid)
+    with SessionLocal() as db:
+        _clear_session(db, sid)
     resp = JSONResponse({"ok": True})
     resp.delete_cookie(SESSION_COOKIE_NAME, path="/")
     return resp
 
 
-@app.get("/api/auth/status", tags=["Auth"], summary="Check admin session")
+@app.get("/api/auth/status", tags=["Auth"], summary="Check session")
 def api_auth_status(request: Request):
-    ensure_admin(request=request)
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+    return {"ok": True, "email": user.email}
+
+
+@app.get("/api/teams", tags=["Teams"], summary="List teams for current user")
+def api_list_teams(request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        teams = db.query(Team).filter(Team.user_id == user.id).order_by(Team.created_at.asc()).all()
+        payload = [
+            {
+                "id": t.id,
+                "teamId": t.team_id,
+                "name": t.name,
+                "rootFolder": t.root_folder,
+                "createdAt": t.created_at.isoformat() if t.created_at else None,
+            }
+            for t in teams
+        ]
+    return {"ok": True, "teams": payload}
+
+
+@app.post("/api/teams", tags=["Teams"], summary="Create a team")
+def api_create_team(payload: TeamCreatePayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        team = Team(
+            user_id=user.id,
+            team_id=payload.teamId,
+            token_encrypted=_encrypt_team_token(payload.teamToken),
+            name=payload.name,
+            root_folder=payload.rootFolder,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.add(team)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, detail="Team already exists")
+        db.refresh(team)
+    return {
+        "ok": True,
+        "team": {
+            "id": team.id,
+            "teamId": team.team_id,
+            "name": team.name,
+            "rootFolder": team.root_folder,
+        },
+    }
+
+
+@app.put("/api/teams/{team_id}", tags=["Teams"], summary="Update a team")
+def api_update_team(team_id: int, payload: TeamUpdatePayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        team = db.query(Team).filter(Team.user_id == user.id, Team.id == team_id).first()
+        if not team:
+            raise HTTPException(404, detail="Team not found")
+        fields_set = getattr(payload, "model_fields_set", set())
+        if "teamId" in fields_set:
+            team.team_id = payload.teamId
+        if "teamToken" in fields_set:
+            if not payload.teamToken:
+                raise HTTPException(400, detail="teamToken cannot be empty")
+            team.token_encrypted = _encrypt_team_token(payload.teamToken)
+        if "name" in fields_set:
+            team.name = payload.name
+        if "rootFolder" in fields_set:
+            team.root_folder = payload.rootFolder
+        team.updated_at = datetime.utcnow()
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(409, detail="Team already exists")
+    return {"ok": True}
+
+
+@app.delete("/api/teams/{team_id}", tags=["Teams"], summary="Delete a team")
+def api_delete_team(team_id: int, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        team = db.query(Team).filter(Team.user_id == user.id, Team.id == team_id).first()
+        if not team:
+            raise HTTPException(404, detail="Team not found")
+        db.delete(team)
+        db.commit()
     return {"ok": True}
 
 
 @app.post("/api/apply", tags=["Builder"], summary="Apply folder structure")
-def api_apply(payload: ApplyPayload, request: Request, authorization: Optional[str] = Header(None)):
-    ensure_admin(auth_header=authorization, request=request, token=payload.token)
-    st = Stonly(base=payload.creds.base, user=payload.creds.user,
-                password=payload.creds.password, team_id=payload.creds.teamId)
+def api_apply(payload: ApplyPayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, _team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=payload.creds.teamId,
+            base=payload.creds.base,
+            user_label=payload.creds.user,
+        )
     mapping: Dict[str, int] = {}
 
     # valeurs globales
@@ -1843,9 +2255,15 @@ def api_apply(payload: ApplyPayload, request: Request, authorization: Optional[s
 
 @app.post("/api/verify", tags=["Builder"], summary="Verify folder structure")
 def api_verify(payload: VerifyPayload, request: Request):
-    ensure_admin(request=request, token=payload.token)
-    st = Stonly(base=payload.creds.base, user=payload.creds.user,
-                password=payload.creds.password, team_id=payload.creds.teamId)
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, _team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=payload.creds.teamId,
+            base=payload.creds.base,
+            user_label=payload.creds.user,
+        )
     # ... reste inchangé (collect expected vs real)
 
 
@@ -1875,7 +2293,7 @@ def api_verify(payload: VerifyPayload, request: Request):
     return {"ok": True, "missing": missing, "extra": extra}
 
 
-def api_build_guide(payload: GuideBuildPayload):
+def api_build_guide(payload: GuideBuildPayload, *, user_id: Optional[int] = None):
     request_id = str(uuid.uuid4())
     logger.info("REQUEST %s :: /api/guides/build", request_id)
     def _log(prefix, msg):
@@ -1908,12 +2326,24 @@ def api_build_guide(payload: GuideBuildPayload):
         payload.creds.base,
     )
 
-    st = Stonly(
-        base=payload.creds.base,
-        user=payload.creds.user,
-        password=payload.creds.password,
-        team_id=payload.creds.teamId
-    )
+    if user_id is None and payload.creds.password and ALLOW_LOCAL_TESTING_MODE:
+        st = Stonly(
+            base=payload.creds.base,
+            user=payload.creds.user,
+            password=payload.creds.password,
+            team_id=payload.creds.teamId,
+        )
+    else:
+        if user_id is None:
+            raise HTTPException(401, detail="Missing session")
+        with SessionLocal() as db:
+            st, _team = get_stonly_client_for_team(
+                db,
+                user_id=user_id,
+                team_id=payload.creds.teamId,
+                base=payload.creds.base,
+                user_label=payload.creds.user,
+            )
     dry_run = bool(payload.dryRun)
 
     # Single guide (back-compat): keep response shape
@@ -2024,13 +2454,15 @@ def api_build_guide(payload: GuideBuildPayload):
 
 @app.post("/api/guides/publish-drafts", tags=["Builder"], summary="Publish draft guides already present in a folder")
 def api_publish_drafts(payload: PublishDraftsPayload, request: Request):
-    ensure_admin(request=request, token=payload.token)
-    st = Stonly(
-        base=payload.creds.base or "https://public.stonly.com/api/v3",
-        user=payload.creds.user,
-        password=payload.creds.password,
-        team_id=payload.creds.teamId,
-    )
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, _team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=payload.creds.teamId,
+            base=payload.creds.base,
+            user_label=payload.creds.user,
+        )
 
     try:
         items = st.list_guides_in_folder(
@@ -2100,8 +2532,9 @@ def api_publish_drafts(payload: PublishDraftsPayload, request: Request):
 
 @app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")
 def api_build_guide_http(payload: GuideBuildPayload, request: Request):
-    ensure_admin(request=request, token=payload.token)
-    return api_build_guide(payload)
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+    return api_build_guide(payload, user_id=user.id)
 
 
 @app.post(
@@ -2110,7 +2543,8 @@ def api_build_guide_http(payload: GuideBuildPayload, request: Request):
     summary="Generate guide YAML via Gemini, then build/publish it",
 )
 def api_ai_guides_build(payload: AIGuidePayload, request: Request):
-    ensure_admin(request=request, token=payload.token)
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
     request_id = str(uuid.uuid4())
     testing_mode_active = should_use_testing_mode(request, payload.testingMode)
     logger.info(
@@ -2171,13 +2605,11 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     if payload.previewOnly:
         return {"ok": True, "yaml": yaml_text, "previewOnly": True, "testingMode": testing_mode_active}
 
-    # 3) Build using existing pipeline (reuse team token as password)
+    # 3) Build using existing pipeline (use stored team token)
     dry_run_flag = bool(payload.dryRun or testing_mode_active)
     build_payload = GuideBuildPayload(
-        token=payload.token,
         creds=Creds(
             user="Undefined",
-            password=payload.teamToken,
             teamId=payload.teamId,
             base=payload.base or "https://public.stonly.com/api/v3",
         ),
@@ -2189,7 +2621,7 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     )
 
     try:
-        build_result = api_build_guide(build_payload)
+        build_result = api_build_guide(build_payload, user_id=user.id)
     except HTTPException as e:
         detail = getattr(e, "detail", str(e))
         if isinstance(detail, dict):
@@ -2209,15 +2641,19 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(
     request: Request,
-    token: Optional[str] = None,
-    user: str = ...,
-    password: str = ...,
     teamId: int = ...,
     parentId: Optional[int] = None,
     base: str = "https://public.stonly.com/api/v3",
 ):
-    ensure_admin(request=request, token=token)
-    st = Stonly(base=base, user=user, password=password, team_id=int(teamId))
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, _team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=int(teamId),
+            base=base,
+            user_label="Undefined",
+        )
 
     try:
         items = st.get_structure_flat(parentId)
@@ -2287,19 +2723,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Pull creds/config from env
-    admin_token = os.getenv("APP_ADMIN_TOKEN")
     user = os.getenv("STONLY_USER")
     password = os.getenv("STONLY_PASSWORD")
     team_id = int(os.getenv("TEAM_ID", "0") or "0")
     folder_id = int(os.getenv("FOLDER_ID", "0") or "0")
 
-    if not all([admin_token, user, password, team_id, folder_id]):
-        raise SystemExit("Missing one of: APP_ADMIN_TOKEN, STONLY_USER, STONLY_PASSWORD, TEAM_ID, FOLDER_ID")
+    if not all([user, password, team_id, folder_id]):
+        raise SystemExit("Missing one of: STONLY_USER, STONLY_PASSWORD, TEAM_ID, FOLDER_ID")
 
     yaml_text = Path(args.yaml_file).read_text(encoding="utf-8")
 
     payload = GuideBuildPayload(
-        token=admin_token,
         creds=Creds(user=user, password=password, teamId=team_id),
         folderId=folder_id,
         yaml=yaml_text,

@@ -197,9 +197,8 @@ if (typeof window.requireAdmin === "function") {
   function serializePayload() {
     return {
       prompt: (el("prompt")?.value || "").trim(),
-      teamId: el("teamId")?.value ? Number(el("teamId").value) : null,
+      teamId: el("teamSelect")?.value ? Number(el("teamSelect").value) : null,
       folderId: el("folderId")?.value ? Number(el("folderId").value) : null,
-      teamToken: (el("password")?.value || "").trim(),
       publish: !!el("publish")?.checked,
     };
   }
@@ -565,7 +564,7 @@ if (typeof window.requireAdmin === "function") {
 
   async function runCreator() {
     if (typeof window.validateRequired === "function") {
-      const ok = window.validateRequired(["prompt", "teamId", "folderId", "password"]);
+      const ok = window.validateRequired(["prompt", "teamSelect", "folderId"]);
       if (!ok) return;
     }
     const waitForPreview = !!el("previewBeforePublish")?.checked;

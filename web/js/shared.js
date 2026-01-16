@@ -101,10 +101,10 @@
     return ok;
   };
 
-  // 3) Shared persistence for Stonly user/team/folder between apps (no legacy migration)
+  // 3) Shared persistence for team selection + folder IDs between apps
   onReady(function initSharedPersistence() {
     const groups = [
-      { key: 'st_shared_team', ids: ['st_team', 'teamId'] },
+      { key: 'st_selected_team', ids: ['teamSelect'] },
       { key: 'st_shared_folder', ids: ['parentId', 'folderId'] },
       { key: 'st_shared_user', ids: ['st_user', 'user'] },
     ];
@@ -134,9 +134,8 @@
     if (!isLocal) return; // never persist tokens on non-local hosts
 
     const pairs = [
-      { id: 'token', key: 'dev_admin_token' },          // Admin token (backend auth)
-      { id: 'password', key: 'dev_stonly_password' },   // Guide Builder credential
-      { id: 'st_pass', key: 'dev_stonly_password' },    // KB Builder credential
+      { id: 'signupAdminToken', key: 'dev_admin_token' }, // Admin token (signup only)
+      { id: 'teamModalToken', key: 'dev_team_token' },    // Team token (local only)
     ];
 
     pairs.forEach(({ id, key }) => {
@@ -218,7 +217,7 @@
     }
   } catch (_) {}
 
-  // 6) Admin-session guard for builder pages
+  // 6) Account-session guard for builder pages
   const AUTH_PENDING_CLASS = 'auth-check-pending';
   const AUTH_READY_CLASS = 'auth-check-ready';
   function markAuthPending() {
@@ -234,7 +233,7 @@
     root.classList.add(AUTH_READY_CLASS);
   }
 
-  window.requireAdmin = function requireAdmin() {
+  window.requireAccount = function requireAccount() {
     if (window.__authCheckPromise) {
       return window.__authCheckPromise;
     }
@@ -247,6 +246,9 @@
         if (!res.ok) throw new Error('unauthorized');
         const data = await res.json().catch(() => null);
         if (!data || data.ok !== true) throw new Error('unauthorized');
+        if (data && data.email) {
+          window.__authUserEmail = data.email;
+        }
         markAuthReady();
       } catch (_) {
         window.location.replace('/login.html?next=' + encodeURIComponent(here || '/'));
@@ -254,3 +256,391 @@
     })();
     return window.__authCheckPromise;
   };
+  window.requireAdmin = window.requireAccount;
+
+  // 7) Team selector + modal creation (shared across builder pages)
+  onReady(function initTeamSelector() {
+    const select = document.getElementById('teamSelect');
+    const meta = document.getElementById('teamMeta');
+    const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+    let teams = [];
+    let lastValidTeamId = '';
+    let pendingSelectId = '';
+
+    function ensureTeamModal() {
+      let overlay = document.getElementById('teamModal');
+      if (overlay) return overlay;
+      overlay = document.createElement('div');
+      overlay.id = 'teamModal';
+      overlay.className = 'modal-overlay hidden';
+      overlay.innerHTML = `
+        <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="teamModalTitle">
+          <div class="modal-header">
+            <div>
+              <h2 id="teamModalTitle" class="text-lg font-semibold">Create team</h2>
+              <p id="teamModalSubtitle" class="text-sm text-slate-500">Store a team token for quick access.</p>
+            </div>
+            <button id="teamModalClose" type="button" class="modal-close" aria-label="Close">x</button>
+          </div>
+          <form id="teamModalForm" class="space-y-3">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
+                <input id="teamModalId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium">Root folder</label>
+                <input id="teamModalRoot" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional folder ID" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium">Team name</label>
+                <input id="teamModalName" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional label" />
+              </div>
+              <div>
+                <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
+                <input id="teamModalToken" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Stonly team token" autocomplete="off" />
+                <p id="teamModalTokenHint" class="text-xs text-slate-500 mt-1 hidden">Leave blank to keep the current token.</p>
+              </div>
+            </div>
+            <p id="teamModalError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
+            <div class="modal-actions">
+              <button id="teamModalCancel" type="button" class="px-3 py-2 rounded-lg border text-sm">Cancel</button>
+              <button id="teamModalSave" type="submit" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium">Save team</button>
+            </div>
+          </form>
+        </div>
+      `;
+      document.body.appendChild(overlay);
+      return overlay;
+    }
+
+    const modalState = { mode: 'create', team: null, onSaved: null };
+
+    function openTeamModal({ mode = 'create', team = null, onSaved = null } = {}) {
+      const overlay = ensureTeamModal();
+      const title = overlay.querySelector('#teamModalTitle');
+      const subtitle = overlay.querySelector('#teamModalSubtitle');
+      const error = overlay.querySelector('#teamModalError');
+      const tokenHint = overlay.querySelector('#teamModalTokenHint');
+      overlay.dataset.mode = mode;
+      overlay.dataset.teamRowId = team?.id ? String(team.id) : '';
+      modalState.mode = mode;
+      modalState.team = team;
+      modalState.onSaved = onSaved;
+
+      overlay.querySelector('#teamModalId').value = team?.teamId ?? '';
+      overlay.querySelector('#teamModalName').value = team?.name ?? '';
+      overlay.querySelector('#teamModalRoot').value = team?.rootFolder ?? '';
+      const tokenInput = overlay.querySelector('#teamModalToken');
+      if (tokenInput) tokenInput.value = '';
+      if (error) error.textContent = '';
+      try {
+        const isLocal = /^(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0|.*\\.local)$/i.test(window.location.hostname);
+        if (isLocal && tokenInput && !tokenInput.value) {
+          const saved = localStorage.getItem('dev_team_token');
+          if (saved) tokenInput.value = saved;
+        }
+        if (isLocal && tokenInput && !tokenInput.dataset.persistBound) {
+          tokenInput.dataset.persistBound = '1';
+          tokenInput.addEventListener('input', () => {
+            try { localStorage.setItem('dev_team_token', (tokenInput.value || '').trim()); } catch {}
+          });
+        }
+      } catch {}
+
+      if (mode === 'edit') {
+        if (title) title.textContent = 'Edit team';
+        if (subtitle) subtitle.textContent = 'Update the stored team details.';
+        if (tokenHint) tokenHint.classList.remove('hidden');
+      } else {
+        if (title) title.textContent = 'Create team';
+        if (subtitle) subtitle.textContent = 'Store a team token for quick access.';
+        if (tokenHint) tokenHint.classList.add('hidden');
+      }
+
+      overlay.classList.remove('hidden');
+    }
+
+    function closeTeamModal() {
+      const overlay = document.getElementById('teamModal');
+      if (!overlay) return;
+      overlay.classList.add('hidden');
+    }
+
+    async function saveTeamFromModal(e) {
+      if (e) e.preventDefault();
+      const overlay = ensureTeamModal();
+      const error = overlay.querySelector('#teamModalError');
+      if (error) error.textContent = '';
+
+      const teamId = parseInt(overlay.querySelector('#teamModalId').value || '', 10);
+      const name = overlay.querySelector('#teamModalName').value.trim();
+      const rootFolderRaw = overlay.querySelector('#teamModalRoot').value;
+      const token = overlay.querySelector('#teamModalToken').value.trim();
+      const rootFolder = parseInt(rootFolderRaw, 10);
+      if (!Number.isFinite(teamId)) {
+        if (error) error.textContent = 'Team ID is required.';
+        return;
+      }
+
+      const payload = { teamId };
+      if (name) payload.name = name;
+      if (Number.isFinite(rootFolder)) payload.rootFolder = rootFolder;
+      if (modalState.mode === 'create') {
+        if (!token) {
+          if (error) error.textContent = 'Team token is required.';
+          return;
+        }
+        payload.teamToken = token;
+      } else if (token) {
+        payload.teamToken = token;
+      }
+
+      try {
+        let res;
+        if (modalState.mode === 'edit') {
+          const rowId = overlay.dataset.teamRowId;
+          res = await fetch(base + `/api/teams/${rowId}`, {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'include',
+          });
+        } else {
+          res = await fetch(base + '/api/teams', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+            credentials: 'include',
+          });
+        }
+        if (!res.ok) {
+          const msg = res.status === 409 ? 'Team already exists.' : 'Failed to save team.';
+          if (error) error.textContent = msg;
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        closeTeamModal();
+        const savedTeam = data?.team || payload;
+        if (modalState.mode === 'create' && savedTeam?.teamId) {
+          pendingSelectId = String(savedTeam.teamId);
+        }
+        if (typeof modalState.onSaved === 'function') {
+          modalState.onSaved(savedTeam);
+        }
+        if (typeof window.__reloadTeamSelect === 'function') {
+          window.__reloadTeamSelect(pendingSelectId);
+        }
+      } catch (_) {
+        if (error) error.textContent = 'Failed to save team.';
+      }
+    }
+
+    function setMeta(team) {
+      if (!meta) return;
+      if (!team) {
+        meta.textContent = 'No team selected.';
+        return;
+      }
+      const name = team.name ? `${team.name} · ` : '';
+      const root = team.rootFolder ? ` · Root folder ${team.rootFolder}` : '';
+      meta.textContent = `${name}Team ID ${team.teamId}${root}`;
+    }
+
+    function applyRootFolder(team) {
+      if (!team || !team.rootFolder) return;
+      ['folderId', 'parentId'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el && !String(el.value || '').trim()) {
+          el.value = String(team.rootFolder);
+        }
+      });
+    }
+
+    function updateSelection() {
+      const selectedId = String(select.value || '');
+      if (selectedId === '__create__') {
+        select.value = lastValidTeamId;
+        openTeamModal({ mode: 'create' });
+        return;
+      }
+      const team = teams.find((t) => String(t.teamId) === selectedId) || null;
+      window.__selectedTeam = team;
+      if (selectedId) {
+        lastValidTeamId = selectedId;
+        try { localStorage.setItem('st_selected_team', selectedId); } catch {}
+      }
+      setMeta(team);
+      applyRootFolder(team);
+    }
+
+    function renderTeams(list, preferredTeamId) {
+      teams = Array.isArray(list) ? list : [];
+      select.innerHTML = '';
+
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = 'Select a team';
+      placeholder.disabled = true;
+      select.appendChild(placeholder);
+
+      if (teams.length) {
+        teams.forEach((team) => {
+          const opt = document.createElement('option');
+          opt.value = String(team.teamId);
+          opt.textContent = team.name ? `${team.name} (${team.teamId})` : `Team ${team.teamId}`;
+          select.appendChild(opt);
+        });
+      }
+
+      const separator = document.createElement('option');
+      separator.value = '__separator__';
+      separator.textContent = '---------------------';
+      separator.disabled = true;
+      select.appendChild(separator);
+
+      const createOpt = document.createElement('option');
+      createOpt.value = '__create__';
+      createOpt.textContent = '+ Create team';
+      select.appendChild(createOpt);
+
+      if (!teams.length) {
+        const emptyOpt = document.createElement('option');
+        emptyOpt.value = '__empty__';
+        emptyOpt.textContent = 'Team list is empty, please create one';
+        emptyOpt.disabled = true;
+        emptyOpt.style.color = '#94a3b8';
+        emptyOpt.style.fontStyle = 'italic';
+        select.appendChild(emptyOpt);
+      }
+
+      let preferred = preferredTeamId || '';
+      if (!preferred) {
+        try { preferred = localStorage.getItem('st_selected_team') || ''; } catch {}
+      }
+      if (preferred && teams.some((t) => String(t.teamId) === preferred)) {
+        select.value = preferred;
+      } else if (teams.length) {
+        select.value = String(teams[0].teamId);
+      } else {
+        select.value = '';
+      }
+      updateSelection();
+      pendingSelectId = '';
+    }
+
+    async function loadTeams(preferredTeamId) {
+      try {
+        const res = await fetch(base + '/api/teams', { credentials: 'include' });
+        if (res.status === 401) {
+          window.location.replace('/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search));
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        renderTeams(data?.teams || [], preferredTeamId);
+      } catch (e) {
+        if (meta) meta.textContent = 'Failed to load teams.';
+      }
+    }
+
+    window.openTeamModal = openTeamModal;
+
+    document.addEventListener('click', (event) => {
+      const overlay = document.getElementById('teamModal');
+      if (!overlay || overlay.classList.contains('hidden')) return;
+      if (event.target === overlay) closeTeamModal();
+    });
+    document.addEventListener('click', (event) => {
+      if (event.target?.id === 'teamModalClose' || event.target?.id === 'teamModalCancel') {
+        closeTeamModal();
+      }
+    });
+    document.addEventListener('submit', (event) => {
+      if (event.target?.id === 'teamModalForm') {
+        saveTeamFromModal(event);
+      }
+    });
+    if (!select) return;
+
+    window.getSelectedTeam = function getSelectedTeam() {
+      return window.__selectedTeam || null;
+    };
+    window.getSelectedTeamId = function getSelectedTeamId() {
+      return window.__selectedTeam ? window.__selectedTeam.teamId : null;
+    };
+    window.__reloadTeamSelect = loadTeams;
+
+    select.addEventListener('change', updateSelection);
+
+    loadTeams();
+  });
+
+  // 8) User menu (shared across builder pages)
+  onReady(function initUserMenu() {
+    const button = document.getElementById('userMenuButton');
+    const panel = document.getElementById('userMenuPanel');
+    if (!button || !panel) return;
+    const emailNode = document.getElementById('userMenuEmail');
+    const logoutBtn = document.getElementById('userMenuLogout');
+    const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+
+    function setEmail(value) {
+      if (!emailNode) return;
+      emailNode.textContent = value || 'Signed in';
+    }
+
+    if (window.__authUserEmail) setEmail(window.__authUserEmail);
+    else {
+      fetch(base + '/api/auth/status', { credentials: 'include' })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data?.email) {
+            window.__authUserEmail = data.email;
+            setEmail(data.email);
+          }
+        })
+        .catch(() => {});
+    }
+
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      panel.classList.toggle('hidden');
+    });
+    document.addEventListener('click', (e) => {
+      if (!panel.contains(e.target) && !button.contains(e.target)) {
+        panel.classList.add('hidden');
+      }
+    });
+    logoutBtn?.addEventListener('click', async (e) => {
+      e.preventDefault();
+      try {
+        await fetch(base + '/api/logout', { method: 'POST', credentials: 'include' });
+      } catch {}
+      window.location.href = '/login.html';
+    });
+  });
+
+  // 9) Builder tools dropdown
+  onReady(function initToolMenu() {
+    const button = document.getElementById('toolMenuButton');
+    const panel = document.getElementById('toolMenuPanel');
+    if (!button || !panel) return;
+
+    function setOpen(isOpen) {
+      panel.classList.toggle('hidden', !isOpen);
+      button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+    }
+
+    button.addEventListener('click', (e) => {
+      e.preventDefault();
+      setOpen(panel.classList.contains('hidden'));
+    });
+    panel.addEventListener('click', (e) => {
+      if (e.target?.closest('a')) setOpen(false);
+    });
+    document.addEventListener('click', (e) => {
+      if (!panel.contains(e.target) && !button.contains(e.target)) {
+        setOpen(false);
+      }
+    });
+  });

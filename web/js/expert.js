@@ -52,13 +52,12 @@
   function collectCommon(){
     const rawUser = (el('st_user')?.value || '').trim();
     const user = rawUser || "Undefined";
-    const password = (el('st_pass')?.value || '').trim();
-    const teamId = el('st_team')?.value ? Number(el('st_team').value) : null;
+    const teamId = el('teamSelect')?.value ? Number(el('teamSelect').value) : null;
     const base = (el('st_base')?.value || '').trim() || 'https://public.stonly.com/api/v3';
     const parentId = el('parentId')?.value ? Number(el('parentId').value) : null;
     const publicAccess = parseInt((el('publicAccess')?.value || '1'), 10);
     const language = (el('lang')?.value || 'en').trim() || 'en';
-    return { user, password, teamId, base, parentId, publicAccess, language };
+    return { user, teamId, base, parentId, publicAccess, language };
   }
 
   function setOut(id, value){
@@ -197,7 +196,7 @@
 
   async function onKbRun(){
     // Validate required settings
-    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
+    if (!(window.validateRequired && window.validateRequired(['teamSelect','parentId']))) {
       setOut('kbOut', 'Please fill all required fields (*).');
       return;
     }
@@ -210,7 +209,7 @@
     const c = collectCommon();
     const body = {
       parentId: c.parentId,
-      creds: { user: c.user, password: c.password, teamId: c.teamId, base: c.base },
+      creds: { user: c.user, teamId: c.teamId, base: c.base },
       settings: { publicAccess: c.publicAccess, language: c.language },
       dryRun: false,
       root
@@ -252,14 +251,12 @@
   }
 
   async function onKbDump(){
-    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
+    if (!(window.validateRequired && window.validateRequired(['teamSelect','parentId']))) {
       setOut('kbOut', 'Please fill all required fields (*).');
       return;
     }
     const c = collectCommon();
     const params = new URLSearchParams();
-    params.set('user', c.user);
-    params.set('password', c.password);
     params.set('teamId', String(c.teamId));
     params.set('base', c.base || 'https://public.stonly.com/api/v3');
     if (c.parentId != null) params.set('parentId', String(c.parentId));
@@ -416,7 +413,7 @@
   }
 
   async function onGuideRun(){
-    if (!(window.validateRequired && window.validateRequired(['st_user','st_pass','st_team','parentId']))) {
+    if (!(window.validateRequired && window.validateRequired(['teamSelect','parentId']))) {
       setOut('guideOut', 'Please fill all required fields (*).');
       return;
     }
@@ -446,7 +443,7 @@
       yaml: finalYaml,
       defaults: { language: c.language },
       publish: !!(el('guidePublish') && el('guidePublish').checked),
-      creds: { user: c.user, password: c.password, teamId: c.teamId, base: c.base }
+      creds: { user: c.user, teamId: c.teamId, base: c.base }
     };
 
     setOut('guideOut', 'Running...');

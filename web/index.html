@@ -103,37 +103,63 @@
             </p>
           </div>
           <div class="flex items-center gap-3 pt-1">
-            <a href="/guide-builder.html"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                    <circle cx="5" cy="6" r="2"></circle>
-                    <circle cx="5" cy="18" r="2"></circle>
-                    <circle cx="19" cy="12" r="2"></circle>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
-                </svg>
-                Guide Builder
-            </a>
-            <a href="/ai-content-creator.html"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-[#eef3ff] text-sm font-medium shadow hover:bg-[#e2e9ff] transition">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-blue-600">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2m14.95-6.95-2.828 2.828M7.879 16.121 5.05 18.95m0-13.899 2.829 2.829m11.314 8.242-2.829-2.829" />
-                </svg>
-                AI Builder
-            </a>
-            <a href="/guide-publisher.html"
-                class="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10" />
-                </svg>
-                Guide Publisher
-            </a>
-            <a href="/expert.html"
-                class="inline-flex items-center justify-center w-9 h-9 rounded-full border border-slate-200 bg-card text-slate-400 hover:text-slate-600 hover:border-slate-300 transition"
-                title="Expert mode" aria-label="Expert mode">
-                <img src="/assets/incognito.svg" alt="" class="w-5 h-5 expert-incognito-icon" />
-            </a>
+            <div class="tool-menu">
+                <button id="toolMenuButton" class="tool-menu-button inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition" type="button" aria-haspopup="true" aria-expanded="false">
+                    Explore builder tools
+                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" />
+                    </svg>
+                </button>
+                <div id="toolMenuPanel" class="tool-menu-panel hidden">
+                    <a href="/" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+                        </svg>
+                        KB Builder
+                    </a>
+                    <a href="/guide-builder.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                            <circle cx="5" cy="6" r="2"></circle>
+                            <circle cx="5" cy="18" r="2"></circle>
+                            <circle cx="19" cy="12" r="2"></circle>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+                        </svg>
+                        Guide Builder
+                    </a>
+                    <a href="/ai-content-creator.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-[#eef3ff] text-sm font-medium shadow hover:bg-[#e2e9ff] transition">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-blue-600">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2m14.95-6.95-2.828 2.828M7.879 16.121 5.05 18.95m0-13.899 2.829 2.829m11.314 8.242-2.829-2.829" />
+                        </svg>
+                        AI Builder
+                    </a>
+                    <a href="/guide-publisher.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10" />
+                        </svg>
+                        Guide Publisher
+                    </a>
+                    <a href="/expert.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-card text-sm font-medium text-slate-400 shadow hover:text-slate-600 hover:border-slate-300 transition" title="Expert mode">
+                        <img src="/assets/incognito.svg" alt="" class="w-4 h-4 expert-incognito-icon" />
+                        Expert mode
+                    </a>
+                </div>
+            </div>
+                <div class="user-menu user-menu-fixed">
+                    <button id="userMenuButton" class="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5a7.5 7.5 0 0 1 15 0" />
+                        </svg>
+                    </button>
+                    <div id="userMenuPanel" class="user-menu-panel hidden">
+                        <div id="userMenuEmail" class="user-menu-email">Signed in</div>
+                        <a href="/team-settings.html" class="user-menu-item">Team settings</a>
+                        <button id="userMenuLogout" class="user-menu-item" type="button">Log out</button>
+                    </div>
+                </div>
             <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
                 <span id="themeIcon" aria-hidden="true"></span>
                 <span id="themeLabel">Dark</span>
@@ -143,61 +169,52 @@
           
 
         <div class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-4">
-            <!-- Row 1: Team ID, Parent ID, token, base -->
+            <!-- Row 1: Team selection, Parent ID, base -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
+                    <label class="block text-sm font-medium">Team <span class="text-red-600">*</span></label>
+                    <select id="teamSelect" class="team-select mt-1 w-full border rounded-lg p-2 text-sm">
+                        <option value="">Loading teams...</option>
+                    </select>
+                    <p id="teamMeta" class="text-xs text-slate-500 mt-1"></p>
+                                        </div>
+                <div>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-                            <input id="st_team" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
-                        </div>
                         <div>
                             <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
                             <input id="parentId" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
                         </div>
+                        <div>
+                            <label class="block text-sm font-medium">Stonly API Base URL</label>
+                            <input id="st_base" class="mt-1 w-full border rounded-lg p-2 text-sm"
+                                placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
+                        </div>
                     </div>
-                </div>
-                <div>
                     <!-- Hidden username populated from login (optional) -->
                     <input id="st_user" type="hidden" />
-                    <label class="block text-sm font-medium">
-                        Team token <span class="text-red-600">*</span>
-                    </label>
-                    <input id="st_pass" type="password" required aria-required="true"
-                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Your Stonly integration token" />
                 </div>
                 <div>
-                    <label class="block text-sm font-medium">
-                        Stonly API Base URL
-                    </label>
-                    <input id="st_base" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                        placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
+                    <label class="block text-sm font-medium">Visibility</label>
+                    <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
+                        <option value="1" selected>Public</option>
+                        <option value="0">Private</option>
+                    </select>
+                    <label class="block text-sm font-medium mt-3">Language</label>
+                    <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
                 </div>
             </div>
 
-            <!-- Global creation settings: visibility + language + dry-run -->
+            
+
+            <!-- Global creation settings: dry-run -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                <div>
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-sm font-medium"><span id="forStonly">Visibility</span></label>
-                            <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
-                                <option value="1" selected>Public</option>
-                                <option value="0">Private</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium"><span id="forStonly">Language</span></label>
-                            <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" />
-                        </div>
-                    </div>
-                </div>
                 <div>
                     <label class="inline-flex items-center gap-2 text-sm whitespace-nowrap font-medium">
                         <input id="dryRun" type="checkbox" class="h-4 w-4" />
                         Dry-run
                     </label>
                 </div>
+                <div></div>
                 <div></div>
             </div>
 

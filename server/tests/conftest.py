@@ -3,9 +3,12 @@ import sys
 import pathlib
 import types
 import pytest
+import uuid
 
 # --- 1) Set required env BEFORE importing main.py ---
 os.environ.setdefault("APP_ADMIN_TOKEN", "secret")
+os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
+os.environ.setdefault("TEAM_TOKEN_ENCRYPTION_KEY", "5hG9nZrX2R3wVd0R1S6eKXrFz0K8Q1m2YtZp4x9JZ9k=")
 
 # --- 2) Make import work whether pytest is run at repo root or in server/ ---
 ROOT = pathlib.Path(__file__).resolve().parents[1]     # .../server
@@ -82,13 +85,26 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client():
-    return TestClient(main.app)
+    client = TestClient(main.app)
+    email = f"tester-{uuid.uuid4().hex}@example.com"
+    resp = client.post("/api/signup", json={
+        "email": email,
+        "password": "password123",
+        "adminToken": "secret",
+    })
+    assert resp.status_code == 200
+    resp = client.post("/api/teams", json={
+        "teamId": 39539,
+        "teamToken": "test-token",
+        "name": "Test Team",
+    })
+    assert resp.status_code == 200
+    return client
 
 @pytest.fixture()
 def creds():
     return {
         "user": "tester@example.com",
-        "password": "x",
         "teamId": 39539,
         "base": "https://public.stonly.com/api/v3",
     }

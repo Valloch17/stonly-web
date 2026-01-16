@@ -73,9 +73,8 @@ function collectSettings() {
     return Number.isFinite(n) ? n : null;
   };
   return {
-    teamId: toInt(el('teamId')?.value),
+    teamId: toInt(el('teamSelect')?.value),
     folderId: toInt(el('folderId')?.value),
-    password: (el('password')?.value || '').trim(),
     user: (el('user')?.value || '').trim() || 'Undefined',
     base: (el('base')?.value || '').trim() || 'https://public.stonly.com/api/v3',
     includeSubfolders: !!el('includeSubfolders')?.checked,
@@ -101,7 +100,7 @@ async function apiFetch(path, init) {
 }
 
 async function publishDrafts() {
-  const ok = window.validateRequired?.(['teamId', 'folderId', 'password']);
+  const ok = window.validateRequired?.(['teamSelect', 'folderId']);
   if (!ok) return;
 
   const settings = collectSettings();
@@ -112,7 +111,6 @@ async function publishDrafts() {
     limit: 100,
     creds: {
       user: settings.user,
-      password: settings.password,
       teamId: settings.teamId,
       base: settings.base,
     },

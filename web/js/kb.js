@@ -276,8 +276,7 @@ function App() {
                 const v = (el && typeof el.value === 'string') ? el.value.trim() : '';
                 return v || "Undefined";
             })(),
-            password: document.getElementById('st_pass').value,
-            teamId: Number(document.getElementById('st_team').value),
+            teamId: (() => { const v = document.getElementById('teamSelect')?.value; return v ? Number(v) : null; })(),
             base: document.getElementById('st_base').value || "https://public.stonly.com/api/v3"
         }
     });
@@ -308,8 +307,6 @@ function App() {
             if (path === '/api/dump-structure') {
                 const url = new URL(KB_BASE + path);
                 const c = bodyOrParams.creds;
-                url.searchParams.set('user', c.user);
-                url.searchParams.set('password', c.password);
                 url.searchParams.set('teamId', c.teamId);
                 url.searchParams.set('base', c.base || "https://public.stonly.com/api/v3");
                 if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
@@ -343,7 +340,7 @@ function App() {
     React.useEffect(() => {
         document.getElementById('addRoot').onclick = addRoot;
         document.getElementById('btnApply').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","teamSelect"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -358,7 +355,7 @@ function App() {
 
 
         document.getElementById('btnVerify').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","teamSelect"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }
@@ -368,7 +365,7 @@ function App() {
         };
 
         document.getElementById('btnDump').onclick = () => {
-            if (!(window.validateRequired && window.validateRequired(["parentId","st_team","st_user","st_pass"]))) {
+            if (!(window.validateRequired && window.validateRequired(["parentId","teamSelect"]))) {
                 document.getElementById('out').textContent = "Please fill all required fields (*).";
                 return;
             }

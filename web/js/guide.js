@@ -375,12 +375,11 @@ function collectSettings() {
     return {
         dryRun: !!el('dryRun')?.checked,
         base: (el('base')?.value || '').trim(),
-        teamId: el('teamId')?.value ? Number(el('teamId').value) : null,
+        teamId: el('teamSelect')?.value ? Number(el('teamSelect').value) : null,
         user: (() => {
             const v = (el('user')?.value || '').trim();
             return v || "Undefined";
         })(),
-        password: (el('password')?.value || '').trim(),
         folderId: el('folderId')?.value ? Number(el('folderId').value) : null,
         contentTitle: (el('contentTitle')?.value || '').trim(),
         contentType: (el('contentType')?.value || 'GUIDE').trim(),
@@ -683,7 +682,6 @@ function collectPlan(parsed, settings) {
             base: settings.base,
             teamId: settings.teamId,
             user: settings.user,
-            password: settings.password,
             folderId: (p.overrides?.folderId ?? settings.folderId),
             contentTitle: p.info.contentTitle || settings.contentTitle || p.firstStep.title,
             // Priority for plan: value inside guide info > doc-level overrides > UI defaults
@@ -847,7 +845,6 @@ function buildGuidePayload(settings, yamlText) {
         publish: !!document.getElementById('publishAfter').checked,
         creds: {
             user: settings.user,
-            password: settings.password,
             teamId: settings.teamId,
             base: settings.base || 'https://public.stonly.com/api/v3'
         }
@@ -914,7 +911,7 @@ onReady(() => el('parseYamlBtn')?.addEventListener('click', () => {
 
 onReady(() => el('createGuideBtn')?.addEventListener('click', async () => {
     const settings = collectSettings();
-    if (!(window.validateRequired && window.validateRequired(["teamId","folderId","user","password"]))) {
+    if (!(window.validateRequired && window.validateRequired(["teamSelect","folderId"]))) {
         const out = el('out');
         if (out) out.textContent = 'Please fill all required fields (*).';
         return;

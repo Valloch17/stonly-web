@@ -26,29 +26,102 @@
         </div>
         <h1 class="text-xl font-semibold mt-2">Builder access</h1>
         <p class="text-sm text-slate-500 dark:text-slate-400">
-          Enter the admin token to access KB / Guide builders.
+          Log in to your builder account or create one with the admin token.
         </p>
       </header>
 
-      <form class="space-y-4" onsubmit="return false;">
+      <form id="loginForm" class="space-y-4" onsubmit="return false;">
         <div>
-          <label for="st_user" class="block text-sm font-medium">Stonly username</label>
-          <input id="st_user" type="email" autocomplete="off"
+          <label for="loginEmail" class="block text-sm font-medium">Email</label>
+          <input id="loginEmail" type="email" autocomplete="email"
                  class="mt-1 w-full border rounded-lg p-2 text-sm"
                  placeholder="email@company.com" />
         </div>
         <div>
-          <label for="token" class="block text-sm font-medium">Admin token <span class="text-red-600">*</span></label>
-          <input id="token" type="password" autocomplete="off"
+          <label for="loginPassword" class="block text-sm font-medium">Password</label>
+          <input id="loginPassword" type="password" autocomplete="current-password"
                  class="mt-1 w-full border rounded-lg p-2 text-sm"
-                 placeholder="The token can be found on Confluence" />
+                 placeholder="Your password" />
         </div>
-        
+        <div class="flex items-center justify-between text-sm text-slate-500">
+          <button id="showReset" type="button" class="hover:text-slate-700">Forgot password?</button>
+        </div>
         <p id="loginError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
+        <p id="loginNotice" class="text-sm text-emerald-600 min-h-[1.25rem] hidden"></p>
         <button id="loginBtn" type="button"
                 class="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition">
           Log in
         </button>
+        <p class="text-sm text-slate-500">
+          Don't have an account yet?
+          <button id="showSignup" type="button" class="text-blue-600 hover:text-blue-700 font-medium">Sign up</button>
+        </p>
+      </form>
+
+      <form id="signupForm" class="space-y-4 hidden" onsubmit="return false;">
+        <div>
+          <label for="signupEmail" class="block text-sm font-medium">Email</label>
+          <input id="signupEmail" type="email" autocomplete="email"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="email@company.com" />
+        </div>
+        <div>
+          <label for="signupPassword" class="block text-sm font-medium">Password</label>
+          <input id="signupPassword" type="password" autocomplete="new-password"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="Minimum 8 characters" />
+        </div>
+        <div>
+          <label for="signupAdminToken" class="block text-sm font-medium">Admin token <span class="text-red-600">*</span></label>
+          <input id="signupAdminToken" type="password" autocomplete="off"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="Provided by Stonly admin" />
+        </div>
+        <p id="signupError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
+        <button id="signupBtn" type="button"
+                class="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition">
+          Create account
+        </button>
+        <p class="text-sm text-slate-500">
+          Already have an account?
+          <button id="showLoginFromSignup" type="button" class="text-blue-600 hover:text-blue-700 font-medium">Log in</button>
+        </p>
+      </form>
+
+      <form id="resetForm" class="space-y-4 hidden" onsubmit="return false;">
+        <div>
+          <label for="resetEmail" class="block text-sm font-medium">Email</label>
+          <input id="resetEmail" type="email" autocomplete="email"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="email@company.com" />
+        </div>
+        <div>
+          <label for="resetAdminToken" class="block text-sm font-medium">Admin token</label>
+          <input id="resetAdminToken" type="password" autocomplete="off"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="Provided by Stonly admin" />
+        </div>
+        <div>
+          <label for="resetPassword" class="block text-sm font-medium">New password</label>
+          <input id="resetPassword" type="password" autocomplete="new-password"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="Minimum 8 characters" />
+        </div>
+        <div>
+          <label for="resetPasswordConfirm" class="block text-sm font-medium">Confirm new password</label>
+          <input id="resetPasswordConfirm" type="password" autocomplete="new-password"
+                 class="mt-1 w-full border rounded-lg p-2 text-sm"
+                 placeholder="Re-enter new password" />
+        </div>
+        <p id="resetError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
+        <button id="resetBtn" type="button"
+                class="w-full inline-flex items-center justify-center px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium hover:bg-slate-800 transition">
+          Reset password
+        </button>
+        <p class="text-sm text-slate-500">
+          Remembered your password?
+          <button id="showLoginFromReset" type="button" class="text-blue-600 hover:text-blue-700 font-medium">Back to log in</button>
+        </p>
       </form>
     </div>
   </main>
@@ -56,15 +129,44 @@
   <script src="/js/shared.js?v=1"></script>
   <script>
     (window.onReady || (fn => fn()))(function () {
-      const input = document.getElementById('token');
-      const btn = document.getElementById('loginBtn');
-      const err = document.getElementById('loginError');
+      const loginForm = document.getElementById('loginForm');
+      const signupForm = document.getElementById('signupForm');
+      const resetForm = document.getElementById('resetForm');
+      const loginError = document.getElementById('loginError');
+      const loginNotice = document.getElementById('loginNotice');
+      const signupError = document.getElementById('signupError');
+      const resetError = document.getElementById('resetError');
+      const loginBtn = document.getElementById('loginBtn');
+      const signupBtn = document.getElementById('signupBtn');
+      const resetBtn = document.getElementById('resetBtn');
+      const showSignup = document.getElementById('showSignup');
+      const showLoginFromSignup = document.getElementById('showLoginFromSignup');
+      const showReset = document.getElementById('showReset');
+      const showLoginFromReset = document.getElementById('showLoginFromReset');
+
+      function clearMessages() {
+        if (loginError) loginError.textContent = '';
+        if (signupError) signupError.textContent = '';
+        if (resetError) resetError.textContent = '';
+        if (loginNotice) {
+          loginNotice.textContent = '';
+          loginNotice.classList.add('hidden');
+        }
+      }
+
+      function setView(view) {
+        if (loginForm) loginForm.classList.toggle('hidden', view !== 'login');
+        if (signupForm) signupForm.classList.toggle('hidden', view !== 'signup');
+        if (resetForm) resetForm.classList.toggle('hidden', view !== 'reset');
+        clearMessages();
+      }
 
       async function doLogin() {
-        const token = (input.value || '').trim();
-        if (err) err.textContent = '';
-        if (!token) {
-          if (err) err.textContent = 'Please enter the admin token.';
+        const email = (document.getElementById('loginEmail')?.value || '').trim();
+        const password = (document.getElementById('loginPassword')?.value || '').trim();
+        clearMessages();
+        if (!email || !password) {
+          if (loginError) loginError.textContent = 'Enter email and password.';
           return;
         }
         const base = ((window.BASE || window.DEFAULT_BACKEND || window.location.origin) || '').replace(/\/+$/, '');
@@ -72,35 +174,106 @@
           const res = await fetch(base + '/api/login', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ token }),
+            body: JSON.stringify({ email, password }),
             credentials: 'include',
           });
           if (!res.ok) {
-            if (err) err.textContent = 'Invalid token.';
+            if (loginError) loginError.textContent = 'Invalid email or password.';
             return;
           }
           const params = new URLSearchParams(window.location.search || '');
           const next = params.get('next') || '/';
           window.location.href = next;
         } catch (e) {
-          if (err) err.textContent = 'Login failed. Please retry.';
+          if (loginError) loginError.textContent = 'Login failed. Please retry.';
         }
       }
 
-      if (btn) {
-        btn.addEventListener('click', (e) => {
-          e.preventDefault();
-          doLogin();
-        });
-      }
-      if (input) {
-        input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            doLogin();
+      async function doSignup() {
+        const email = (document.getElementById('signupEmail')?.value || '').trim();
+        const password = (document.getElementById('signupPassword')?.value || '').trim();
+        const adminToken = (document.getElementById('signupAdminToken')?.value || '').trim();
+        clearMessages();
+        if (!email || !password || !adminToken) {
+          if (signupError) signupError.textContent = 'Fill in all required fields.';
+          return;
+        }
+        const base = ((window.BASE || window.DEFAULT_BACKEND || window.location.origin) || '').replace(/\/+$/, '');
+        try {
+          const res = await fetch(base + '/api/signup', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ email, password, adminToken }),
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            const msg = res.status === 409 ? 'Email already registered.' : 'Signup failed.';
+            if (signupError) signupError.textContent = msg;
+            return;
           }
-        });
+          const params = new URLSearchParams(window.location.search || '');
+          const next = params.get('next') || '/';
+          window.location.href = next;
+        } catch (e) {
+          if (signupError) signupError.textContent = 'Signup failed. Please retry.';
+        }
       }
+
+      async function doResetPassword() {
+        const email = (document.getElementById('resetEmail')?.value || '').trim();
+        const adminToken = (document.getElementById('resetAdminToken')?.value || '').trim();
+        const newPassword = (document.getElementById('resetPassword')?.value || '').trim();
+        const confirm = (document.getElementById('resetPasswordConfirm')?.value || '').trim();
+        clearMessages();
+        if (!email || !adminToken || !newPassword || !confirm) {
+          if (resetError) resetError.textContent = 'Fill in all required fields.';
+          return;
+        }
+        if (newPassword.length < 8) {
+          if (resetError) resetError.textContent = 'Password must be at least 8 characters.';
+          return;
+        }
+        if (newPassword !== confirm) {
+          if (resetError) resetError.textContent = 'Passwords do not match.';
+          return;
+        }
+        const base = ((window.BASE || window.DEFAULT_BACKEND || window.location.origin) || '').replace(/\/+$/, '');
+        try {
+          const res = await fetch(base + '/api/password/reset', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ email, adminToken, newPassword }),
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            let msg = 'Reset failed.';
+            if (res.status === 401) msg = 'Invalid admin token.';
+            if (res.status === 404) msg = 'Email not found.';
+            if (resetError) resetError.textContent = msg;
+            return;
+          }
+          setView('login');
+          if (loginNotice) {
+            loginNotice.textContent = 'Password reset. Please log in.';
+            loginNotice.classList.remove('hidden');
+          }
+        } catch (e) {
+          if (resetError) resetError.textContent = 'Reset failed. Please retry.';
+        }
+      }
+
+      showSignup?.addEventListener('click', () => setView('signup'));
+      showLoginFromSignup?.addEventListener('click', () => setView('login'));
+      showReset?.addEventListener('click', () => setView('reset'));
+      showLoginFromReset?.addEventListener('click', () => setView('login'));
+      loginForm?.addEventListener('submit', (e) => { e.preventDefault(); doLogin(); });
+      signupForm?.addEventListener('submit', (e) => { e.preventDefault(); doSignup(); });
+      resetForm?.addEventListener('submit', (e) => { e.preventDefault(); doResetPassword(); });
+      loginBtn?.addEventListener('click', (e) => { e.preventDefault(); doLogin(); });
+      signupBtn?.addEventListener('click', (e) => { e.preventDefault(); doSignup(); });
+      resetBtn?.addEventListener('click', (e) => { e.preventDefault(); doResetPassword(); });
+
+      setView('login');
     });
   </script>
 </body>

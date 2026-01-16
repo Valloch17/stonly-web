@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="icon" href="/assets/favicon-192.png" sizes="192x192" type="image/png">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png" sizes="180x180">
+  <title>Team Settings</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/shared.css">
+  <style>
+    :root { --bg: #f7f4ea; }
+  </style>
+</head>
+
+<body class="min-h-screen">
+  <main class="max-w-5xl mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h1 class="text-2xl font-semibold flex items-center gap-2">
+          <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+          <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
+          <span class="title-text">Team Settings</span>
+        </h1>
+        <p class="text-sm text-slate-500 dark:text-slate-400">Manage team IDs and tokens attached to your account.</p>
+      </div>
+      <div class="flex items-center gap-3 pt-1">
+        <div class="tool-menu">
+          <button id="toolMenuButton" class="tool-menu-button inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition" type="button" aria-haspopup="true" aria-expanded="false">
+            Explore builder tools
+            <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+              <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" />
+            </svg>
+          </button>
+          <div id="toolMenuPanel" class="tool-menu-panel hidden">
+            <a href="/" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+              </svg>
+              KB Builder
+            </a>
+            <a href="/guide-builder.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <circle cx="5" cy="6" r="2"></circle>
+                <circle cx="5" cy="18" r="2"></circle>
+                <circle cx="19" cy="12" r="2"></circle>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+              </svg>
+              Guide Builder
+            </a>
+            <a href="/ai-content-creator.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-[#eef3ff] text-sm font-medium shadow hover:bg-[#e2e9ff] transition">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-blue-600">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2m14.95-6.95-2.828 2.828M7.879 16.121 5.05 18.95m0-13.899 2.829 2.829m11.314 8.242-2.829-2.829" />
+              </svg>
+              AI Builder
+            </a>
+            <a href="/guide-publisher.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10" />
+              </svg>
+              Guide Publisher
+            </a>
+            <a href="/expert.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-card text-sm font-medium text-slate-400 shadow hover:text-slate-600 hover:border-slate-300 transition" title="Expert mode">
+              <img src="/assets/incognito.svg" alt="" class="w-4 h-4 expert-incognito-icon" />
+              Expert mode
+            </a>
+          </div>
+        </div>
+        <div class="user-menu user-menu-fixed">
+          <button id="userMenuButton" class="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5a7.5 7.5 0 0 1 15 0" />
+            </svg>
+          </button>
+          <div id="userMenuPanel" class="user-menu-panel hidden">
+            <div id="userMenuEmail" class="user-menu-email">Signed in</div>
+            <a href="/team-settings.html" class="user-menu-item">Team settings</a>
+            <button id="userMenuLogout" class="user-menu-item" type="button">Log out</button>
+          </div>
+        </div>
+        <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle theme">
+          <span id="themeIcon">
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path
+                d="M6.76 4.84 5.34 3.42 3.92 4.84l1.42 1.42L6.76 4.84zM1 13h3v-2H1v2zm10 10h2v-3h-2v3zm7.66-2.58 1.42-1.42-1.42-1.42-1.42 1.42 1.42 1.42zM20 13h3v-2h-3v2zM11 1h2v3h-2V1zM4.84 17.24 3.42 18.66l1.42 1.42 1.42-1.42-1.42-1.42zM17.24 4.84l1.42-1.42 1.42 1.42-1.42 1.42-1.42-1.42zM12 6a6 6 0 1 0 0 12 6 6 0 0 0 0-12z" />
+            </svg>
+          </span>
+          <span id="themeLabel">Dark</span>
+        </button>
+      </div>
+    </div>
+
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Teams</h2>
+          <p class="text-sm text-slate-500">Create, update, or remove teams stored in your account.</p>
+        </div>
+        <button id="teamNewBtn" type="button" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium">
+          New team
+        </button>
+      </div>
+      <p id="teamSettingsStatus" class="text-sm text-slate-500"></p>
+      <div class="border rounded-lg overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-card/60">
+            <tr class="text-left">
+              <th class="px-3 py-2 border-b">Name</th>
+              <th class="px-3 py-2 border-b">Team ID</th>
+              <th class="px-3 py-2 border-b">Root folder</th>
+              <th class="px-3 py-2 border-b">Created</th>
+              <th class="px-3 py-2 border-b">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="teamTable">
+            <tr>
+              <td colspan="5" class="px-3 py-3 text-center text-slate-500">Loading teams...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script src="/js/shared.js?v=1"></script>
+  <script src="/js/team-settings.js?v=1"></script>
+</body>
+
+</html>

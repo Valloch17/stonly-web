@@ -6,3 +6,8 @@ pytest
 httpx
 PyYAML==6.0.2
 google-genai>=0.3.0
+SQLAlchemy==2.0.32
+psycopg2-binary==2.9.9
+passlib==1.7.4
+cryptography==43.0.3
+argon2-cffi==23.1.0
