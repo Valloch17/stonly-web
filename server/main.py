@@ -1280,6 +1280,54 @@ def fix_pre_block_indentation(text: str) -> str:
     return "\n".join(out)
 
 
+def fix_unquoted_colons_in_scalars(text: str) -> str:
+    """Quote label/title/contentTitle values that include ':' to keep YAML valid."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    if not lines:
+        return text
+
+    block_re = re.compile(r"^(?P<indent>[ \t]*)(?:-[ \t]+)?[^#\n]*:\s*[|>][0-9+-]*\s*$")
+    key_re = re.compile(
+        r"^(?P<indent>[ \t]*)(?P<dash>-\s+)?(?P<key>label|title|contentTitle)\s*:\s*(?P<val>.+)\s*$"
+    )
+    out: list[str] = []
+    in_block = False
+    base_indent = 0
+
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if not in_block:
+            match = key_re.match(line)
+            if match:
+                val = match.group("val")
+                stripped = val.strip()
+                if stripped and not stripped.startswith(("'", '"', "|", ">")):
+                    if re.search(r":\s", stripped):
+                        escaped = stripped.replace("\\", "\\\\").replace('"', '\\"')
+                        line = f"{match.group('indent')}{match.group('dash') or ''}{match.group('key')}: \"{escaped}\""
+            out.append(line)
+
+            bmatch = block_re.match(line)
+            if bmatch:
+                in_block = True
+                base_indent = _indent_len(bmatch.group("indent"))
+            i += 1
+            continue
+
+        indent_len = _indent_len(line)
+        if line.strip() and indent_len <= base_indent:
+            in_block = False
+            continue
+
+        out.append(line)
+        i += 1
+
+    return "\n".join(out)
+
+
 def normalize_ai_yaml(text: str) -> str:
     """Best-effort cleanup for AI-generated YAML to reduce failures."""
     if text is None:
@@ -1289,6 +1337,8 @@ def normalize_ai_yaml(text: str) -> str:
     s = s.replace("\t", "  ")
     # Fix block scalar indentation for <pre> tags
     s = fix_pre_block_indentation(s)
+    # Quote values with ':' in labels/titles to avoid YAML parse errors
+    s = fix_unquoted_colons_in_scalars(s)
     # Wrap if missing top-level guide
     s = wrap_root_if_needed(s)
     return s
@@ -1344,7 +1394,8 @@ OUTPUT RULES (MUST FOLLOW):
 - REQUIRED: contentTitle, contentType, language, firstStep. Steps live only under guide.firstStep/choices.
 - STEP: title + HTML content; optional key (for reuse), media (<=3 URLs; ignored for ARTICLE), choices[].
 - CHOICE: label?, position?, EXACTLY ONE OF step OR ref. Use key/ref for branching/rejoining; avoid one-step “Back” links.
-- KEYS/REFS: Every ref MUST match a defined key. Define keyed steps inline first time; reuse via ref thereafter. NO YAML anchors (*, &). AVOID ":" in titles/labels to keep YAML safe.
+- NAVIGATION: Avoid using ref to simulate a single-step “Back” to the immediate parent; the UI already provides a back button. If a back choice is needed, it should jump multiple levels (e.g., “Back to start”, “Back to verification”).
+- KEYS/REFS: Every ref MUST match a defined key. Define keyed steps inline first time; reuse via ref thereafter. NO YAML anchors (*, &). AVOID ":" in titles/labels; if you must use ":", wrap the value in quotes.
 - PROHIBITED TAGS: never emit <hr>, <hr/>, or <hr /> anywhere in the HTML.
 - MULTI-GUIDE: allow --- separators or guides: [] list.
 - FORMAT: keep HTML concise but rich; multi-line HTML in block scalar |. NO Markdown fences.
