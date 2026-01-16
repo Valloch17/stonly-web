@@ -416,7 +416,7 @@
               <h2 id="teamModalTitle" class="text-lg font-semibold">Create team</h2>
               <p id="teamModalSubtitle" class="text-sm text-slate-500">Store a team token for quick access.</p>
             </div>
-            <button id="teamModalClose" type="button" class="modal-close" aria-label="Close">x</button>
+            <button id="teamModalClose" type="button" class="modal-close" aria-label="Close">&times;</button>
           </div>
           <form id="teamModalForm" class="space-y-3">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -605,6 +605,13 @@
         openTeamModal({ mode: 'create' });
         return;
       }
+      if (selectedId === '__manage__') {
+        select.value = lastValidTeamId;
+        syncCustomLabel();
+        syncCustomSelection();
+        window.location.href = '/team-settings.html';
+        return;
+      }
       const team = teams.find((t) => String(t.teamId) === selectedId) || null;
       window.__selectedTeam = team;
       if (selectedId) {
@@ -658,6 +665,15 @@
       separator.setAttribute('role', 'separator');
       customPanel.appendChild(separator);
 
+      if (teams.length) {
+        const manage = document.createElement('button');
+        manage.type = 'button';
+        manage.className = 'team-select-option';
+        manage.dataset.value = '__manage__';
+        manage.textContent = 'Manage teams';
+        customPanel.appendChild(manage);
+      }
+
       const create = document.createElement('button');
       create.type = 'button';
       create.className = 'team-select-option team-select-create';
@@ -700,6 +716,13 @@
       separator.textContent = '---------------------';
       separator.disabled = true;
       select.appendChild(separator);
+
+      if (teams.length) {
+        const manageOpt = document.createElement('option');
+        manageOpt.value = '__manage__';
+        manageOpt.textContent = 'Manage teams';
+        select.appendChild(manageOpt);
+      }
 
       const createOpt = document.createElement('option');
       createOpt.value = '__create__';

@@ -788,11 +788,11 @@ html[data-theme="dark"] .guide-preview-step.border-l {
   border-radius: 9999px;
   border: 1px solid var(--border);
   background: var(--card);
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  font-weight: 600;
 }
 
 .modal-actions {
