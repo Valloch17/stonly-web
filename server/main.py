@@ -929,7 +929,7 @@ class ResetPasswordPayload(BaseModel):
 class TeamCreatePayload(BaseModel):
     teamId: int
     teamToken: str
-    name: Optional[str] = None
+    name: str
     rootFolder: Optional[int] = None
 
     @field_validator("teamId")
@@ -947,13 +947,13 @@ class TeamCreatePayload(BaseModel):
             raise ValueError("teamToken is required")
         return text
 
-    @field_validator("name", mode="before")
+    @field_validator("name")
     @classmethod
-    def name_optional(cls, v):
-        if v is None:
-            return None
-        text = str(v).strip()
-        return text or None
+    def name_required(cls, v):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("name is required")
+        return text
 
     @field_validator("rootFolder", mode="before")
     @classmethod

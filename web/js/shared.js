@@ -285,21 +285,21 @@
           <form id="teamModalForm" class="space-y-3">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
+                <label class="block text-sm font-medium">Team name <span class="text-red-600">*</span></label>
+                <input id="teamModalName" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Acme Support" required />
+              </div>
+              <div>
                 <label class="block text-sm font-medium">Team ID <span class="text-red-600">*</span></label>
-                <input id="teamModalId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 39539" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium">Root folder</label>
-                <input id="teamModalRoot" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional folder ID" />
-              </div>
-              <div>
-                <label class="block text-sm font-medium">Team name</label>
-                <input id="teamModalName" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional label" />
+                <input id="teamModalId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="12345" />
               </div>
               <div>
                 <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
                 <input id="teamModalToken" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Stonly team token" autocomplete="off" />
                 <p id="teamModalTokenHint" class="text-xs text-slate-500 mt-1 hidden">Leave blank to keep the current token.</p>
+              </div>
+              <div>
+                <label class="block text-sm font-medium">Root folder</label>
+                <input id="teamModalRoot" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional root folder ID" />
               </div>
             </div>
             <p id="teamModalError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
@@ -378,13 +378,16 @@
       const rootFolderRaw = overlay.querySelector('#teamModalRoot').value;
       const token = overlay.querySelector('#teamModalToken').value.trim();
       const rootFolder = parseInt(rootFolderRaw, 10);
+      if (!name) {
+        if (error) error.textContent = 'Team name is required.';
+        return;
+      }
       if (!Number.isFinite(teamId)) {
         if (error) error.textContent = 'Team ID is required.';
         return;
       }
 
-      const payload = { teamId };
-      if (name) payload.name = name;
+      const payload = { teamId, name };
       if (Number.isFinite(rootFolder)) payload.rootFolder = rootFolder;
       if (modalState.mode === 'create') {
         if (!token) {
