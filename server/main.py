@@ -3,7 +3,7 @@ from typing import List, Optional, Dict, Any, Tuple
 import re
 from dataclasses import dataclass, field
 import os, time, html, ipaddress
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -106,13 +106,24 @@ engine = create_engine(DATABASE_URL, connect_args=_connect_args, pool_pre_ping=T
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 Base = declarative_base()
 
+# ---- Time helpers ----
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 # ---- DB models ----
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
 
 class Team(Base):
@@ -123,8 +134,8 @@ class Team(Base):
     token_encrypted = Column(Text, nullable=False)
     name = Column(String(255), nullable=True)
     root_folder = Column(Integer, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
+    updated_at = Column(DateTime, default=_utcnow, nullable=False)
     __table_args__ = (
         UniqueConstraint("user_id", "team_id", name="uq_user_team_id"),
     )
@@ -135,7 +146,7 @@ class UserSession(Base):
     id = Column(String(64), primary_key=True)
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utcnow, nullable=False)
 
 
 def init_db() -> None:
@@ -283,7 +294,7 @@ def _decrypt_team_token(token_enc: str) -> str:
 
 def _create_session(db, user_id: int) -> str:
     sid = uuid.uuid4().hex
-    expires_at = datetime.utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
+    expires_at = _utcnow() + timedelta(seconds=SESSION_TTL_SECONDS)
     db.add(UserSession(id=sid, user_id=user_id, expires_at=expires_at))
     db.commit()
     return sid
@@ -302,7 +313,7 @@ def _get_session_user_id(db, session_id: Optional[str]) -> Optional[int]:
     session = db.query(UserSession).filter(UserSession.id == session_id).first()
     if not session:
         return None
-    if session.expires_at <= datetime.utcnow():
+    if _as_utc(session.expires_at) <= _utcnow():
         db.query(UserSession).filter(UserSession.id == session_id).delete()
         db.commit()
         return None
@@ -2117,8 +2128,8 @@ def api_create_team(payload: TeamCreatePayload, request: Request):
             token_encrypted=_encrypt_team_token(payload.teamToken),
             name=payload.name,
             root_folder=payload.rootFolder,
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=_utcnow(),
+            updated_at=_utcnow(),
         )
         db.add(team)
         try:
@@ -2156,7 +2167,7 @@ def api_update_team(team_id: int, payload: TeamUpdatePayload, request: Request):
             team.name = payload.name
         if "rootFolder" in fields_set:
             team.root_folder = payload.rootFolder
-        team.updated_at = datetime.utcnow()
+        team.updated_at = _utcnow()
         try:
             db.commit()
         except IntegrityError:
