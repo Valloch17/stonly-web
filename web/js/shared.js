@@ -124,6 +124,44 @@
     });
   });
 
+  // 4) Shared API base settings (account-level)
+  const API_BASE_KEY = 'st_api_base';
+  const DEFAULT_API_BASE = 'https://public.stonly.com/api/v3';
+
+  window.getApiBase = function getApiBase() {
+    try {
+      const saved = localStorage.getItem(API_BASE_KEY);
+      if (saved) return saved;
+    } catch {}
+    const base = (window.__apiBase || '').trim();
+    return base || DEFAULT_API_BASE;
+  };
+
+  onReady(function initApiBaseSetting() {
+    try {
+      const saved = localStorage.getItem(API_BASE_KEY);
+      if (saved) window.__apiBase = saved;
+    } catch {}
+
+    const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+    if (!base) return;
+    fetch(base + '/api/settings', { credentials: 'include' })
+      .then((res) => {
+        if (!res.ok) return null;
+        return res.json();
+      })
+      .then((data) => {
+        if (!data) return;
+        const apiBase = (data.apiBase || '').trim();
+        window.__apiBase = apiBase;
+        try {
+          if (apiBase) localStorage.setItem(API_BASE_KEY, apiBase);
+          else localStorage.removeItem(API_BASE_KEY);
+        } catch {}
+      })
+      .catch(() => {});
+  });
+
   // (Guide YAML persistence lives in guide.js)
 })();
 

@@ -277,7 +277,7 @@ function App() {
                 return v || "Undefined";
             })(),
             teamId: (() => { const v = document.getElementById('teamSelect')?.value; return v ? Number(v) : null; })(),
-            base: document.getElementById('st_base').value || "https://public.stonly.com/api/v3"
+            base: (window.getApiBase && window.getApiBase()) || "https://public.stonly.com/api/v3"
         }
     });
     // --- Init + bind YAML persistence (ajoute ce bloc ici) ---
@@ -308,7 +308,7 @@ function App() {
                 const url = new URL(KB_BASE + path);
                 const c = bodyOrParams.creds;
                 url.searchParams.set('teamId', c.teamId);
-                url.searchParams.set('base', c.base || "https://public.stonly.com/api/v3");
+                if (c.base) url.searchParams.set('base', c.base);
                 if (bodyOrParams.parentId != null) url.searchParams.set('parentId', bodyOrParams.parentId);
                 res = await fetch(url.toString(), { method: 'GET', credentials: 'include' });
             } else {

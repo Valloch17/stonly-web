@@ -76,7 +76,7 @@ function collectSettings() {
     teamId: toInt(el('teamSelect')?.value),
     folderId: toInt(el('folderId')?.value),
     user: (el('user')?.value || '').trim() || 'Undefined',
-    base: (el('base')?.value || '').trim() || 'https://public.stonly.com/api/v3',
+    base: (window.getApiBase && window.getApiBase()) || 'https://public.stonly.com/api/v3',
     includeSubfolders: !!el('includeSubfolders')?.checked,
   };
 }

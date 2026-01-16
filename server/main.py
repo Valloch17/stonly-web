@@ -31,6 +31,8 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     UniqueConstraint,
+    inspect,
+    text,
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
@@ -75,6 +77,7 @@ SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
 
 # ---- DB / Auth config ----
+DEFAULT_STONLY_BASE = "https://public.stonly.com/api/v3"
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     if ALLOW_LOCAL_TESTING_MODE:
@@ -123,6 +126,7 @@ class User(Base):
     id = Column(Integer, primary_key=True)
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
+    api_base = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
 
 
@@ -151,6 +155,20 @@ class UserSession(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    _ensure_user_schema()
+
+
+def _ensure_user_schema() -> None:
+    try:
+        inspector = inspect(engine)
+        if "users" not in inspector.get_table_names():
+            return
+        columns = {col["name"] for col in inspector.get_columns("users")}
+        if "api_base" not in columns:
+            with engine.begin() as conn:
+                conn.execute(text("ALTER TABLE users ADD COLUMN api_base TEXT"))
+    except Exception:
+        logger.exception("Failed to ensure users schema")
 
 
 # IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
@@ -159,6 +177,7 @@ def init_db() -> None:
 
 tags_metadata = [
     {"name": "Auth", "description": "Account authentication and sessions"},
+    {"name": "Settings", "description": "Account-level settings"},
     {"name": "Teams", "description": "Team registry for stored Stonly tokens"},
     {"name": "Health", "description": "Health and readiness probes"},
     {"name": "Debug", "description": "Diagnostics and server logs"},
@@ -348,8 +367,14 @@ def get_stonly_client_for_team(
 ) -> Tuple["Stonly", Team]:
     team = get_team_for_user(db, user_id, team_id)
     token = _decrypt_team_token(team.token_encrypted)
+    base_value = (base or "").strip()
+    if not base_value:
+        user = db.query(User).filter(User.id == user_id).first()
+        base_value = (user.api_base or "").strip() if user else ""
+    if not base_value:
+        base_value = DEFAULT_STONLY_BASE
     st = Stonly(
-        base=(base or "https://public.stonly.com/api/v3"),
+        base=base_value,
         user=(user_label or "Undefined"),
         password=token,
         team_id=team.team_id,
@@ -677,7 +702,7 @@ class Stonly:
 class Creds(BaseModel):
     user: str = "Undefined"
     teamId: int
-    base: Optional[str] = "https://public.stonly.com/api/v3"
+    base: Optional[str] = None
     password: Optional[str] = None  # deprecated: only used in local/testing
 
     @field_validator("user", mode="before")
@@ -692,6 +717,14 @@ class Creds(BaseModel):
         if v is None:
             raise ValueError("teamId is required")
         return int(v)
+
+    @field_validator("base", mode="before")
+    @classmethod
+    def base_optional(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
 
 class UINode(BaseModel):
     name: str
@@ -826,7 +859,7 @@ class AIGuidePayload(BaseModel):
     folderId: int
     publish: bool = False
     dryRun: bool = False
-    base: Optional[str] = "https://public.stonly.com/api/v3"
+    base: Optional[str] = None
     previewOnly: bool = False
     baseYaml: Optional[str] = None
     refinePrompt: Optional[str] = None
@@ -845,7 +878,7 @@ class AIGuidePayload(BaseModel):
     @classmethod
     def base_default(cls, v: Optional[str]):
         s = (v or "").strip()
-        return s or "https://public.stonly.com/api/v3"
+        return s or None
 
     @field_validator("baseYaml", "yamlOverride", mode="before")
     @classmethod
@@ -935,6 +968,18 @@ class ResetPasswordPayload(BaseModel):
         if not text:
             raise ValueError("adminToken is required")
         return text
+
+
+class UserSettingsPayload(BaseModel):
+    apiBase: Optional[str] = None
+
+    @field_validator("apiBase", mode="before")
+    @classmethod
+    def api_base_optional(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
 
 
 class TeamCreatePayload(BaseModel):
@@ -2100,6 +2145,25 @@ def api_auth_status(request: Request):
     return {"ok": True, "email": user.email}
 
 
+@app.get("/api/settings", tags=["Settings"], summary="Get account settings")
+def api_get_settings(request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+    return {"ok": True, "apiBase": user.api_base}
+
+
+@app.put("/api/settings", tags=["Settings"], summary="Update account settings")
+def api_update_settings(payload: UserSettingsPayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        fields_set = getattr(payload, "model_fields_set", set())
+        if "apiBase" in fields_set:
+            user.api_base = payload.apiBase
+        db.commit()
+        db.refresh(user)
+    return {"ok": True, "apiBase": user.api_base}
+
+
 @app.get("/api/teams", tags=["Teams"], summary="List teams for current user")
 def api_list_teams(request: Request):
     with SessionLocal() as db:
@@ -2622,7 +2686,7 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
         creds=Creds(
             user="Undefined",
             teamId=payload.teamId,
-            base=payload.base or "https://public.stonly.com/api/v3",
+            base=payload.base,
         ),
         folderId=payload.folderId,
         yaml=yaml_text,
@@ -2654,7 +2718,7 @@ def api_dump(
     request: Request,
     teamId: int = ...,
     parentId: Optional[int] = None,
-    base: str = "https://public.stonly.com/api/v3",
+    base: Optional[str] = None,
 ):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)

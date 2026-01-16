@@ -374,7 +374,7 @@ function getGuideYamlText() {
 function collectSettings() {
     return {
         dryRun: !!el('dryRun')?.checked,
-        base: (el('base')?.value || '').trim(),
+        base: (window.getApiBase && window.getApiBase()) || 'https://public.stonly.com/api/v3',
         teamId: el('teamSelect')?.value ? Number(el('teamSelect').value) : null,
         user: (() => {
             const v = (el('user')?.value || '').trim();
@@ -846,7 +846,7 @@ function buildGuidePayload(settings, yamlText) {
         creds: {
             user: settings.user,
             teamId: settings.teamId,
-            base: settings.base || 'https://public.stonly.com/api/v3'
+            base: settings.base
         }
     };
 }

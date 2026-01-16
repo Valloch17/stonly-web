@@ -53,7 +53,7 @@
     const rawUser = (el('st_user')?.value || '').trim();
     const user = rawUser || "Undefined";
     const teamId = el('teamSelect')?.value ? Number(el('teamSelect').value) : null;
-    const base = (el('st_base')?.value || '').trim() || 'https://public.stonly.com/api/v3';
+    const base = (window.getApiBase && window.getApiBase()) || 'https://public.stonly.com/api/v3';
     const parentId = el('parentId')?.value ? Number(el('parentId').value) : null;
     const publicAccess = parseInt((el('publicAccess')?.value || '1'), 10);
     const language = (el('lang')?.value || 'en').trim() || 'en';

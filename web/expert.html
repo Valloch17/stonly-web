@@ -121,7 +121,7 @@
 
     <!-- Settings -->
     <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
-      <!-- Row 1: Team ID, Parent ID, token, base -->
+      <!-- Row 1: Team ID and Parent ID -->
       <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label class="block text-sm font-medium">Team <span class="text-red-600">*</span></label>
@@ -131,17 +131,8 @@
           <p id="teamMeta" class="text-xs text-slate-500 mt-1"></p>
                     </div>
         <div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div>
-              <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
-              <input id="parentId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
-            </div>
-            <div>
-              <label class="block text-sm font-medium">Stonly API Base URL</label>
-              <input id="st_base" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm"
-                placeholder="https://public.stonly.com/api/v3" value="https://public.stonly.com/api/v3" />
-            </div>
-          </div>
+          <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
+          <input id="parentId" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
           <!-- Hidden username populated from login (optional) -->
           <input id="st_user" type="hidden" />
         </div>

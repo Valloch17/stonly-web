@@ -6,6 +6,9 @@ const BASE = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
 const table = document.getElementById('teamTable');
 const statusNode = document.getElementById('teamSettingsStatus');
 const newBtn = document.getElementById('teamNewBtn');
+const apiBaseInput = document.getElementById('apiBaseInput');
+const apiBaseSave = document.getElementById('apiBaseSave');
+const apiBaseStatus = document.getElementById('apiBaseStatus');
 
 let teams = [];
 
@@ -16,6 +19,15 @@ function setStatus(msg, tone) {
   if (tone === 'error') statusNode.classList.add('text-red-600');
   else if (tone === 'success') statusNode.classList.add('text-green-600');
   else statusNode.classList.add('text-slate-500');
+}
+
+function setApiStatus(msg, tone) {
+  if (!apiBaseStatus) return;
+  apiBaseStatus.textContent = msg || '';
+  apiBaseStatus.classList.remove('text-slate-500', 'text-red-600', 'text-green-600');
+  if (tone === 'error') apiBaseStatus.classList.add('text-red-600');
+  else if (tone === 'success') apiBaseStatus.classList.add('text-green-600');
+  else apiBaseStatus.classList.add('text-slate-500');
 }
 
 function renderTeams(list) {
@@ -70,6 +82,52 @@ async function deleteTeam(teamId) {
   }
 }
 
+async function loadApiBase() {
+  if (!apiBaseInput) return;
+  setApiStatus('Loading API settings...');
+  try {
+    const res = await fetch(BASE + '/api/settings', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed to load API settings');
+    const data = await res.json();
+    const apiBase = (data?.apiBase || '').trim();
+    apiBaseInput.value = apiBase;
+    window.__apiBase = apiBase;
+    try {
+      if (apiBase) localStorage.setItem('st_api_base', apiBase);
+      else localStorage.removeItem('st_api_base');
+    } catch {}
+    setApiStatus('');
+  } catch (e) {
+    setApiStatus(e?.message || 'Failed to load API settings', 'error');
+  }
+}
+
+async function saveApiBase() {
+  if (!apiBaseInput) return;
+  const apiBase = (apiBaseInput.value || '').trim();
+  setApiStatus('Saving...');
+  try {
+    const res = await fetch(BASE + '/api/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ apiBase: apiBase || null }),
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Failed to save API settings');
+    const data = await res.json().catch(() => ({}));
+    const saved = (data?.apiBase || '').trim();
+    apiBaseInput.value = saved;
+    window.__apiBase = saved;
+    try {
+      if (saved) localStorage.setItem('st_api_base', saved);
+      else localStorage.removeItem('st_api_base');
+    } catch {}
+    setApiStatus('API settings saved.', 'success');
+  } catch (e) {
+    setApiStatus(e?.message || 'Failed to save API settings', 'error');
+  }
+}
+
 function handleTableClick(event) {
   const target = event.target;
   if (!target) return;
@@ -111,6 +169,11 @@ newBtn?.addEventListener('click', () => {
   }
 });
 
+apiBaseSave?.addEventListener('click', () => {
+  saveApiBase();
+});
+
 (table || document).addEventListener('click', handleTableClick);
 
 loadTeams();
+loadApiBase();

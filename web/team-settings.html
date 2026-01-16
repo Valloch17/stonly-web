@@ -130,6 +130,25 @@
         </table>
       </div>
     </section>
+
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">API settings</h2>
+          <p class="text-sm text-slate-500">Set the default Stonly API base used across builder tools.</p>
+        </div>
+        <button id="apiBaseSave" type="button" class="px-3 py-2 rounded-lg bg-slate-900 text-white text-sm font-medium">
+          Save
+        </button>
+      </div>
+      <div>
+        <label for="apiBaseInput" class="block text-sm font-medium">Stonly API Base URL</label>
+        <input id="apiBaseInput" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm"
+          placeholder="https://public.stonly.com/api/v3" />
+        <p class="text-xs text-slate-500 mt-1">Leave blank to use the default Stonly API base.</p>
+      </div>
+      <p id="apiBaseStatus" class="text-sm text-slate-500"></p>
+    </section>
   </main>
 
   <script src="/js/shared.js?v=1"></script>
