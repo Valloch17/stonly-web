@@ -86,6 +86,14 @@
         el.classList.toggle('ring-red-500', empty);
         el.setAttribute('aria-invalid', empty ? 'true' : 'false');
       }
+      if (el && el.dataset.proxy) {
+        const proxy = document.getElementById(el.dataset.proxy);
+        if (proxy) {
+          proxy.classList.toggle('ring-2', empty);
+          proxy.classList.toggle('ring-red-500', empty);
+          proxy.setAttribute('aria-invalid', empty ? 'true' : 'false');
+        }
+      }
       if (empty) { ok = false; if (el) invalidEls.push(el); }
     });
     if (!ok) {
@@ -304,6 +312,96 @@
     let teams = [];
     let lastValidTeamId = '';
     let pendingSelectId = '';
+    let customButton = null;
+    let customPanel = null;
+    let customLabel = null;
+
+    function ensureCustomTeamSelect() {
+      if (!select) return;
+      if (select.dataset.customized === '1') {
+        customButton = document.getElementById('teamSelectButton');
+        customPanel = document.getElementById('teamSelectPanel');
+        customLabel = customButton?.querySelector('.team-select-value') || null;
+        return;
+      }
+      select.dataset.customized = '1';
+      select.classList.add('team-select-native');
+
+      const wrapper = document.createElement('div');
+      wrapper.className = 'team-select-custom';
+      select.parentNode?.insertBefore(wrapper, select);
+      wrapper.appendChild(select);
+
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.id = 'teamSelectButton';
+      button.className = 'team-select-button';
+      button.setAttribute('aria-haspopup', 'listbox');
+      button.setAttribute('aria-expanded', 'false');
+
+      const label = document.createElement('span');
+      label.className = 'team-select-value';
+      label.textContent = 'Select a team';
+
+      const chevron = document.createElement('span');
+      chevron.className = 'team-select-chevron';
+      chevron.innerHTML = '<svg viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" /></svg>';
+
+      button.appendChild(label);
+      button.appendChild(chevron);
+
+      const panel = document.createElement('div');
+      panel.id = 'teamSelectPanel';
+      panel.className = 'team-select-panel hidden';
+      panel.setAttribute('role', 'listbox');
+
+      wrapper.appendChild(button);
+      wrapper.appendChild(panel);
+
+      select.dataset.proxy = button.id;
+      customButton = button;
+      customPanel = panel;
+      customLabel = label;
+
+      function setOpen(isOpen) {
+        panel.classList.toggle('hidden', !isOpen);
+        button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+      }
+
+      button.addEventListener('click', (e) => {
+        e.preventDefault();
+        setOpen(panel.classList.contains('hidden'));
+      });
+      button.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          setOpen(true);
+          const first = panel.querySelector('.team-select-option:not([data-disabled="1"])');
+          first?.focus?.();
+        }
+      });
+      panel.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setOpen(false);
+          button.focus();
+        }
+      });
+      panel.addEventListener('click', (e) => {
+        const item = e.target?.closest?.('[data-value]');
+        if (!item || item.dataset.disabled === '1') return;
+        const value = item.dataset.value || '';
+        select.value = value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        setOpen(false);
+        button.focus();
+      });
+      document.addEventListener('click', (e) => {
+        if (!panel.contains(e.target) && !button.contains(e.target)) {
+          setOpen(false);
+        }
+      });
+    }
 
     function ensureTeamModal() {
       let overlay = document.getElementById('teamModal');
@@ -502,6 +600,8 @@
       const selectedId = String(select.value || '');
       if (selectedId === '__create__') {
         select.value = lastValidTeamId;
+        syncCustomLabel();
+        syncCustomSelection();
         openTeamModal({ mode: 'create' });
         return;
       }
@@ -513,6 +613,67 @@
       }
       setMeta(team);
       applyRootFolder(team);
+      syncCustomLabel();
+      syncCustomSelection();
+    }
+
+    function teamLabel(team) {
+      if (!team) return 'Select a team';
+      return team.name ? `${team.name} (${team.teamId})` : `Team ${team.teamId}`;
+    }
+
+    function syncCustomLabel() {
+      if (!customLabel) return;
+      const selectedId = String(select.value || '');
+      const team = teams.find((t) => String(t.teamId) === selectedId) || null;
+      customLabel.textContent = team ? teamLabel(team) : 'Select a team';
+    }
+
+    function syncCustomSelection() {
+      if (!customPanel) return;
+      const selectedId = String(select.value || '');
+      const items = customPanel.querySelectorAll('[data-value]');
+      items.forEach((item) => {
+        item.classList.toggle('is-selected', item.dataset.value === selectedId);
+      });
+    }
+
+    function renderCustomOptions() {
+      if (!customPanel) return;
+      customPanel.innerHTML = '';
+
+      if (teams.length) {
+        teams.forEach((team) => {
+          const item = document.createElement('button');
+          item.type = 'button';
+          item.className = 'team-select-option';
+          item.dataset.value = String(team.teamId);
+          item.textContent = teamLabel(team);
+          customPanel.appendChild(item);
+        });
+      }
+
+      const separator = document.createElement('div');
+      separator.className = 'team-select-separator';
+      separator.setAttribute('role', 'separator');
+      customPanel.appendChild(separator);
+
+      const create = document.createElement('button');
+      create.type = 'button';
+      create.className = 'team-select-option team-select-create';
+      create.dataset.value = '__create__';
+      create.textContent = '+ Create team';
+      customPanel.appendChild(create);
+
+      if (!teams.length) {
+        const empty = document.createElement('div');
+        empty.className = 'team-select-empty';
+        empty.textContent = 'Team list is empty, please create one';
+        customPanel.appendChild(empty);
+      }
+
+      syncCustomLabel();
+      syncCustomSelection();
     }
 
     function renderTeams(list, preferredTeamId) {
@@ -568,6 +729,7 @@
       }
       updateSelection();
       pendingSelectId = '';
+      renderCustomOptions();
     }
 
     async function loadTeams(preferredTeamId) {
@@ -602,6 +764,8 @@
       }
     });
     if (!select) return;
+
+    ensureCustomTeamSelect();
 
     window.getSelectedTeam = function getSelectedTeam() {
       return window.__selectedTeam || null;
