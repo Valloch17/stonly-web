@@ -772,11 +772,6 @@
     window.openTeamModal = openTeamModal;
 
     document.addEventListener('click', (event) => {
-      const overlay = document.getElementById('teamModal');
-      if (!overlay || overlay.classList.contains('hidden')) return;
-      if (event.target === overlay) closeTeamModal();
-    });
-    document.addEventListener('click', (event) => {
       if (event.target?.id === 'teamModalClose' || event.target?.id === 'teamModalCancel') {
         closeTeamModal();
       }
