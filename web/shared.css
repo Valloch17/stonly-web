@@ -551,6 +551,13 @@ html[data-theme="dark"] .guide-preview-step.border-l {
   height: 18px;
 }
 
+.user-menu-initial {
+  font-size: 14px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
 .user-menu-panel {
   position: absolute;
   right: 0;
@@ -580,17 +587,26 @@ html[data-theme="dark"] .guide-preview-step.border-l {
   font-size: 0.875rem;
   background: transparent;
   border: 0;
+  transition: background-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .user-menu-item:hover {
-  background: color-mix(in srgb, var(--card) 85%, var(--bg) 15%);
+  background: color-mix(in srgb, var(--card) 70%, var(--bg) 30%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 50%, transparent 50%);
   filter: none;
-  box-shadow: none;
 }
 
 .user-menu-panel .user-menu-item:hover {
   filter: none;
-  box-shadow: none;
+}
+
+#userMenuLogout {
+  color: #dc2626;
+}
+
+#userMenuLogout:hover {
+  color: #b91c1c;
+  background: color-mix(in srgb, #fecaca 35%, var(--card) 65%);
 }
 
 /* Builder tools dropdown */

@@ -630,7 +630,21 @@
       emailNode.textContent = value || 'Signed in';
     }
 
-    if (window.__authUserEmail) setEmail(window.__authUserEmail);
+    function setAvatar(email) {
+      const value = (email || '').trim();
+      if (!value) return;
+      const letter = value.charAt(0).toUpperCase();
+      button.textContent = '';
+      const span = document.createElement('span');
+      span.className = 'user-menu-initial';
+      span.textContent = letter || 'U';
+      button.appendChild(span);
+    }
+
+    if (window.__authUserEmail) {
+      setEmail(window.__authUserEmail);
+      setAvatar(window.__authUserEmail);
+    }
     else {
       fetch(base + '/api/auth/status', { credentials: 'include' })
         .then((res) => res.json())
@@ -638,6 +652,7 @@
           if (data?.email) {
             window.__authUserEmail = data.email;
             setEmail(data.email);
+            setAvatar(data.email);
           }
         })
         .catch(() => {});
