@@ -174,7 +174,13 @@
   window.summarizeGuidePreviewContent = function summarizeGuidePreviewContent(html, maxLen = 160) {
     if (!html) return "";
     const tmp = document.createElement("div");
-    const normalized = String(html).replace(/<\/p\s*>/gi, "</p> ");
+    let normalized = String(html);
+    // Ensure paragraph boundaries contribute visible spacing in summaries.
+    normalized = normalized.replace(/<\s*p\b[^>]*>/gi, "<p> ");
+    // Add missing spaces around tags when content normalization removed them.
+    normalized = normalized
+      .replace(/([A-Za-z0-9])(<[a-z][^>]*>)/gi, "$1 $2")
+      .replace(/(<\/[^>]+>)([A-Za-z0-9])/gi, "$1 $2");
     tmp.innerHTML = normalized;
     const text = (tmp.textContent || "").replace(/\s+/g, " ").trim();
     if (!text) return "";
