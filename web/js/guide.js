@@ -585,99 +585,6 @@ function parseGuideYaml(source) {
     return results;
 }
 
-function summarizePreviewContent(html) {
-    if (!html) return '';
-    const tmp = document.createElement('div');
-    const normalized = String(html).replace(/<\/p\s*>/gi, '</p> ');
-    tmp.innerHTML = normalized;
-    const text = (tmp.textContent || '').replace(/\s+/g, ' ').trim();
-    if (!text) return '';
-    return text.length > 160 ? text.slice(0, 160) + '…' : text;
-}
-
-function createStepTree(step, depth) {
-    const container = document.createElement('div');
-    container.className = depth
-        ? 'guide-preview-step border-l pl-4 space-y-2'
-        : 'guide-preview-step space-y-2';
-
-    const heading = document.createElement('div');
-    heading.className = 'space-y-1';
-    const titleEl = document.createElement('div');
-    titleEl.className = 'guide-preview-step-title font-medium';
-    const titleText = document.createElement('span');
-    titleText.textContent = step?.title || '(Untitled step)';
-    titleEl.appendChild(titleText);
-    if (step?.key) {
-        const keyBadge = document.createElement('span');
-        keyBadge.className = 'guide-preview-step-key';
-        keyBadge.textContent = `Key → ${step.key}`;
-        titleEl.appendChild(keyBadge);
-    }
-    heading.appendChild(titleEl);
-
-    const summary = summarizePreviewContent(step?.content);
-    if (summary) {
-        const summaryEl = document.createElement('div');
-        summaryEl.className = 'guide-preview-summary text-xs';
-        summaryEl.textContent = summary;
-        heading.appendChild(summaryEl);
-    }
-    container.appendChild(heading);
-
-    const choices = Array.isArray(step?.choices) ? step.choices : [];
-    if (choices.length) {
-        const choiceList = document.createElement('div');
-        choiceList.className = 'space-y-2';
-        choices.forEach((choice) => {
-            const wrap = document.createElement('div');
-            wrap.className = 'guide-preview-choice space-y-1';
-            const label = document.createElement('div');
-            label.className = 'guide-preview-choice-label text-sm font-semibold';
-            label.textContent = choice?.label ? `Choice: ${choice.label}` : 'Choice';
-            wrap.appendChild(label);
-            if (choice?.step) {
-                wrap.appendChild(createStepTree(choice.step, depth + 1));
-            } else if (choice?.ref) {
-                const refEl = document.createElement('div');
-                refEl.className = 'guide-preview-choice-ref text-xs';
-                refEl.textContent = `Ref → ${choice.ref}`;
-                wrap.appendChild(refEl);
-            }
-            choiceList.appendChild(wrap);
-        });
-        container.appendChild(choiceList);
-    }
-    return container;
-}
-
-function createGuideCard(guide, index) {
-    const card = document.createElement('div');
-    card.className = 'guide-preview-card border rounded-lg p-4 space-y-3';
-    const header = document.createElement('div');
-    header.className = 'space-y-1';
-    const meta = document.createElement('div');
-    meta.className = 'guide-preview-meta text-xs font-semibold uppercase';
-    meta.textContent = `Guide ${index}`;
-    const title = document.createElement('div');
-    title.className = 'guide-preview-title text-base font-semibold';
-    const ct = (guide?.info?.contentType || 'GUIDE').toString().toUpperCase();
-    const contentTitle = guide?.info?.contentTitle || guide?.firstStep?.title || '(Untitled guide)';
-    title.textContent = `${contentTitle} · ${ct}`;
-    header.appendChild(meta);
-    header.appendChild(title);
-    card.appendChild(header);
-    if (guide?.firstStep) {
-        card.appendChild(createStepTree(guide.firstStep, 0));
-    } else {
-        const empty = document.createElement('p');
-        empty.className = 'guide-preview-empty text-sm';
-        empty.textContent = 'Missing first step.';
-        card.appendChild(empty);
-    }
-    return card;
-}
-
 function renderPreview(parsed) {
     const tree = el('previewTree');
     const status = el('previewStatus');
@@ -689,7 +596,7 @@ function renderPreview(parsed) {
     tree.innerHTML = '';
     const arr = Array.isArray(parsed) ? parsed : [parsed];
     arr.forEach((p, i) => {
-        tree.appendChild(createGuideCard(p, i + 1));
+        tree.appendChild(window.createGuidePreviewCard(p, i + 1));
     });
     status.textContent = `${arr.length} guide(s) parsed. Review before creating.`;
 }

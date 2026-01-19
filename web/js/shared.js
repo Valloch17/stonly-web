@@ -170,6 +170,111 @@
       .catch(() => {});
   });
 
+  // 5) Shared guide preview renderer (AI Builder + Guide Builder)
+  window.summarizeGuidePreviewContent = function summarizeGuidePreviewContent(html, maxLen = 160) {
+    if (!html) return "";
+    const tmp = document.createElement("div");
+    const normalized = String(html).replace(/<\/p\s*>/gi, "</p> ");
+    tmp.innerHTML = normalized;
+    const text = (tmp.textContent || "").replace(/\s+/g, " ").trim();
+    if (!text) return "";
+    return text.length > maxLen ? text.slice(0, maxLen) + "…" : text;
+  };
+
+  window.createGuidePreviewTree = function createGuidePreviewTree(step, depth, options) {
+    const summarize = options && typeof options.summarize === "function"
+      ? options.summarize
+      : window.summarizeGuidePreviewContent;
+    const container = document.createElement("div");
+    container.className = depth
+      ? "guide-preview-step border-l pl-4 space-y-2"
+      : "guide-preview-step space-y-2";
+
+    const heading = document.createElement("div");
+    heading.className = "space-y-1";
+    const titleEl = document.createElement("div");
+    titleEl.className = "guide-preview-step-title font-medium";
+    const titleText = document.createElement("span");
+    titleText.textContent = step?.title || "(Untitled step)";
+    titleEl.appendChild(titleText);
+    if (step?.key) {
+      const keyBadge = document.createElement("span");
+      keyBadge.className = "guide-preview-step-key";
+      keyBadge.textContent = `Key → ${step.key}`;
+      titleEl.appendChild(keyBadge);
+    }
+    heading.appendChild(titleEl);
+
+    const summary = summarize ? summarize(step?.content) : "";
+    if (summary) {
+      const summaryEl = document.createElement("div");
+      summaryEl.className = "guide-preview-summary text-xs";
+      summaryEl.textContent = summary;
+      heading.appendChild(summaryEl);
+    }
+    container.appendChild(heading);
+
+    const choices = Array.isArray(step?.choices) ? step.choices : [];
+    if (choices.length) {
+      const choiceList = document.createElement("div");
+      choiceList.className = "space-y-2";
+      choices.forEach((choice) => {
+        const wrap = document.createElement("div");
+        wrap.className = "guide-preview-choice space-y-1";
+        const label = document.createElement("div");
+        label.className = "guide-preview-choice-label text-sm font-semibold";
+        label.textContent = choice?.label ? `Choice: ${choice.label}` : "Choice";
+        wrap.appendChild(label);
+        if (choice?.step) {
+          wrap.appendChild(window.createGuidePreviewTree(choice.step, depth + 1, options));
+        } else if (choice?.ref) {
+          const refEl = document.createElement("div");
+          refEl.className = "guide-preview-choice-ref text-xs";
+          refEl.textContent = `Ref → ${choice.ref}`;
+          wrap.appendChild(refEl);
+        }
+        choiceList.appendChild(wrap);
+      });
+      container.appendChild(choiceList);
+    }
+    return container;
+  };
+
+  window.createGuidePreviewCard = function createGuidePreviewCard(guide, index, options) {
+    const getTitle = options && typeof options.getTitle === "function"
+      ? options.getTitle
+      : (g) => g?.contentTitle || g?.info?.contentTitle || g?.firstStep?.title || "(Untitled guide)";
+    const getContentType = options && typeof options.getContentType === "function"
+      ? options.getContentType
+      : (g) => g?.contentType || g?.info?.contentType || "GUIDE";
+    const label = options && options.label ? String(options.label) : "Guide";
+    const card = document.createElement("div");
+    card.className = "guide-preview-card border rounded-lg p-4 space-y-3";
+    const header = document.createElement("div");
+    header.className = "space-y-1";
+    const meta = document.createElement("div");
+    meta.className = "guide-preview-meta text-xs font-semibold uppercase";
+    meta.textContent = `${label} ${index}`;
+    const title = document.createElement("div");
+    title.className = "guide-preview-title text-base font-semibold";
+    const contentTitle = String(getTitle(guide) || "").trim() || "(Untitled guide)";
+    const rawCt = getContentType(guide);
+    const ct = rawCt ? String(rawCt).toUpperCase() : "GUIDE";
+    title.textContent = `${contentTitle} · ${ct}`;
+    header.appendChild(meta);
+    header.appendChild(title);
+    card.appendChild(header);
+    if (guide?.firstStep) {
+      card.appendChild(window.createGuidePreviewTree(guide.firstStep, 0, options));
+    } else {
+      const empty = document.createElement("p");
+      empty.className = "guide-preview-empty text-sm";
+      empty.textContent = "Missing first step.";
+      card.appendChild(empty);
+    }
+    return card;
+  };
+
   // (Guide YAML persistence lives in guide.js)
 })();
 
