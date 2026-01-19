@@ -1829,10 +1829,10 @@ guide:
                                     - label: "🟢 Backfill Realistic"
                                       ref: fa_success
                                     - label: "🔴 Not Realistic"
-                                step:
-                                    key: final_triage
-                                    title: "🚨 Final Triage"
-                                    content: "<p>Escalate to supervisor; prepare for possible cancellation.</p>"
+                                      step:
+                                        key: final_triage
+                                        title: "🚨 Final Triage"
+                                        content: "<p>Escalate to supervisor; prepare for possible cancellation.</p>"
 """
 
 def generate_gemini_text(
