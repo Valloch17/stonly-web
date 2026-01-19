@@ -231,7 +231,8 @@ if (typeof window.requireAdmin === "function") {
   function summarizeContent(html) {
     if (!html) return "";
     const tmp = document.createElement("div");
-    tmp.innerHTML = html;
+    const normalized = String(html).replace(/<\/p\s*>/gi, "</p> ");
+    tmp.innerHTML = normalized;
     const text = (tmp.textContent || "").replace(/\s+/g, " ").trim();
     if (!text) return "";
     return text.length > 160 ? text.slice(0, 160) + "…" : text;
