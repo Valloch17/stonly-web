@@ -18,13 +18,14 @@
   <style>
     :root { --bg: #f3f4f6; }
     /* Force lighter response backgrounds in light mode for contrast */
-    #kbOut, #guideOut {
+    #kbOut, #guideOut, #autoOut {
       background: #f8fafc !important; /* very light grey */
       border: 1px solid var(--border);
       color: var(--text);
     }
     html[data-theme="dark"] #kbOut,
-    html[data-theme="dark"] #guideOut {
+    html[data-theme="dark"] #guideOut,
+    html[data-theme="dark"] #autoOut {
       background: #0f172a !important; /* keep dark in dark mode */
       border-color: var(--border);
       color: var(--text);
@@ -39,6 +40,30 @@
       background-color: rgba(22, 163, 74, 0.24) !important;
       border-color: rgba(74, 222, 128, 0.75) !important;
       color: #bbf7d0 !important;
+    }
+    .mode-toggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 4px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: color-mix(in srgb, var(--card) 78%, var(--bg) 22%);
+    }
+    .mode-toggle button {
+      padding: 6px 14px;
+      border-radius: 999px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .mode-toggle button.is-active {
+      background: #2563eb;
+      color: #ffffff;
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.28);
+    }
+    html[data-theme="dark"] .mode-toggle button.is-active {
+      background: #3b82f6;
     }
   </style>
 </head>
@@ -120,7 +145,7 @@
     </div>
 
     <!-- Settings -->
-    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+    <section id="expertSettingsSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
       <!-- Row 1: Team ID and Parent ID -->
       <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
         <div class="md:col-span-3">
@@ -152,6 +177,56 @@
       
     </section>
 
+    <!-- Mode -->
+    <section class="bg-card border rounded-xl shadow-sm p-5 space-y-4">
+      <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Build mode</h2>
+          <p class="text-sm text-slate-500">Switch between manual YAML and a fully automated flow.</p>
+        </div>
+        <div class="mode-toggle" role="group" aria-label="Expert mode toggle">
+          <button id="expertModeManual" type="button" class="is-active" aria-pressed="true">Manual</button>
+          <button id="expertModeAuto" type="button" aria-pressed="false">Automated</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Automated -->
+    <section id="expertAutomatedSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-4 hidden">
+      <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Automated build</h2>
+          <p class="text-sm text-slate-500">Generate the KB, guides, and organiser mapping from one prompt.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div id="autoSpinner" class="hidden items-center gap-2 text-sm text-slate-500">
+            <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+            <span id="autoSpinnerText">Running automation...</span>
+          </div>
+          <button id="autoRunBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Run automation</button>
+        </div>
+      </header>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium">Brand name <span class="text-red-600">*</span></label>
+          <input id="autoBrand" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. Stonly" />
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium">Prompt instructions <span class="text-red-600">*</span></label>
+          <textarea id="autoPrompt" rows="6" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Describe the product, audience, and topics to cover."></textarea>
+        </div>
+      </div>
+      <p id="autoStatus" class="text-sm text-slate-500">Ready.</p>
+      <div class="space-y-2">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-medium">Automation output</h3>
+          <button id="autoCopyOut" class="px-3 py-1.5 rounded-md border text-sm" type="button">Copy</button>
+        </div>
+        <pre id="autoOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>
+      </div>
+    </section>
+
+    <div id="expertManualSections" class="space-y-6">
       <!-- KB YAML -->
       <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
         <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
@@ -231,6 +306,7 @@
         <p id="organiserYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
     </section>
+    </div>
 
     <!-- Logs -->
     <div class="card">

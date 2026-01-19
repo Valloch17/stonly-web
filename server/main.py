@@ -870,8 +870,8 @@ class AIGuidePayload(BaseModel):
     @classmethod
     def prompt_required(cls, v: str):
         text = (v or "").strip()
-        if len(text) > 8000:
-            raise ValueError("prompt is too long (max 8000 characters)")
+        if len(text) > 40000:
+            raise ValueError("prompt is too long (max 40000 characters)")
         return text
 
     @field_validator("base")
@@ -887,6 +887,18 @@ class AIGuidePayload(BaseModel):
             return None
         s = str(v)
         return s.strip()
+
+
+class AIPromptPayload(BaseModel):
+    prompt: str = ""
+
+    @field_validator("prompt")
+    @classmethod
+    def prompt_required(cls, v: str):
+        text = (v or "").strip()
+        if len(text) > 40000:
+            raise ValueError("prompt is too long (max 40000 characters)")
+        return text
 
 
 class LoginPayload(BaseModel):
@@ -1290,7 +1302,7 @@ def fix_unquoted_colons_in_scalars(text: str) -> str:
 
     block_re = re.compile(r"^(?P<indent>[ \t]*)(?:-[ \t]+)?[^#\n]*:\s*[|>][0-9+-]*\s*$")
     key_re = re.compile(
-        r"^(?P<indent>[ \t]*)(?P<dash>-\s+)?(?P<key>label|title|contentTitle)\s*:\s*(?P<val>.+)\s*$"
+        r"^(?P<indent>[ \t]*)(?P<dash>-\s+)?(?P<key>label|title|contentTitle|name|description)\s*:\s*(?P<val>.+)\s*$"
     )
     out: list[str] = []
     in_block = False
@@ -1448,6 +1460,63 @@ guide:
           content: |
             <p>Setup complete.</p>
             <aside class="tip"><p>Reach out if you need help.</p></aside>
+"""
+
+KB_SYSTEM_PROMPT = """You are a knowledge manager who builds clear, logical knowledge base structures.
+OUTPUT ONLY VALID YAML. Do not include Markdown fences, code blocks, or extra commentary.
+
+TASK:
+- Propose a KB folder structure based on the user's notes.
+- Return a single YAML document with a top-level `root:` list.
+- Each node must include: name, optional description, and children (always present; use [] if empty).
+- Prefer 1 top-level folder that represents the brand (for example: "<Brand> Knowledge Base"), then nest categories beneath it.
+- Focus only on folder categories; do NOT create folders for individual guides/articles or specific how-to topics.
+- Assume guides/articles will be created later and should live inside the broader folders you define.
+- Avoid using ":" in names/descriptions; if you must use ":", wrap the value in double quotes.
+- Use consistent 2-space indentation.
+
+YAML EXAMPLE (structure only):
+root:
+  - name: Support
+    description: "Public info & help center"
+    children:
+      - name: FAQs
+        description: "Common questions"
+        children: []
+      - name: Tutorials
+        children:
+          - name: Web
+            children: []
+          - name: Mobile
+            description: "iOS & Android guides"
+            children: []
+"""
+
+ORGANISER_SYSTEM_PROMPT = """You are a knowledge manager who organizes guides into a knowledge base.
+OUTPUT ONLY YAML. Do not include Markdown fences, code blocks, or extra commentary.
+
+INPUTS:
+1) The KB structure with folder IDs (JSON or YAML mapping of paths to IDs).
+2) A list of guides in YAML.
+
+TASK:
+- Assign each guide to the best folder ID from the KB mapping.
+- Preserve the guide titles and types exactly as given.
+- Output ONLY multi-document YAML where each document includes folderId and guide with contentTitle and contentType.
+- Remove all other fields (no steps, no content).
+- Every guide must have a folderId from the provided mapping. If unsure, choose the most likely folder.
+
+OUTPUT EXAMPLE (structure only):
+---
+folderId: 499727
+guide:
+  contentTitle: POS Printer Not Working
+  contentType: GUIDE
+---
+folderId: 499716
+guide:
+  contentTitle: ID Requirements for Transfers (USA)
+  contentType: ARTICLE
 """
 
 
@@ -1760,36 +1829,26 @@ guide:
                                     - label: "🟢 Backfill Realistic"
                                       ref: fa_success
                                     - label: "🔴 Not Realistic"
-                                      step:
-                                        key: final_triage
-                                        title: "🚨 Final Triage"
-                                        content: "<p>Escalate to supervisor; prepare for possible cancellation.</p>"
+                                step:
+                                    key: final_triage
+                                    title: "🚨 Final Triage"
+                                    content: "<p>Escalate to supervisor; prepare for possible cancellation.</p>"
 """
 
-def generate_yaml_with_gemini(
-    prompt: str,
+def generate_gemini_text(
+    contents: list[str],
     *,
-    base_yaml: Optional[str] = None,
-    refine_prompt: Optional[str] = None,
+    system_prompt: str,
+    temperature: float = 0.7,
+    top_p: float = 0.9,
+    max_output_tokens: int = 15000,
 ) -> str:
     client, types = _load_gemini_client()
-    user_prompt = (prompt or "").strip()
-    sections: list[str] = []
-    if user_prompt:
-        sections.append(f"User prompt:\n{user_prompt}")
-    if base_yaml:
-        sections.append("Existing YAML to refine:\n" + base_yaml.strip())
-    if refine_prompt:
-        sections.append("Refinement instructions:\n" + refine_prompt.strip())
-    if not sections:
-        sections.append("User prompt:\nGenerate an improved Stonly guide.")
-    sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
-    contents = ["\n\n".join(sections)]
     cfg = types.GenerateContentConfig(
-        temperature=0.7,          # slightly higher to encourage fuller generations
-        top_p=0.9,
-        max_output_tokens=15000,
-        system_instruction=[types.Part.from_text(text=SYSTEM_PROMPT)],
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        system_instruction=[types.Part.from_text(text=system_prompt)],
     )
     try:
         parts: list[str] = []
@@ -1811,6 +1870,59 @@ def generate_yaml_with_gemini(
     if not cleaned:
         raise HTTPException(502, detail={"error": "Gemini returned empty content"})
     return cleaned
+
+
+def generate_yaml_with_gemini(
+    prompt: str,
+    *,
+    base_yaml: Optional[str] = None,
+    refine_prompt: Optional[str] = None,
+) -> str:
+    user_prompt = (prompt or "").strip()
+    sections: list[str] = []
+    if user_prompt:
+        sections.append(f"User prompt:\n{user_prompt}")
+    if base_yaml:
+        sections.append("Existing YAML to refine:\n" + base_yaml.strip())
+    if refine_prompt:
+        sections.append("Refinement instructions:\n" + refine_prompt.strip())
+    if not sections:
+        sections.append("User prompt:\nGenerate an improved Stonly guide.")
+    sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
+    contents = ["\n\n".join(sections)]
+    return generate_gemini_text(
+        contents,
+        system_prompt=SYSTEM_PROMPT,
+        temperature=0.7,
+        top_p=0.9,
+        max_output_tokens=15000,
+    )
+
+
+def generate_kb_yaml_with_gemini(prompt: str) -> str:
+    user_prompt = (prompt or "").strip()
+    if not user_prompt:
+        user_prompt = "Create a knowledge base structure."
+    return generate_gemini_text(
+        [user_prompt],
+        system_prompt=KB_SYSTEM_PROMPT,
+        temperature=0.4,
+        top_p=0.9,
+        max_output_tokens=8000,
+    )
+
+
+def generate_organiser_yaml_with_gemini(prompt: str) -> str:
+    user_prompt = (prompt or "").strip()
+    if not user_prompt:
+        user_prompt = "Categorize the guides into the KB folders."
+    return generate_gemini_text(
+        [user_prompt],
+        system_prompt=ORGANISER_SYSTEM_PROMPT,
+        temperature=0.2,
+        top_p=0.9,
+        max_output_tokens=12000,
+    )
 
 
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
@@ -2763,6 +2875,36 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     if testing_mode_active:
         resp["testingMode"] = True
     return resp
+
+
+@app.post(
+    "/api/ai-kb/generate",
+    tags=["Builder"],
+    summary="Generate KB YAML via Gemini",
+)
+def api_ai_kb_generate(payload: AIPromptPayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/ai-kb/generate", request_id)
+    raw_yaml = generate_kb_yaml_with_gemini(payload.prompt or "")
+    yaml_text = normalize_ai_yaml(raw_yaml)
+    return {"ok": True, "yaml": yaml_text}
+
+
+@app.post(
+    "/api/ai-organiser/generate",
+    tags=["Builder"],
+    summary="Generate Guide Organiser YAML via Gemini",
+)
+def api_ai_organiser_generate(payload: AIPromptPayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/ai-organiser/generate", request_id)
+    raw_yaml = generate_organiser_yaml_with_gemini(payload.prompt or "")
+    yaml_text = normalize_ai_yaml(raw_yaml)
+    return {"ok": True, "yaml": yaml_text}
 
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(

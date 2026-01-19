@@ -4,6 +4,9 @@
     window.requireAdmin();
   }
   const el = (id) => document.getElementById(id);
+  const MODE_STORAGE_KEY = 'expert_mode';
+  const AUTO_BRAND_KEY = 'expert_auto_brand';
+  const AUTO_PROMPT_KEY = 'expert_auto_prompt';
 
   function getBASE(){
     try { return (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, ''); } catch { return ''; }
@@ -164,11 +167,53 @@
     return out.join('\n');
   }
 
+  function fixUnquotedColonsInScalars(text){
+    if (!text) return '';
+    const lines = text.split(/\r?\n/);
+    if (!lines.length) return text;
+    const blockRe = /^(?<indent>[ \t]*)(?:-[ \t]+)?[^#\n]*:\s*[|>][0-9+-]*\s*$/;
+    const keyRe = /^(?<indent>[ \t]*)(?<dash>-\s+)?(?<key>label|title|contentTitle|name|description)\s*:\s*(?<val>.+)\s*$/;
+    const out = [];
+    let inBlock = false;
+    let baseIndent = 0;
+
+    for (let i = 0; i < lines.length; i += 1) {
+      let line = lines[i];
+      if (!inBlock) {
+        const match = line.match(keyRe);
+        if (match && match.groups) {
+          const raw = match.groups.val || '';
+          const stripped = raw.trim();
+          if (stripped && !/^['"|>]/.test(stripped) && /:\s/.test(stripped)) {
+            const escaped = stripped.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+            line = `${match.groups.indent || ''}${match.groups.dash || ''}${match.groups.key}: "${escaped}"`;
+          }
+        }
+        out.push(line);
+        const blockMatch = line.match(blockRe);
+        if (blockMatch) {
+          inBlock = true;
+          baseIndent = indentLen(blockMatch.groups ? blockMatch.groups.indent || '' : '');
+        }
+        continue;
+      }
+      const currentIndent = indentLen(line);
+      if (line.trim() && currentIndent <= baseIndent) {
+        inBlock = false;
+        i -= 1;
+        continue;
+      }
+      out.push(line);
+    }
+    return out.join('\n');
+  }
+
   function normalizeAiYaml(text){
     if (text == null) return '';
     let s = stripCodeFences(text);
     s = s.replace(/\t/g, '  ');
     s = fixPreBlockIndentation(s);
+    s = fixUnquotedColonsInScalars(s);
     s = wrapRootIfNeeded(s);
     return s;
   }
@@ -192,6 +237,124 @@
       }
     }
     throw errors[0] || new Error('Invalid YAML');
+  }
+
+  function setExpertMode(mode){
+    const manualBtn = el('expertModeManual');
+    const autoBtn = el('expertModeAuto');
+    const manualSection = el('expertManualSections');
+    const autoSection = el('expertAutomatedSection');
+    const useAuto = mode === 'automated';
+
+    if (manualSection) manualSection.classList.toggle('hidden', useAuto);
+    if (autoSection) autoSection.classList.toggle('hidden', !useAuto);
+
+    if (manualBtn) {
+      manualBtn.classList.toggle('is-active', !useAuto);
+      manualBtn.setAttribute('aria-pressed', (!useAuto).toString());
+    }
+    if (autoBtn) {
+      autoBtn.classList.toggle('is-active', useAuto);
+      autoBtn.setAttribute('aria-pressed', useAuto.toString());
+    }
+
+    try { localStorage.setItem(MODE_STORAGE_KEY, useAuto ? 'automated' : 'manual'); } catch {}
+  }
+
+  function setAutoStatus(message, tone){
+    const status = el('autoStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600');
+    if (tone === 'error') status.classList.add('text-red-600');
+    else if (tone === 'success') status.classList.add('text-green-600');
+    else status.classList.add('text-slate-500');
+  }
+
+  function setAutoSpinner(active, message){
+    const spinner = el('autoSpinner');
+    const text = el('autoSpinnerText');
+    if (!spinner) return;
+    spinner.classList.toggle('hidden', !active);
+    if (text && message) text.textContent = message;
+  }
+
+  function setSettingsLocked(locked){
+    const section = el('expertSettingsSection');
+    if (section) {
+      section.classList.toggle('opacity-60', locked);
+      section.classList.toggle('cursor-not-allowed', locked);
+      section.classList.toggle('pointer-events-none', locked);
+    }
+    const ids = ['teamSelect', 'parentId', 'publicAccess', 'lang'];
+    ids.forEach((id) => {
+      const field = el(id);
+      if (!field) return;
+      if (locked) {
+        field.setAttribute('disabled', 'disabled');
+        field.classList.add('prompt-locked', 'cursor-not-allowed');
+      } else {
+        field.removeAttribute('disabled');
+        field.classList.remove('prompt-locked', 'cursor-not-allowed');
+      }
+    });
+  }
+
+  function clearAutoOutput(){
+    const out = el('autoOut');
+    if (out) out.textContent = '';
+  }
+
+  function appendAutoLog(line, extra){
+    const out = el('autoOut');
+    if (!out) return;
+    const current = (out.textContent || '').trimEnd();
+    const lines = current ? [current] : [];
+    if (line) lines.push(line);
+    if (extra != null) {
+      if (typeof extra === 'string') lines.push(extra);
+      else lines.push(JSON.stringify(extra, null, 2));
+    }
+    out.textContent = lines.join('\n');
+    try { out.scrollTop = out.scrollHeight; } catch {}
+  }
+
+  function setAutoRunDisabled(disabled){
+    const btn = el('autoRunBtn');
+    if (!btn) return;
+    btn.disabled = !!disabled;
+    btn.classList.toggle('opacity-70', !!disabled);
+    btn.classList.toggle('cursor-not-allowed', !!disabled);
+  }
+
+  function buildKbPrompt(brand, instructions){
+    const name = (brand || '').trim();
+    const details = (instructions || '').trim();
+    const intro = name ? `Based on these detailed notes, can you create a KB structure for ${name}?` : 'Based on these detailed notes, can you create a KB structure?';
+    return `${intro} ${details}`.trim();
+  }
+
+  function buildGuidePrompt(brand, instructions, kbYaml){
+    const name = (brand || '').trim();
+    const details = (instructions || '').trim();
+    const kbBlock = (kbYaml || '').trim();
+    const focusLine = name
+      ? `Can you focus on the guide/article building piece for ${name}?`
+      : 'Can you focus on the guide/article building piece?';
+    return [
+      'Based on these detailed notes, and knowing the KB has already been built and looks like this:',
+      kbBlock,
+      '',
+      `${focusLine} ${details}`.trim(),
+    ].join('\n').trim();
+  }
+
+  function buildOrganiserInput(mappingPayload, guideSummary){
+    const mappingText = typeof mappingPayload === 'string'
+      ? mappingPayload.trim()
+      : JSON.stringify(mappingPayload, null, 2);
+    const guideText = (guideSummary || '').trim();
+    return `${mappingText}\n\n${guideText}`.trim();
   }
 
   async function onKbRun(){
@@ -412,6 +575,165 @@
     return docsYaml.join('\n---\n');
   }
 
+  async function onAutomatedRun(){
+    if (!(window.validateRequired && window.validateRequired(['teamSelect', 'parentId', 'autoBrand', 'autoPrompt']))) {
+      setAutoStatus('Please fill all required fields (*).', 'error');
+      return;
+    }
+    const brand = (el('autoBrand')?.value || '').trim();
+    const instructions = (el('autoPrompt')?.value || '').trim();
+    const c = collectCommon();
+    if (!c.teamId || !c.parentId) {
+      setAutoStatus('Missing team or parent folder settings.', 'error');
+      return;
+    }
+
+    clearAutoOutput();
+    setAutoStatus('Starting automation...', 'info');
+    appendAutoLog('Starting automation.');
+    setAutoRunDisabled(true);
+    setAutoSpinner(true, 'Generating KB YAML...');
+    setSettingsLocked(true);
+
+    try {
+      appendAutoLog('1/5 Generating KB YAML...');
+      const kbPrompt = buildKbPrompt(brand, instructions);
+      const kbResp = await apiFetch('/api/ai-kb/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: kbPrompt }),
+      });
+      const kbYamlRaw = normalizeAiYaml(kbResp?.yaml || '');
+      if (!kbYamlRaw) throw new Error('KB gem returned empty YAML.');
+      if (el('kbYaml')) {
+        el('kbYaml').value = kbYamlRaw;
+        try { el('kbYaml').dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+      }
+
+      let kbRoot;
+      try { kbRoot = parseKBYaml(kbYamlRaw); }
+      catch (e) { throw new Error(e?.message || 'Invalid KB YAML.'); }
+      appendAutoLog(`KB YAML generated (${kbRoot.length} top-level folders).`);
+
+      setAutoSpinner(true, 'Creating KB in Stonly...');
+      appendAutoLog('2/5 Creating KB in Stonly...');
+      const kbApplyBody = {
+        parentId: c.parentId,
+        creds: { user: c.user, teamId: c.teamId, base: c.base },
+        settings: { publicAccess: c.publicAccess, language: c.language },
+        dryRun: false,
+        root: kbRoot,
+      };
+      const kbApplyResp = await apiFetch('/api/apply', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(kbApplyBody),
+      });
+      const mapping = kbApplyResp?.mapping;
+      if (!mapping || typeof mapping !== 'object') {
+        throw new Error('KB creation response missing mapping.');
+      }
+      setOut('kbOut', kbApplyResp);
+      appendAutoLog(`KB created (${Object.keys(mapping).length} folders mapped).`);
+
+      setAutoSpinner(true, 'Generating Guides YAML...');
+      appendAutoLog('3/5 Generating Guides YAML...');
+      const guidePrompt = buildGuidePrompt(brand, instructions, kbYamlRaw);
+      const guideResp = await apiFetch('/api/ai-guides/build', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          prompt: guidePrompt,
+          teamId: c.teamId,
+          folderId: c.parentId,
+          publish: false,
+          previewOnly: true,
+          base: c.base,
+        }),
+      });
+      const guideYamlRaw = normalizeAiYaml(guideResp?.yaml || '');
+      if (!guideYamlRaw) throw new Error('Guide gem returned empty YAML.');
+      if (el('guideYaml')) {
+        el('guideYaml').value = guideYamlRaw;
+        try { el('guideYaml').dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+      }
+      const parsedGuides = parseGuideYamlWithFixes(guideYamlRaw);
+      const guideSummary = buildGuideSummaryYaml(parsedGuides.docs);
+      if (!guideSummary) throw new Error('Failed to build Guide YAML summary.');
+      appendAutoLog(`Guides YAML generated (${parsedGuides.docs.length} guides).`);
+
+      setAutoSpinner(true, 'Generating organiser mapping...');
+      appendAutoLog('4/5 Generating organiser mapping...');
+      const organiserInput = buildOrganiserInput({ ok: true, mapping }, guideSummary);
+      const organiserResp = await apiFetch('/api/ai-organiser/generate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ prompt: organiserInput }),
+      });
+      const organiserYamlRaw = normalizeAiYaml(organiserResp?.yaml || '');
+      if (!organiserYamlRaw) throw new Error('Organiser gem returned empty YAML.');
+      if (el('organiserYaml')) {
+        el('organiserYaml').value = organiserYamlRaw;
+        try { el('organiserYaml').dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+      }
+      appendAutoLog('Organiser mapping generated.');
+
+      setAutoSpinner(true, 'Building & publishing guides...');
+      appendAutoLog('5/5 Building & publishing guides...');
+      let finalYaml;
+      try {
+        finalYaml = applyOrganiserMapping(parsedGuides.yamlText, organiserYamlRaw);
+      } catch (e) {
+        throw new Error(e?.message || 'Failed to apply organiser mapping.');
+      }
+      const publish = el('guidePublish') ? !!el('guidePublish').checked : true;
+      const buildResp = await apiFetch('/api/guides/build', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          dryRun: false,
+          folderId: c.parentId,
+          yaml: finalYaml,
+          defaults: { language: c.language },
+          publish,
+          creds: { user: c.user, teamId: c.teamId, base: c.base },
+        }),
+      });
+      setOut('guideOut', buildResp);
+      const summary = buildResp?.summary;
+      const results = Array.isArray(buildResp?.results) ? buildResp.results : null;
+      let count = summary && typeof summary.count === 'number' ? summary.count : null;
+      let succeeded = summary && typeof summary.succeeded === 'number' ? summary.succeeded : null;
+      let failed = summary && typeof summary.failed === 'number' ? summary.failed : null;
+
+      if (count == null && results) count = results.length;
+      if (succeeded == null && results) succeeded = results.filter((r) => r && r.ok).length;
+      if (failed == null && results) failed = results.filter((r) => r && r.ok === false).length;
+
+      if (count == null && (buildResp?.guideId || buildResp?.firstStepId)) {
+        count = 1;
+        succeeded = 1;
+        failed = 0;
+      }
+
+      if (count != null && succeeded != null && failed != null) {
+        appendAutoLog(`Guides built: ${succeeded}/${count} (failed: ${failed}).`);
+      } else {
+        appendAutoLog('Guides build completed.');
+      }
+      setAutoStatus('Automation complete.', 'success');
+      setAutoSpinner(false);
+    } catch (e) {
+      const msg = e?.message || 'Automation failed.';
+      setAutoStatus(msg, 'error');
+      appendAutoLog(`Error: ${msg}`);
+    } finally {
+      setAutoRunDisabled(false);
+      setAutoSpinner(false);
+      setSettingsLocked(false);
+    }
+  }
+
   async function onGuideRun(){
     if (!(window.validateRequired && window.validateRequired(['teamSelect','parentId']))) {
       setOut('guideOut', 'Please fill all required fields (*).');
@@ -508,16 +830,27 @@
     el('kbDumpBtn')?.addEventListener('click', onKbDump);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
+    el('autoRunBtn')?.addEventListener('click', onAutomatedRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
+    el('expertModeManual')?.addEventListener('click', () => setExpertMode('manual'));
+    el('expertModeAuto')?.addEventListener('click', () => setExpertMode('automated'));
 
     // Copy buttons
     try {
       if (typeof window.attachCopyButton === 'function') {
         window.attachCopyButton({ buttonId: 'copyKbOut', sourceId: 'kbOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'copyGuideOut', sourceId: 'guideOut', disableWhenEmpty: true });
+        window.attachCopyButton({ buttonId: 'autoCopyOut', sourceId: 'autoOut', disableWhenEmpty: true });
       }
     } catch {}
+
+    try {
+      const storedMode = (localStorage.getItem(MODE_STORAGE_KEY) || 'manual').toLowerCase();
+      setExpertMode(storedMode === 'automated' ? 'automated' : 'manual');
+    } catch {
+      setExpertMode('manual');
+    }
 
     // Persist YAML editors between refreshes (localStorage, per-field keys)
     try {
@@ -532,6 +865,28 @@
         try {
           const stored = localStorage.getItem(key);
           if (typeof stored === 'string' && stored.length) {
+            field.value = stored;
+          }
+        } catch {}
+        field.addEventListener('input', () => {
+          try {
+            localStorage.setItem(key, field.value || '');
+          } catch {}
+        });
+      });
+    } catch {}
+
+    try {
+      const autoFields = [
+        { id: 'autoBrand', key: AUTO_BRAND_KEY },
+        { id: 'autoPrompt', key: AUTO_PROMPT_KEY },
+      ];
+      autoFields.forEach(({ id, key }) => {
+        const field = el(id);
+        if (!field) return;
+        try {
+          const stored = localStorage.getItem(key);
+          if (typeof stored === 'string' && stored.length && !field.value) {
             field.value = stored;
           }
         } catch {}
