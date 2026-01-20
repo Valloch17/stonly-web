@@ -1,6 +1,10 @@
 from __future__ import annotations
 from typing import List, Optional, Dict, Any, Tuple
 import re
+import json
+import base64
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass, field
 import os, time, html, ipaddress
 from datetime import datetime, timedelta, timezone
@@ -220,7 +224,7 @@ app.add_middleware(
 )
 
 from fastapi import Query
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 import os, itertools, collections
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
@@ -901,6 +905,57 @@ class AIPromptPayload(BaseModel):
         return text
 
 
+class BrandWebsitePayload(BaseModel):
+    brandName: str = ""
+
+    @field_validator("brandName")
+    @classmethod
+    def brand_name_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("brandName is required")
+        if len(text) > 200:
+            raise ValueError("brandName is too long (max 200 characters)")
+        return text
+
+
+class BrandColorsPayload(BaseModel):
+    brandName: str = ""
+    url: Optional[str] = None
+
+    @field_validator("brandName")
+    @classmethod
+    def brand_name_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("brandName is required")
+        if len(text) > 200:
+            raise ValueError("brandName is too long (max 200 characters)")
+        return text
+
+    @field_validator("url")
+    @classmethod
+    def url_normalize(cls, v: Optional[str]):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+
+class BrandAssetsPayload(BaseModel):
+    url: str = ""
+
+    @field_validator("url")
+    @classmethod
+    def url_required(cls, v: str):
+        text = (v or "").strip()
+        if not text:
+            raise ValueError("url is required")
+        if len(text) > 2000:
+            raise ValueError("url is too long (max 2000 characters)")
+        return text
+
+
 class LoginPayload(BaseModel):
     email: str
     password: str
@@ -1519,6 +1574,35 @@ guide:
   contentType: ARTICLE
 """
 
+WEBSITE_SYSTEM_PROMPT = """You are an assistant that resolves official brand websites.
+OUTPUT ONLY THE URL and nothing else. No punctuation, no extra text.
+If unsure, provide the most likely official homepage URL.
+"""
+
+COLORS_SYSTEM_PROMPT = """You are a brand designer for help centers.
+Return ONLY YAML (no Markdown fences, no commentary).
+Use exactly these keys with HEX color values (#RRGGBB):
+- headerBackground
+- iconColor
+- highlightColor
+Do not omit any key. Values must be 6-character hex colors prefixed with #.
+
+Example 1:
+headerBackground: "#0F172A"
+iconColor: "#2563EB"
+highlightColor: "#22C55E"
+
+Example 2:
+headerBackground: "#111827"
+iconColor: "#F97316"
+highlightColor: "#38BDF8"
+
+Example 3:
+headerBackground: "#1F2937"
+iconColor: "#A855F7"
+highlightColor: "#F59E0B"
+"""
+
 
 def _testing_snippet(text: Optional[str], limit: int = 140) -> str:
     cleaned = re.sub(r"\s+", " ", (text or ""))
@@ -1842,14 +1926,46 @@ def generate_gemini_text(
     temperature: float = 0.7,
     top_p: float = 0.9,
     max_output_tokens: int = 15000,
+    response_mime_type: Optional[str] = None,
 ) -> str:
     client, types = _load_gemini_client()
-    cfg = types.GenerateContentConfig(
-        temperature=temperature,
-        top_p=top_p,
-        max_output_tokens=max_output_tokens,
-        system_instruction=[types.Part.from_text(text=system_prompt)],
-    )
+    def _extract_text_from_response(resp: Any) -> str:
+        if resp is None:
+            return ""
+        try:
+            txt = getattr(resp, "text", None)
+            if txt:
+                return str(txt)
+        except Exception:
+            pass
+        try:
+            candidates = getattr(resp, "candidates", None) or []
+            for cand in candidates:
+                content = getattr(cand, "content", None)
+                parts = getattr(content, "parts", None) or []
+                buf: list[str] = []
+                for part in parts:
+                    part_text = getattr(part, "text", None)
+                    if part_text:
+                        buf.append(str(part_text))
+                if buf:
+                    return "".join(buf)
+        except Exception:
+            pass
+        return ""
+    cfg_kwargs: dict[str, Any] = {
+        "temperature": temperature,
+        "top_p": top_p,
+        "max_output_tokens": max_output_tokens,
+        "system_instruction": [types.Part.from_text(text=system_prompt)],
+    }
+    if response_mime_type:
+        cfg_kwargs["response_mime_type"] = response_mime_type
+    try:
+        cfg = types.GenerateContentConfig(**cfg_kwargs)
+    except TypeError:
+        cfg_kwargs.pop("response_mime_type", None)
+        cfg = types.GenerateContentConfig(**cfg_kwargs)
     try:
         parts: list[str] = []
         for chunk in client.models.generate_content_stream(
@@ -1860,6 +1976,18 @@ def generate_gemini_text(
             if getattr(chunk, "text", None):
                 parts.append(str(chunk.text))
         text = "".join(parts).strip()
+        if not text:
+            try:
+                resp = client.models.generate_content(
+                    model="gemini-2.5-pro",
+                    contents=contents,
+                    config=cfg,
+                )
+                text = _extract_text_from_response(resp).strip()
+                if text:
+                    logger.info("Gemini stream returned empty; used non-stream fallback.")
+            except Exception:
+                logger.exception("Gemini fallback call failed")
     except HTTPException:
         raise
     except Exception as e:
@@ -1868,6 +1996,7 @@ def generate_gemini_text(
 
     cleaned = strip_code_fences(text)
     if not cleaned:
+        logger.error("Gemini returned empty content (response_mime_type=%s)", response_mime_type)
         raise HTTPException(502, detail={"error": "Gemini returned empty content"})
     return cleaned
 
@@ -1923,6 +2052,493 @@ def generate_organiser_yaml_with_gemini(prompt: str) -> str:
         top_p=0.9,
         max_output_tokens=12000,
     )
+
+
+def _extract_first_url(text: str) -> Optional[str]:
+    if not text:
+        return None
+    match = re.search(r"https?://[^\s\"'<>]+", text.strip())
+    if match:
+        return match.group(0).rstrip(".,);")
+    match = re.search(r"www\.[^\s\"'<>]+", text.strip())
+    if match:
+        return "https://" + match.group(0).rstrip(".,);")
+    return None
+
+
+def _normalize_url(raw: str) -> Optional[str]:
+    if not raw:
+        return None
+    text = raw.strip()
+    text = text.strip().strip('"').strip("'")
+    if text.startswith("www."):
+        text = "https://" + text
+    if not re.match(r"^https?://", text, re.I):
+        text = "https://" + text
+    try:
+        parsed = urlparse(text)
+    except Exception:
+        return None
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    return text
+
+
+def _sanitize_inline_svg(svg_text: str) -> str:
+    if not svg_text:
+        return svg_text
+    # Vue scoped attributes like data-v-xxxx are boolean in HTML; SVG XML requires values.
+    svg_text = re.sub(r'(\s)(data-[A-Za-z0-9_-]+)(?=[\s>])', r'\1\2=""', svg_text)
+    # Replace CSS-driven fills with a concrete color so standalone SVGs render.
+    svg_text = re.sub(r'fill="currentColor"', 'fill="#000000"', svg_text, flags=re.I)
+    svg_text = re.sub(r'stroke="currentColor"', 'stroke="#000000"', svg_text, flags=re.I)
+    return svg_text
+
+
+def _parse_numeric_size(value: Optional[str]) -> Optional[float]:
+    if not value:
+        return None
+    match = re.search(r"([0-9]+(?:\.[0-9]+)?)", value)
+    if not match:
+        return None
+    try:
+        return float(match.group(1))
+    except Exception:
+        return None
+
+
+def _parse_sizes_attr(value: Optional[str]) -> Optional[Tuple[float, float]]:
+    if not value:
+        return None
+    match = re.search(r"([0-9]+)\s*x\s*([0-9]+)", value)
+    if not match:
+        return None
+    try:
+        return float(match.group(1)), float(match.group(2))
+    except Exception:
+        return None
+
+
+def _parse_viewbox_size(value: Optional[str]) -> Optional[Tuple[float, float]]:
+    if not value:
+        return None
+    match = re.findall(r"-?\d+(?:\.\d+)?", value)
+    if len(match) < 4:
+        return None
+    try:
+        return float(match[2]), float(match[3])
+    except Exception:
+        return None
+
+
+class _LogoHTMLParser(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.candidates: list[dict[str, Any]] = []
+        self.base_href: Optional[str] = None
+        self._stack: list[tuple[str, dict[str, str]]] = []
+        self._in_svg = False
+        self._svg_depth = 0
+        self._svg_chunks: list[str] = []
+        self._svg_attrs: dict[str, str] = {}
+        self._svg_context: list[tuple[str, dict[str, str]]] = []
+        self.stylesheets: list[str] = []
+        self.inline_styles: list[str] = []
+        self.style_blocks: list[str] = []
+        self._in_style = False
+        self._style_chunks: list[str] = []
+
+    def _stack_hint(self) -> str:
+        parts: list[str] = []
+        for _, attrs in self._stack:
+            for key in ("class", "id", "aria-label", "title"):
+                val = attrs.get(key)
+                if val:
+                    parts.append(val)
+        return " ".join(parts).lower()
+
+    def handle_starttag(self, tag, attrs):
+        attrs_map = {k.lower(): (v or "") for k, v in attrs}
+        self._stack.append((tag, attrs_map))
+        inline_style = attrs_map.get("style")
+        if inline_style:
+            self.inline_styles.append(inline_style)
+        if tag == "base" and "href" in attrs_map:
+            self.base_href = attrs_map.get("href") or self.base_href
+            return
+        if tag == "style":
+            self._in_style = True
+            self._style_chunks = []
+            return
+        if self._in_svg:
+            text = self.get_starttag_text() or ""
+            if text:
+                self._svg_chunks.append(text)
+        if tag == "svg":
+            if not self._in_svg:
+                self._svg_chunks = []
+                self._svg_attrs = attrs_map
+                self._svg_context = list(self._stack[:-1])
+            self._in_svg = True
+            self._svg_depth += 1
+            text = self.get_starttag_text() or ""
+            if text:
+                self._svg_chunks.append(text)
+            return
+        if tag == "meta":
+            prop = (attrs_map.get("property") or attrs_map.get("name") or attrs_map.get("itemprop") or "").lower()
+            if prop in {"og:image", "twitter:image", "image"}:
+                content = attrs_map.get("content")
+                if content:
+                    self.candidates.append({"url": content, "score": 90, "reason": prop})
+            return
+        if tag == "link":
+            rel = (attrs_map.get("rel") or "").lower()
+            href = attrs_map.get("href")
+            if not href:
+                return
+            if "stylesheet" in rel:
+                self.stylesheets.append(href)
+            score = 0
+            if "apple-touch-icon" in rel:
+                score = 80
+            elif "icon" in rel:
+                score = 60
+            elif "mask-icon" in rel:
+                score = 50
+            if score:
+                sizes = (attrs_map.get("sizes") or "").lower()
+                if sizes:
+                    score += 5
+                size_tuple = _parse_sizes_attr(sizes)
+                width, height = (size_tuple if size_tuple else (None, None))
+                self.candidates.append({
+                    "url": href,
+                    "score": score,
+                    "reason": rel,
+                    "width": width,
+                    "height": height,
+                })
+            return
+        if tag == "img":
+            src = attrs_map.get("src")
+            if not src:
+                return
+            hint = " ".join([
+                attrs_map.get("alt", ""),
+                attrs_map.get("class", ""),
+                attrs_map.get("id", ""),
+            ]).lower()
+            context_hint = self._stack_hint()
+            score = 0
+            if "logo" in hint:
+                score = 90
+            elif "brand" in hint:
+                score = 80
+            elif "logo" in context_hint:
+                score = 75
+            elif "brand" in context_hint:
+                score = 65
+            if score:
+                width = _parse_numeric_size(attrs_map.get("width"))
+                height = _parse_numeric_size(attrs_map.get("height"))
+                self.candidates.append({
+                    "url": src,
+                    "score": score,
+                    "reason": "img",
+                    "width": width,
+                    "height": height,
+                })
+
+    def handle_data(self, data):
+        if self._in_style and data:
+            self._style_chunks.append(data)
+        if self._in_svg and data:
+            self._svg_chunks.append(data)
+
+    def handle_endtag(self, tag):
+        if self._in_style and tag == "style":
+            block = "".join(self._style_chunks).strip()
+            if block:
+                self.style_blocks.append(block)
+            self._style_chunks = []
+            self._in_style = False
+        if self._in_svg:
+            self._svg_chunks.append(f"</{tag}>")
+            if tag == "svg":
+                self._svg_depth -= 1
+                if self._svg_depth <= 0:
+                    svg_text = "".join(self._svg_chunks).strip()
+                    hint = " ".join([
+                        self._stack_hint(),
+                        " ".join([
+                            self._svg_attrs.get("class", ""),
+                            self._svg_attrs.get("id", ""),
+                            self._svg_attrs.get("aria-label", ""),
+                            self._svg_attrs.get("title", ""),
+                        ]).lower(),
+                    ])
+                    score = 55
+                    if "logo" in hint:
+                        score = 95
+                    elif "brand" in hint:
+                        score = 85
+                    if svg_text and len(svg_text) < 200000:
+                        try:
+                            svg_clean = _sanitize_inline_svg(svg_text)
+                            svg_bytes = svg_clean.encode("utf-8")
+                            data_url = "data:image/svg+xml;base64," + base64.b64encode(svg_bytes).decode("ascii")
+                            width = _parse_numeric_size(self._svg_attrs.get("width"))
+                            height = _parse_numeric_size(self._svg_attrs.get("height"))
+                            if width is None or height is None:
+                                vb = _parse_viewbox_size(self._svg_attrs.get("viewbox"))
+                                if vb:
+                                    width, height = vb
+                            self.candidates.append({
+                                "url": data_url,
+                                "score": score,
+                                "reason": "inline-svg",
+                                "width": width,
+                                "height": height,
+                            })
+                        except Exception:
+                            pass
+                    self._in_svg = False
+                    self._svg_chunks = []
+                    self._svg_attrs = {}
+                    self._svg_context = []
+        for i in range(len(self._stack) - 1, -1, -1):
+            if self._stack[i][0] == tag:
+                del self._stack[i:]
+                break
+
+    def handle_startendtag(self, tag, attrs):
+        self.handle_starttag(tag, attrs)
+        self.handle_endtag(tag)
+
+
+def _pick_top_logos(candidates: list[dict[str, Any]], base_url: str) -> list[str]:
+    seen = set()
+    scored: list[tuple[int, str]] = []
+    for item in candidates:
+        raw_url = str(item.get("url") or "").strip()
+        if not raw_url:
+            continue
+        width = item.get("width")
+        height = item.get("height")
+        if isinstance(width, (int, float)) and isinstance(height, (int, float)):
+            if max(width, height) <= 32:
+                continue
+        abs_url = raw_url if raw_url.startswith("data:") else urljoin(base_url, raw_url)
+        if abs_url in seen:
+            continue
+        seen.add(abs_url)
+        score = int(item.get("score") or 0)
+        scored.append((score, abs_url))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [u for _, u in scored[:3]]
+
+
+def _normalize_hex_color(value: str) -> Optional[str]:
+    if not value:
+        return None
+    color = value.strip().lower()
+    if not color.startswith("#"):
+        return None
+    if len(color) == 4:
+        color = "#" + "".join([c * 2 for c in color[1:]])
+    if len(color) != 7:
+        return None
+    if not re.match(r"^#[0-9a-f]{6}$", color):
+        return None
+    return color.upper()
+
+
+def _rgb_to_hex(r: float, g: float, b: float) -> str:
+    return "#{:02X}{:02X}{:02X}".format(
+        max(0, min(255, round(r))),
+        max(0, min(255, round(g))),
+        max(0, min(255, round(b))),
+    )
+
+
+def _parse_rgb_values(match_text: str) -> Optional[str]:
+    parts = [p.strip() for p in match_text.split(",")]
+    if len(parts) < 3:
+        return None
+    vals = []
+    for part in parts[:3]:
+        if part.endswith("%"):
+            try:
+                pct = float(part.rstrip("%"))
+                vals.append(pct / 100 * 255)
+            except Exception:
+                return None
+        else:
+            try:
+                vals.append(float(part))
+            except Exception:
+                return None
+    if len(parts) >= 4:
+        try:
+            alpha = float(parts[3])
+            if alpha <= 0.05:
+                return None
+        except Exception:
+            pass
+    return _rgb_to_hex(vals[0], vals[1], vals[2])
+
+
+def _extract_colors_from_css(text: str) -> list[str]:
+    colors: list[str] = []
+    if not text:
+        return colors
+    for match in re.findall(r"#[0-9a-fA-F]{3,6}", text):
+        normalized = _normalize_hex_color(match)
+        if normalized:
+            colors.append(normalized)
+    for match in re.findall(r"rgba?\(([^)]+)\)", text, re.I):
+        hex_color = _parse_rgb_values(match)
+        if hex_color:
+            colors.append(hex_color)
+    return colors
+
+
+def _hex_to_rgb(color: str) -> Tuple[int, int, int]:
+    h = color.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _color_distance(a: str, b: str) -> float:
+    r1, g1, b1 = _hex_to_rgb(a)
+    r2, g2, b2 = _hex_to_rgb(b)
+    return ((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2) ** 0.5
+
+
+def _is_near_white(color: str) -> bool:
+    r, g, b = _hex_to_rgb(color)
+    return r >= 245 and g >= 245 and b >= 245
+
+
+def _is_near_black(color: str) -> bool:
+    r, g, b = _hex_to_rgb(color)
+    return r <= 12 and g <= 12 and b <= 12
+
+
+def _pick_distinct_colors(counts: "collections.Counter[str]", limit: int = 3) -> list[str]:
+    if not counts:
+        return []
+    ordered = [c for c, _ in counts.most_common()]
+    selected: list[str] = []
+    for color in ordered:
+        if _is_near_white(color) or _is_near_black(color):
+            continue
+        if all(_color_distance(color, s) >= 80 for s in selected):
+            selected.append(color)
+        if len(selected) >= limit:
+            return selected
+    for color in ordered:
+        if color in selected:
+            continue
+        if all(_color_distance(color, s) >= 40 for s in selected):
+            selected.append(color)
+        if len(selected) >= limit:
+            break
+    return selected[:limit]
+
+
+def generate_brand_website_with_gemini(brand_name: str) -> str:
+    prompt = f"Can you give me the main website for {brand_name}? Only output the URL and nothing else."
+    return generate_gemini_text(
+        [prompt],
+        system_prompt=WEBSITE_SYSTEM_PROMPT,
+        temperature=0.1,
+        top_p=0.9,
+        max_output_tokens=400,
+    )
+
+
+def _extract_colors_from_text(raw: str) -> dict:
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("Empty color response")
+    patterns = {
+        "headerBackground": r"(header[^#\n]*|header\s*background[^#\n]*)(#[0-9a-fA-F]{6})",
+        "iconColor": r"(icon[^#\n]*)(#[0-9a-fA-F]{6})",
+        "highlightColor": r"(highlight[^#\n]*)(#[0-9a-fA-F]{6})",
+    }
+    found: dict[str, str] = {}
+    for key, pattern in patterns.items():
+        match = re.search(pattern, text, re.I)
+        if match:
+            found[key] = match.group(2).upper()
+    if len(found) == 3:
+        return found
+
+    candidates = re.findall(r"#[0-9a-fA-F]{6}", text)
+    uniq = []
+    for code in candidates:
+        up = code.upper()
+        if up not in uniq:
+            uniq.append(up)
+    if len(uniq) >= 3:
+        return {
+            "headerBackground": found.get("headerBackground", uniq[0]),
+            "iconColor": found.get("iconColor", uniq[1]),
+            "highlightColor": found.get("highlightColor", uniq[2]),
+        }
+    raise ValueError("Invalid color JSON")
+
+
+def _parse_colors_payload(text: str) -> dict:
+    raw = (text or "").strip()
+    if not raw:
+        raise ValueError("Empty color response")
+    data = None
+    try:
+        data = yaml.safe_load(raw)
+    except Exception:
+        data = None
+    if isinstance(data, dict):
+        normalized = {str(k).strip(): v for k, v in data.items()}
+        required = ["headerBackground", "iconColor", "highlightColor"]
+        out: dict[str, str] = {}
+        for key in required:
+            if key not in normalized:
+                break
+            value = str(normalized[key]).strip()
+            if not re.match(r"^#[0-9a-fA-F]{6}$", value):
+                break
+            out[key] = value.upper()
+        if len(out) == 3:
+            return out
+
+    return _extract_colors_from_text(raw)
+
+
+def generate_brand_colors_with_gemini(brand_name: str, url: Optional[str] = None) -> dict:
+    base_prompt = (
+        "Provide me with 3 colors that would work well for a "
+        f"{brand_name} help center, knowing these are the 3 colors I am looking for:\n"
+        "- header background color, which will be the background color of the upper part of the page on the KB, including around the search bar\n"
+        "- default icons color, which will be the color of the icons for the folders and categories of the KB\n"
+        "- highlight color, which will be the color border of a category when we highlight it, color of the guides inside the folders, and color of the search button."
+    )
+    if url:
+        base_prompt = base_prompt + f"\n\nFYI the brand website is: {url}"
+    raw = generate_gemini_text(
+        [base_prompt],
+        system_prompt=COLORS_SYSTEM_PROMPT,
+        temperature=0.7,
+        top_p=0.9,
+        max_output_tokens=1200,
+    )
+    logger.info("Gemini color response (raw): %s", raw)
+    try:
+        return _parse_colors_payload(raw)
+    except Exception as e:
+        logger.exception("Color parse failed: %s", raw)
+        raise e
 
 
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
@@ -2905,6 +3521,123 @@ def api_ai_organiser_generate(payload: AIPromptPayload, request: Request):
     raw_yaml = generate_organiser_yaml_with_gemini(payload.prompt or "")
     yaml_text = normalize_ai_yaml(raw_yaml)
     return {"ok": True, "yaml": yaml_text}
+
+
+@app.post(
+    "/api/ai-brand-website",
+    tags=["Builder"],
+    summary="Resolve brand website via Gemini",
+)
+def api_ai_brand_website(payload: BrandWebsitePayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/ai-brand-website", request_id)
+    raw = generate_brand_website_with_gemini(payload.brandName)
+    url = _extract_first_url(raw) or raw
+    normalized = _normalize_url(url)
+    if not normalized:
+        raise HTTPException(502, detail={"error": "Invalid URL from Gemini", "raw": raw})
+    return {"ok": True, "url": normalized}
+
+
+@app.post(
+    "/api/ai-brand-colors",
+    tags=["Builder"],
+    summary="Generate brand colors via Gemini",
+)
+def api_ai_brand_colors(payload: BrandColorsPayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/ai-brand-colors", request_id)
+    try:
+        colors = generate_brand_colors_with_gemini(payload.brandName, payload.url)
+    except Exception as e:
+        raise HTTPException(502, detail={"error": "Failed to parse colors", "message": str(e)})
+    return {"ok": True, "colors": colors}
+
+
+@app.post(
+    "/api/brand-assets/scrape",
+    tags=["Builder"],
+    summary="Scrape logo candidates from a brand website",
+)
+def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    url = _normalize_url(payload.url)
+    if not url:
+        raise HTTPException(400, detail="Invalid URL")
+    headers = {"User-Agent": "Mozilla/5.0 (StonlyBrandFetcher/1.0)"}
+    try:
+        resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+    except Exception as e:
+        raise HTTPException(502, detail={"error": "Failed to fetch URL", "message": str(e)})
+    if not resp.ok:
+        raise HTTPException(502, detail={"error": "Upstream returned error", "status": resp.status_code})
+    content_type = (resp.headers.get("content-type") or "").lower()
+    if "text/html" not in content_type:
+        raise HTTPException(502, detail={"error": "URL did not return HTML"})
+
+    base_url = resp.url or url
+    parser = _LogoHTMLParser()
+    try:
+        parser.feed(resp.text)
+    except Exception:
+        pass
+    if parser.base_href:
+        base_url = urljoin(base_url, parser.base_href)
+
+    logos = _pick_top_logos(parser.candidates, base_url)
+    colors: list[str] = []
+    css_sources: list[str] = []
+    css_sources.extend(parser.style_blocks)
+    css_sources.extend(parser.inline_styles)
+    for href in parser.stylesheets[:4]:
+        css_url = urljoin(base_url, href)
+        try:
+            css_resp = requests.get(css_url, headers=headers, timeout=8)
+            if css_resp.ok:
+                css_sources.append(css_resp.text)
+        except Exception:
+            continue
+    for src in css_sources:
+        colors.extend(_extract_colors_from_css(src))
+    counts = collections.Counter(colors)
+    site_colors = _pick_distinct_colors(counts, limit=3)
+    if not logos:
+        fallback = [
+            urljoin(base_url, "/apple-touch-icon.png"),
+            urljoin(base_url, "/favicon.ico"),
+        ]
+        logos = [u for u in fallback if u][:3]
+
+    return {"ok": True, "url": base_url, "logos": logos, "siteColors": site_colors}
+
+
+@app.get(
+    "/api/brand-assets/download",
+    tags=["Builder"],
+    summary="Proxy logo download",
+)
+def api_brand_assets_download(url: str, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+    normalized = _normalize_url(url)
+    if not normalized:
+        raise HTTPException(400, detail="Invalid URL")
+    headers = {"User-Agent": "Mozilla/5.0 (StonlyBrandFetcher/1.0)"}
+    try:
+        resp = requests.get(normalized, headers=headers, timeout=10, stream=True)
+    except Exception as e:
+        raise HTTPException(502, detail={"error": "Failed to fetch asset", "message": str(e)})
+    if not resp.ok:
+        raise HTTPException(502, detail={"error": "Asset fetch failed", "status": resp.status_code})
+    content_type = resp.headers.get("content-type") or "application/octet-stream"
+    filename = os.path.basename(urlparse(normalized).path) or "logo"
+    headers_out = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    return StreamingResponse(resp.iter_content(chunk_size=8192), media_type=content_type, headers=headers_out)
 
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
 def api_dump(

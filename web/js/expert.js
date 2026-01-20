@@ -244,10 +244,12 @@
     const autoBtn = el('expertModeAuto');
     const manualSection = el('expertManualSections');
     const autoSection = el('expertAutomatedSection');
+    const brandSection = el('brandAssetsSection');
     const useAuto = mode === 'automated';
 
     if (manualSection) manualSection.classList.toggle('hidden', useAuto);
     if (autoSection) autoSection.classList.toggle('hidden', !useAuto);
+    if (brandSection) brandSection.classList.toggle('hidden', !useAuto);
 
     if (manualBtn) {
       manualBtn.classList.toggle('is-active', !useAuto);
@@ -277,6 +279,367 @@
     if (!spinner) return;
     spinner.classList.toggle('hidden', !active);
     if (text && message) text.textContent = message;
+  }
+
+  function setBrandAssetsSpinner(active, message){
+    const spinner = el('brandAssetsSpinner');
+    const text = el('brandAssetsSpinnerText');
+    if (!spinner) return;
+    spinner.classList.toggle('hidden', !active);
+    if (text && message) text.textContent = message;
+  }
+
+  function setBrandAssetsStatus(message, tone){
+    const status = el('brandAssetsStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600');
+    if (tone === 'error') status.classList.add('text-red-600');
+    else if (tone === 'success') status.classList.add('text-green-600');
+    else status.classList.add('text-slate-500');
+  }
+
+  function setBrandAssetsButtonDisabled(disabled){
+    const btn = el('brandAssetsBtn');
+    if (!btn) return;
+    btn.disabled = !!disabled;
+    btn.classList.toggle('opacity-70', !!disabled);
+    btn.classList.toggle('cursor-not-allowed', !!disabled);
+  }
+
+  function isSvgUrl(url){
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return lower.startsWith('data:image/svg+xml') || lower.includes('.svg');
+  }
+
+  function svgTextToDataUrl(svgText){
+    try {
+      const encoded = btoa(unescape(encodeURIComponent(svgText)));
+      return `data:image/svg+xml;base64,${encoded}`;
+    } catch {
+      return `data:image/svg+xml,${encodeURIComponent(svgText)}`;
+    }
+  }
+
+  function decodeDataUrl(dataUrl){
+    const parts = dataUrl.split(',');
+    if (parts.length < 2) return null;
+    const meta = parts[0];
+    const data = parts.slice(1).join(',');
+    const isBase64 = meta.includes(';base64');
+    const mime = (meta.split(':')[1] || '').split(';')[0] || 'application/octet-stream';
+    return { data, isBase64, mime };
+  }
+
+  async function fetchSvgText(url){
+    if (!url) return null;
+    if (url.startsWith('data:')) {
+      const decoded = decodeDataUrl(url);
+      if (!decoded || !decoded.mime.includes('svg')) return null;
+      if (decoded.isBase64) {
+        try {
+          return atob(decoded.data);
+        } catch {
+          return null;
+        }
+      }
+      try {
+        return decodeURIComponent(decoded.data);
+      } catch {
+        return null;
+      }
+    }
+    const base = getBASE();
+    const href = `${base}/api/brand-assets/download?url=${encodeURIComponent(url)}`;
+    try {
+      const res = await fetch(href, { credentials: 'include' });
+      if (!res.ok) return null;
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
+      const text = await res.text();
+      if (ct.includes('image/svg+xml') || text.trim().startsWith('<svg')) {
+        return text;
+      }
+    } catch {}
+    return null;
+  }
+
+  function invertSvgColors(svgText){
+    if (!svgText) return null;
+    const placeholders = {
+      white: '__STONLY_WHITE__',
+      black: '__STONLY_BLACK__',
+    };
+    let text = svgText;
+    text = text.replace(/#ffffff/gi, placeholders.white);
+    text = text.replace(/#fff\b/gi, placeholders.white);
+    text = text.replace(/rgb\s*\(\s*255\s*,\s*255\s*,\s*255\s*\)/gi, placeholders.white);
+    text = text.replace(/\bwhite\b/gi, placeholders.white);
+
+    text = text.replace(/#000000/gi, placeholders.black);
+    text = text.replace(/#000\b/gi, placeholders.black);
+    text = text.replace(/rgb\s*\(\s*0\s*,\s*0\s*,\s*0\s*\)/gi, placeholders.black);
+    text = text.replace(/\bblack\b/gi, placeholders.black);
+    text = text.replace(/currentcolor/gi, placeholders.black);
+
+    text = text.replace(new RegExp(placeholders.white, 'g'), '#000000');
+    text = text.replace(new RegExp(placeholders.black, 'g'), '#FFFFFF');
+    return text;
+  }
+
+  function downloadSvgText(svgText, filename){
+    if (!svgText) return;
+    const blob = new Blob([svgText], { type: 'image/svg+xml' });
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = filename || 'logo-inverted.svg';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(objectUrl);
+  }
+
+  async function downloadLogoAsset(url){
+    if (!url) return;
+    const base = getBASE();
+    try {
+      if (url.startsWith('data:')) {
+        const parts = url.split(',');
+        if (parts.length < 2) throw new Error('Invalid data URL');
+        const meta = parts[0];
+        const data = parts.slice(1).join(',');
+        const isBase64 = meta.includes(';base64');
+        const mime = (meta.split(':')[1] || '').split(';')[0] || 'image/svg+xml';
+        let bytes;
+        if (isBase64) {
+          const bin = atob(data);
+          bytes = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i += 1) {
+            bytes[i] = bin.charCodeAt(i);
+          }
+        } else {
+          const decoded = decodeURIComponent(data);
+          bytes = new TextEncoder().encode(decoded);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        const objectUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = objectUrl;
+        a.download = mime.includes('svg') ? 'logo.svg' : 'logo';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objectUrl);
+        return;
+      }
+      const href = `${base}/api/brand-assets/download?url=${encodeURIComponent(url)}`;
+      const res = await fetch(href, { credentials: 'include' });
+      if (!res.ok) {
+        throw new Error(`Download failed (${res.status})`);
+      }
+      const blob = await res.blob();
+      const disposition = res.headers.get('content-disposition') || '';
+      const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
+      let filename = match && match[1] ? match[1] : '';
+      if (!filename) {
+        try {
+          const parsed = new URL(url);
+          filename = parsed.pathname.split('/').pop() || 'logo';
+        } catch {
+          filename = 'logo';
+        }
+      }
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+    } catch (e) {
+      setBrandAssetsStatus(e?.message || 'Logo download failed.', 'error');
+    }
+  }
+
+  function setBrandWebsiteText(url){
+    const target = el('brandWebsite');
+    if (!target) return;
+    if (!url) {
+      target.textContent = '';
+      return;
+    }
+    target.innerHTML = '';
+    const label = document.createElement('span');
+    label.textContent = 'Using website: ';
+    const link = document.createElement('a');
+    link.href = url;
+    link.textContent = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.className = 'underline';
+    target.appendChild(label);
+    target.appendChild(link);
+  }
+
+  function renderLogoCards(urls){
+    const container = el('brandLogos');
+    if (!container) return;
+    container.innerHTML = '';
+    if (!urls || !urls.length) {
+      const msg = document.createElement('p');
+      msg.className = 'text-sm text-slate-500';
+      msg.textContent = 'No logos found.';
+      container.appendChild(msg);
+      return;
+    }
+    urls.forEach((url) => {
+      let currentUrl = url;
+      const card = document.createElement('div');
+      card.className = 'border rounded-lg p-3 bg-card space-y-2';
+      const wrap = document.createElement('div');
+      wrap.className = 'space-y-2';
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'h-24 flex items-center justify-center bg-slate-100/80 rounded overflow-hidden';
+      const link = document.createElement('a');
+      link.href = `/api/brand-assets/download?url=${encodeURIComponent(currentUrl)}`;
+      link.dataset.logoUrl = currentUrl;
+      link.setAttribute('rel', 'noopener noreferrer');
+      link.title = 'Download logo';
+      link.className = 'flex items-center justify-center w-full h-full';
+      link.addEventListener('click', (event) => {
+        event.preventDefault();
+        const targetUrl = link.dataset.logoUrl || currentUrl;
+        downloadLogoAsset(targetUrl);
+      });
+      const img = document.createElement('img');
+      img.src = currentUrl;
+      img.alt = 'Logo candidate';
+      img.className = 'max-h-full max-w-full object-contain';
+      img.loading = 'lazy';
+      link.appendChild(img);
+      imgWrap.appendChild(link);
+      card.appendChild(imgWrap);
+      wrap.appendChild(card);
+      if (isSvgUrl(url)) {
+        const actions = document.createElement('div');
+        actions.className = 'flex items-center justify-center';
+        const invertBtn = document.createElement('button');
+        invertBtn.type = 'button';
+        invertBtn.className = 'text-xs px-3 py-1 rounded-md border bg-card hover:bg-slate-50 transition';
+        invertBtn.textContent = 'Invert colors';
+        let originalSvgText = null;
+        let invertedUrl = null;
+        let inverted = false;
+        invertBtn.addEventListener('click', async (event) => {
+          event.preventDefault();
+          invertBtn.disabled = true;
+          invertBtn.classList.add('opacity-70', 'cursor-not-allowed');
+          try {
+            if (!originalSvgText) {
+              originalSvgText = await fetchSvgText(currentUrl);
+            }
+            if (!originalSvgText) {
+              setBrandAssetsStatus('Unable to load SVG for inversion.', 'error');
+              return;
+            }
+            if (!invertedUrl) {
+              const invertedText = invertSvgColors(originalSvgText);
+              if (!invertedText) {
+                setBrandAssetsStatus('Unable to invert SVG colors.', 'error');
+                return;
+              }
+              invertedUrl = svgTextToDataUrl(invertedText);
+            }
+            if (!invertedUrl) {
+              setBrandAssetsStatus('Unable to invert SVG colors.', 'error');
+              return;
+            }
+            inverted = !inverted;
+            const nextUrl = inverted ? invertedUrl : url;
+            currentUrl = nextUrl;
+            img.src = nextUrl;
+            link.dataset.logoUrl = nextUrl;
+            invertBtn.textContent = inverted ? 'Show original' : 'Invert colors';
+          } finally {
+            invertBtn.disabled = false;
+            invertBtn.classList.remove('opacity-70', 'cursor-not-allowed');
+          }
+        });
+        actions.appendChild(invertBtn);
+        wrap.appendChild(actions);
+      }
+      container.appendChild(wrap);
+    });
+  }
+
+  function renderColorCards(colors, opts = {}){
+    const containerId = opts.containerId || 'brandColorsAi';
+    const emptyMessage = opts.emptyMessage || 'No colors generated.';
+    const container = el(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    if (!colors) {
+      const msg = document.createElement('p');
+      msg.className = 'text-sm text-slate-500';
+      msg.textContent = emptyMessage;
+      container.appendChild(msg);
+      return;
+    }
+    let entries = [];
+    if (Array.isArray(colors)) {
+      entries = colors.map((value, idx) => ({
+        label: `Color ${idx + 1}`,
+        value,
+      }));
+    } else if (colors && typeof colors === 'object') {
+      entries = [
+        { key: 'highlightColor', label: 'Highlight color', value: colors.highlightColor },
+        { key: 'iconColor', label: 'Icon color', value: colors.iconColor },
+        { key: 'headerBackground', label: 'Header background', value: colors.headerBackground },
+      ].filter((entry) => entry.value);
+    }
+    if (!entries.length) {
+      const msg = document.createElement('p');
+      msg.className = 'text-sm text-slate-500';
+      msg.textContent = emptyMessage;
+      container.appendChild(msg);
+      return;
+    }
+    entries.forEach(({ label, value }) => {
+      const card = document.createElement('div');
+      card.className = 'border rounded-lg p-3 bg-card space-y-2 cursor-pointer';
+      card.title = 'Click to copy hex';
+      const swatch = document.createElement('div');
+      swatch.className = 'h-10 rounded';
+      swatch.style.background = value;
+      const meta = document.createElement('div');
+      meta.className = 'text-xs text-slate-500';
+      meta.textContent = `${label} · ${value}`;
+      card.addEventListener('click', async () => {
+        const stripped = String(value).replace('#', '');
+        let copied = false;
+        try {
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(stripped);
+            copied = true;
+          }
+        } catch {}
+        if (copied) {
+          const original = meta.textContent;
+          meta.textContent = `${label} · ${value} (copied)`;
+          card.classList.add('ring-2', 'ring-green-400');
+          setTimeout(() => {
+            meta.textContent = original || `${label} · ${value}`;
+            card.classList.remove('ring-2', 'ring-green-400');
+          }, 1200);
+        }
+      });
+      card.appendChild(swatch);
+      card.appendChild(meta);
+      container.appendChild(card);
+    });
   }
 
   function setSettingsLocked(locked){
@@ -734,6 +1097,61 @@
     }
   }
 
+  async function onBrandAssetsRun(){
+    const brandName = (el('autoBrand')?.value || '').trim();
+    if (!brandName) {
+      setBrandAssetsStatus('Please enter a brand name first.', 'error');
+      return;
+    }
+    setBrandAssetsStatus('Starting...', 'info');
+    setBrandAssetsSpinner(true, 'Resolving website...');
+    setBrandAssetsButtonDisabled(true);
+    renderLogoCards([]);
+    renderColorCards(null, { containerId: 'brandColorsAi', emptyMessage: 'No AI colors generated.' });
+    renderColorCards(null, { containerId: 'brandColorsSite', emptyMessage: 'No website colors found.' });
+    setBrandWebsiteText('');
+
+    try {
+      let url = (el('brandUrl')?.value || '').trim();
+      if (!url) {
+        const websiteResp = await apiFetch('/api/ai-brand-website', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ brandName }),
+        });
+        url = (websiteResp?.url || '').trim();
+        if (!url) throw new Error('Could not infer website URL.');
+        if (el('brandUrl')) el('brandUrl').value = url;
+      }
+      setBrandWebsiteText(url);
+
+      setBrandAssetsSpinner(true, 'Finding logo candidates...');
+      const logoResp = await apiFetch('/api/brand-assets/scrape', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const logos = Array.isArray(logoResp?.logos) ? logoResp.logos.slice(0, 3) : [];
+      renderLogoCards(logos);
+      renderColorCards(logoResp?.siteColors, { containerId: 'brandColorsSite', emptyMessage: 'No website colors found.' });
+
+      setBrandAssetsSpinner(true, 'Generating colors...');
+      const colorsResp = await apiFetch('/api/ai-brand-colors', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ brandName, url }),
+      });
+      renderColorCards(colorsResp?.colors || null, { containerId: 'brandColorsAi', emptyMessage: 'No AI colors generated.' });
+      setBrandAssetsStatus('Brand assets ready.', 'success');
+    } catch (e) {
+      const msg = e?.message || 'Failed to load brand assets.';
+      setBrandAssetsStatus(msg, 'error');
+    } finally {
+      setBrandAssetsSpinner(false);
+      setBrandAssetsButtonDisabled(false);
+    }
+  }
+
   async function onGuideRun(){
     if (!(window.validateRequired && window.validateRequired(['teamSelect','parentId']))) {
       setOut('guideOut', 'Please fill all required fields (*).');
@@ -831,6 +1249,7 @@
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
     el('autoRunBtn')?.addEventListener('click', onAutomatedRun);
+    el('brandAssetsBtn')?.addEventListener('click', onBrandAssetsRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
     el('expertModeManual')?.addEventListener('click', () => setExpertMode('manual'));

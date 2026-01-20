@@ -226,6 +226,43 @@
       </div>
     </section>
 
+    <section id="brandAssetsSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-4 hidden">
+      <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Brand assets</h2>
+          <p class="text-sm text-slate-500">Find logo candidates and a starter color palette.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div id="brandAssetsSpinner" class="hidden items-center gap-2 text-sm text-slate-500">
+            <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+            <span id="brandAssetsSpinnerText">Finding assets...</span>
+          </div>
+          <button id="brandAssetsBtn" class="px-3 py-2 rounded-md border bg-card text-sm font-medium" type="button">Find logos &amp; colors</button>
+        </div>
+      </header>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium">Brand website URL (optional)</label>
+          <input id="brandUrl" type="url" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://example.com" />
+          <p class="text-xs text-slate-500 mt-1">If empty, we'll infer the URL from the brand name.</p>
+        </div>
+      </div>
+      <p id="brandWebsite" class="text-sm text-slate-500"></p>
+      <p id="brandAssetsStatus" class="text-sm text-slate-500">Ready.</p>
+      <div>
+        <h3 class="text-sm font-medium mb-2">Logo candidates</h3>
+        <div id="brandLogos" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium mb-2">Suggested colors (AI)</h3>
+        <div id="brandColorsAi" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+      </div>
+      <div>
+        <h3 class="text-sm font-medium mb-2">Suggested colors (Website)</h3>
+        <div id="brandColorsSite" class="grid grid-cols-1 md:grid-cols-3 gap-3"></div>
+      </div>
+    </section>
+
     <div id="expertManualSections" class="space-y-6">
       <!-- KB YAML -->
       <section class="bg-card border rounded-xl shadow-sm p-5 space-y-3">
