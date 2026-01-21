@@ -365,8 +365,8 @@
   try {
     if (!window.BASE) {
       const isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.*\.local)$/i.test(window.location.hostname);
-      const DEFAULT_BACKEND = isLocal ? 'http://localhost:8000' : 'https://stonly-web.onrender.com';
-      const base = (window.location.origin.includes('stonly-web.onrender.com')
+      const DEFAULT_BACKEND = isLocal ? 'http://localhost:8000' : 'https://ai-builder-api.stonly.com';
+      const base = (window.location.origin.includes('ai-builder-api.stonly.com')
         ? window.location.origin
         : DEFAULT_BACKEND).replace(/\/+$/, '');
       window.DEFAULT_BACKEND = DEFAULT_BACKEND;

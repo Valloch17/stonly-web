@@ -11,7 +11,7 @@ document.getElementById('resetTree')?.addEventListener('click', () => {
     window.location.reload();
 });
 
-const KB_BASE = (window.BASE || "https://stonly-web.onrender.com").replace(/\/+$/, '');
+const KB_BASE = (window.BASE || "https://ai-builder-api.stonly.com").replace(/\/+$/, '');
 // --- Persistence helpers ---
 const STORAGE_KEY_NODES = "stonly_ui_nodes";
 const STORAGE_KEY_YAML = "stonly_yaml"; // optionnel si tu veux sauver le YAML

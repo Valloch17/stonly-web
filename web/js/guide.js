@@ -248,7 +248,7 @@ function setupPlanToggle() {
 // Backend base resolution
 // Prefer an existing global (set by shared.js). In local dev, default to localhost:8000.
 const __isLocal = /^(localhost|127\.0\.0\.1|0\.0\.0\.0|.*\.local)$/i.test(window.location.hostname);
-const DEFAULT_BACKEND = window.DEFAULT_BACKEND || (__isLocal ? 'http://localhost:8000' : 'https://stonly-web.onrender.com');
+const DEFAULT_BACKEND = window.DEFAULT_BACKEND || (__isLocal ? 'http://localhost:8000' : 'https://ai-builder-api.stonly.com');
 const BASE = (window.BASE || DEFAULT_BACKEND).replace(/\/+$/, '');
 window.DEFAULT_BACKEND = DEFAULT_BACKEND;
 window.BASE = BASE;

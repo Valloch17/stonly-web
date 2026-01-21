@@ -6,8 +6,9 @@ import base64
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlparse
 from dataclasses import dataclass, field
-import os, time, html, ipaddress
+import os, time, html, ipaddress, base64, hashlib, hmac, secrets
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode, urljoin
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,11 +22,13 @@ except Exception:  # pragma: no cover - fallback (older pydantic)
             return f
         return deco
 import requests
+import json
 import yaml
 import uuid
 
 
 import logging, logging.handlers
+from dotenv import load_dotenv
 from sqlalchemy import (
     create_engine,
     Column,
@@ -42,6 +45,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 from sqlalchemy.exc import IntegrityError
 from passlib.context import CryptContext
 from cryptography.fernet import Fernet, InvalidToken
+
+load_dotenv()
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
 os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
@@ -70,6 +75,12 @@ logging.getLogger("urllib3").setLevel(logging.DEBUG if os.getenv("HTTP_DEBUG") =
 ADMIN_TOKEN = os.getenv("APP_ADMIN_TOKEN")
 if not ADMIN_TOKEN:
     raise RuntimeError("Missing env: APP_ADMIN_TOKEN")
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI")
+GOOGLE_ALLOWED_DOMAIN = os.getenv("GOOGLE_ALLOWED_DOMAIN")
+GOOGLE_STATE_TTL = int(os.getenv("GOOGLE_STATE_TTL", "600"))
 
 # Allow local testing shortcuts (e.g., ephemeral keys, sqlite fallback)
 ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
@@ -204,6 +215,7 @@ FRONTEND_ORIGINS = [
     "https://api-stonly-internal.onrender.com",
     "https://ai-builder.stonly.com",
 ]
+PRIMARY_FRONTEND_ORIGIN = os.getenv("FRONTEND_ORIGIN", "https://ai-builder.stonly.com")
 if os.getenv("CORS_ALLOW_LOCALHOST") == "1":
     FRONTEND_ORIGINS.extend(
         [
@@ -224,7 +236,7 @@ app.add_middleware(
 )
 
 from fastapi import Query
-from fastapi.responses import PlainTextResponse, StreamingResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse, RedirectResponse
 import os, itertools, collections
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
@@ -278,6 +290,72 @@ def shorten_payload_for_log(obj: Any) -> Any:
         else:
             out[k] = v
     return out
+
+
+def _google_enabled() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET and GOOGLE_REDIRECT_URI)
+
+
+def _sanitize_next(next_value: Optional[str]) -> str:
+    if not next_value:
+        return "/"
+    if next_value.startswith("/") and not next_value.startswith("//"):
+        return next_value
+    return "/"
+
+
+def _state_sign(payload: dict) -> str:
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    data = base64.urlsafe_b64encode(raw).decode("utf-8").rstrip("=")
+    sig = hmac.new(TEAM_TOKEN_ENCRYPTION_KEY.encode("utf-8"), data.encode("utf-8"), hashlib.sha256).hexdigest()
+    return f"{data}.{sig}"
+
+
+def _state_verify(state: str) -> dict:
+    if not state or "." not in state:
+        raise ValueError("Invalid state")
+    data, sig = state.rsplit(".", 1)
+    expected = hmac.new(TEAM_TOKEN_ENCRYPTION_KEY.encode("utf-8"), data.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        raise ValueError("Invalid state signature")
+    padded = data + "=" * (-len(data) % 4)
+    payload = json.loads(base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8"))
+    ts = int(payload.get("ts", 0))
+    if ts <= 0 or (time.time() - ts) > GOOGLE_STATE_TTL:
+        raise ValueError("State expired")
+    return payload
+
+
+def _frontend_origin() -> str:
+    return PRIMARY_FRONTEND_ORIGIN.rstrip("/")
+
+
+def _redirect_to_login(next_path: str, *, error: Optional[str] = None) -> RedirectResponse:
+    params = {"next": next_path}
+    if error:
+        params["error"] = error
+    target = _frontend_origin() + "/login.html?" + urlencode(params)
+    return RedirectResponse(target)
+
+
+def _google_authorize_url(next_path: str) -> str:
+    payload = {
+        "ts": int(time.time()),
+        "next": next_path,
+        "nonce": secrets.token_urlsafe(12),
+    }
+    state = _state_sign(payload)
+    params = {
+        "client_id": GOOGLE_CLIENT_ID,
+        "redirect_uri": GOOGLE_REDIRECT_URI,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "prompt": "select_account",
+    }
+    if GOOGLE_ALLOWED_DOMAIN:
+        params["hd"] = GOOGLE_ALLOWED_DOMAIN
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
 
 @app.exception_handler(Exception)
 async def unhandled_exc(_, exc: Exception):
@@ -2880,6 +2958,99 @@ def api_login(payload: LoginPayload):
             raise HTTPException(401, detail="Invalid email or password")
         sid = _create_session(db, user.id)
     resp = JSONResponse({"ok": True, "email": email})
+    resp.set_cookie(
+        key=SESSION_COOKIE_NAME,
+        value=sid,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=SESSION_COOKIE_SECURE,
+        samesite=SESSION_COOKIE_SAMESITE,
+        path="/",
+    )
+    return resp
+
+
+@app.get("/api/auth/google", tags=["Auth"], summary="Start Google OAuth login")
+def api_auth_google(next: Optional[str] = None):
+    if not _google_enabled():
+        raise HTTPException(500, detail="Google OAuth is not configured")
+    next_path = _sanitize_next(next)
+    return RedirectResponse(_google_authorize_url(next_path))
+
+
+@app.get("/api/auth/google/callback", tags=["Auth"], summary="Handle Google OAuth callback")
+def api_auth_google_callback(
+    code: Optional[str] = None,
+    state: Optional[str] = None,
+    error: Optional[str] = None,
+):
+    if error:
+        return _redirect_to_login("/", error=error)
+    if not _google_enabled():
+        return _redirect_to_login("/", error="google_not_configured")
+    if not code:
+        return _redirect_to_login("/", error="missing_code")
+    try:
+        payload = _state_verify(state or "")
+        next_path = _sanitize_next(payload.get("next"))
+    except Exception:
+        return _redirect_to_login("/", error="invalid_state")
+
+    token_res = requests.post(
+        "https://oauth2.googleapis.com/token",
+        data={
+            "code": code,
+            "client_id": GOOGLE_CLIENT_ID,
+            "client_secret": GOOGLE_CLIENT_SECRET,
+            "redirect_uri": GOOGLE_REDIRECT_URI,
+            "grant_type": "authorization_code",
+        },
+        timeout=10,
+    )
+    if not token_res.ok:
+        logger.warning("Google token exchange failed: %s", token_res.text)
+        return _redirect_to_login(next_path, error="token_exchange_failed")
+    token_data = token_res.json()
+    id_token = token_data.get("id_token")
+    if not id_token:
+        return _redirect_to_login(next_path, error="missing_id_token")
+
+    info_res = requests.get(
+        "https://oauth2.googleapis.com/tokeninfo",
+        params={"id_token": id_token},
+        timeout=10,
+    )
+    if not info_res.ok:
+        logger.warning("Google tokeninfo failed: %s", info_res.text)
+        return _redirect_to_login(next_path, error="tokeninfo_failed")
+    info = info_res.json()
+    if info.get("aud") != GOOGLE_CLIENT_ID:
+        return _redirect_to_login(next_path, error="aud_mismatch")
+    if str(info.get("email_verified", "")).lower() != "true":
+        return _redirect_to_login(next_path, error="email_not_verified")
+    email = (info.get("email") or "").strip().lower()
+    if not email:
+        return _redirect_to_login(next_path, error="missing_email")
+    if GOOGLE_ALLOWED_DOMAIN:
+        domain = (info.get("hd") or email.split("@")[-1]).lower()
+        if domain != GOOGLE_ALLOWED_DOMAIN.lower():
+            return _redirect_to_login(next_path, error="domain_not_allowed")
+
+    with SessionLocal() as db:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            user = User(email=email, password_hash=_hash_password(uuid.uuid4().hex))
+            db.add(user)
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
+                user = db.query(User).filter(User.email == email).first()
+        if not user:
+            return _redirect_to_login(next_path, error="user_create_failed")
+        sid = _create_session(db, user.id)
+
+    resp = RedirectResponse(_frontend_origin() + next_path)
     resp.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=sid,
