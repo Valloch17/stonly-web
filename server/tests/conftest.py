@@ -85,21 +85,21 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture()
 def client():
-    client = TestClient(main.app)
-    email = f"tester-{uuid.uuid4().hex}@example.com"
-    resp = client.post("/api/signup", json={
-        "email": email,
-        "password": "password123",
-        "adminToken": "secret",
-    })
-    assert resp.status_code == 200
-    resp = client.post("/api/teams", json={
-        "teamId": 39539,
-        "teamToken": "test-token",
-        "name": "Test Team",
-    })
-    assert resp.status_code == 200
-    return client
+    with TestClient(main.app) as client:
+        email = f"tester-{uuid.uuid4().hex}@example.com"
+        resp = client.post("/api/signup", json={
+            "email": email,
+            "password": "password123",
+            "adminToken": "secret",
+        })
+        assert resp.status_code == 200
+        resp = client.post("/api/teams", json={
+            "teamId": 39539,
+            "teamToken": "test-token",
+            "name": "Test Team",
+        })
+        assert resp.status_code == 200
+        yield client
 
 @pytest.fixture()
 def creds():
