@@ -18,22 +18,43 @@
   // 1) Stonly widget bootstrap (id is shared across pages)
   onReady(function initStonlyWidget() {
     try {
-      if (!window.STONLY_WID) {
-        window.STONLY_WID = "8fcc56d8-0450-11ee-a0af-0a52ff1ec764";
+      const root = document.documentElement;
+      const wantsWidget = (root && root.dataset && (root.dataset.stonlyWidget === '1' || root.dataset.stonlyWidget === 'true'))
+        || window.STONLY_WIDGET_ENABLED === true;
+      if (!wantsWidget) return;
+
+      const guardEnabled = !!(root && root.classList && root.classList.contains('auth-check-pending'));
+      const loadWidget = () => {
+        if (!window.STONLY_WID) {
+          window.STONLY_WID = "8fcc56d8-0450-11ee-a0af-0a52ff1ec764";
+        }
+        if (window.StonlyWidget) return; // already present
+        (function (s, t, o, n, l, y, w, g, d, e) {
+          s.StonlyWidget || ((d = s.StonlyWidget = function () {
+            d._api ? d._api.apply(d, arguments) : d.queue.push(arguments)
+          }).scriptPath = n, d.apiPath = l, d.sPath = y, d.queue = [],
+            (g = t.createElement(o)).async = !0, (e = new XMLHttpRequest).open("GET", n + "version?v=" + Date.now(), !0),
+            e.onreadystatechange = function () {
+              if (4 === e.readyState) {
+                g.src = n + "stonly-widget.js?v=" + (200 === e.status ? e.responseText : Date.now());
+                (w = t.getElementsByTagName(o)[0]).parentNode.insertBefore(g, w);
+              }
+            }, e.send())
+        })(window, document, "script", "https://stonly.com/js/widget/v2/");
+      };
+
+      if (guardEnabled && typeof window.requireAccount === 'function') {
+        const authPromise = window.__authCheckPromise || window.requireAccount();
+        if (authPromise && typeof authPromise.then === 'function') {
+          authPromise.then(() => {
+            if (!document.documentElement?.classList?.contains('auth-check-ready')) return;
+            loadWidget();
+          });
+          return;
+        }
       }
-      if (window.StonlyWidget) return; // already present
-      (function (s, t, o, n, l, y, w, g, d, e) {
-        s.StonlyWidget || ((d = s.StonlyWidget = function () {
-          d._api ? d._api.apply(d, arguments) : d.queue.push(arguments)
-        }).scriptPath = n, d.apiPath = l, d.sPath = y, d.queue = [],
-          (g = t.createElement(o)).async = !0, (e = new XMLHttpRequest).open("GET", n + "version?v=" + Date.now(), !0),
-          e.onreadystatechange = function () {
-            if (4 === e.readyState) {
-              g.src = n + "stonly-widget.js?v=" + (200 === e.status ? e.responseText : Date.now());
-              (w = t.getElementsByTagName(o)[0]).parentNode.insertBefore(g, w);
-            }
-          }, e.send())
-      })(window, document, "script", "https://stonly.com/js/widget/v2/");
+
+      loadWidget();
     } catch (_) { /* no-op */ }
   });
 
