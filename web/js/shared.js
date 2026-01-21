@@ -153,21 +153,37 @@
 
     const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
     if (!base) return;
-    fetch(base + '/api/settings', { credentials: 'include' })
-      .then((res) => {
-        if (!res.ok) return null;
-        return res.json();
-      })
-      .then((data) => {
-        if (!data) return;
-        const apiBase = (data.apiBase || '').trim();
-        window.__apiBase = apiBase;
-        try {
-          if (apiBase) localStorage.setItem(API_BASE_KEY, apiBase);
-          else localStorage.removeItem(API_BASE_KEY);
-        } catch {}
-      })
-      .catch(() => {});
+    const root = document.documentElement;
+    const guardEnabled = !!(root && root.classList && root.classList.contains('auth-check-pending'));
+    if (!guardEnabled) return;
+
+    const fetchSettings = () => {
+      fetch(base + '/api/settings', { credentials: 'include' })
+        .then((res) => {
+          if (!res.ok) return null;
+          return res.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          const apiBase = (data.apiBase || '').trim();
+          window.__apiBase = apiBase;
+          try {
+            if (apiBase) localStorage.setItem(API_BASE_KEY, apiBase);
+            else localStorage.removeItem(API_BASE_KEY);
+          } catch {}
+        })
+        .catch(() => {});
+    };
+
+    const authPromise = (typeof window.requireAccount === 'function') ? window.requireAccount() : null;
+    if (authPromise && typeof authPromise.then === 'function') {
+      authPromise.then(() => {
+        if (!document.documentElement?.classList?.contains('auth-check-ready')) return;
+        fetchSettings();
+      });
+    } else {
+      fetchSettings();
+    }
   });
 
   // 5) Shared guide preview renderer (AI Builder + Guide Builder)
