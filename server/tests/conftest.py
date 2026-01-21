@@ -9,6 +9,7 @@ import uuid
 os.environ.setdefault("APP_ADMIN_TOKEN", "secret")
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 os.environ.setdefault("TEAM_TOKEN_ENCRYPTION_KEY", "5hG9nZrX2R3wVd0R1S6eKXrFz0K8Q1m2YtZp4x9JZ9k=")
+os.environ.setdefault("SESSION_COOKIE_SECURE", "0")
 
 # --- 2) Make import work whether pytest is run at repo root or in server/ ---
 ROOT = pathlib.Path(__file__).resolve().parents[1]     # .../server
