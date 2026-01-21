@@ -414,6 +414,10 @@
     return window.__authCheckPromise;
   };
   window.requireAdmin = window.requireAccount;
+  const authGuardEnabled = document.documentElement?.classList?.contains(AUTH_PENDING_CLASS);
+  if (authGuardEnabled) {
+    window.requireAccount();
+  }
 
   // 7) Team selector + modal creation (shared across builder pages)
   onReady(function initTeamSelector() {
