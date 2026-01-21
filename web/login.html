@@ -202,7 +202,7 @@
             return;
           }
           const params = new URLSearchParams(window.location.search || '');
-          const next = params.get('next') || '/';
+          const next = params.get('next') || '/ai-content-creator.html';
           window.location.href = next;
         } catch (e) {
           if (loginError) loginError.textContent = 'Login failed. Please retry.';
@@ -232,7 +232,7 @@
             return;
           }
           const params = new URLSearchParams(window.location.search || '');
-          const next = params.get('next') || '/';
+          const next = params.get('next') || '/ai-content-creator.html';
           window.location.href = next;
         } catch (e) {
           if (signupError) signupError.textContent = 'Signup failed. Please retry.';
@@ -288,7 +288,7 @@
       showLoginFromReset?.addEventListener('click', () => setView('login'));
       googleLogin?.addEventListener('click', () => {
         const params = new URLSearchParams(window.location.search || '');
-        const next = params.get('next') || '/';
+        const next = params.get('next') || '/ai-content-creator.html';
         const base = ((window.BASE || window.DEFAULT_BACKEND || window.location.origin) || '').replace(/\/+$/, '');
         window.location.href = base + '/api/auth/google?next=' + encodeURIComponent(next);
       });

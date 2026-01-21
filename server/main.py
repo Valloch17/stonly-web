@@ -298,10 +298,10 @@ def _google_enabled() -> bool:
 
 def _sanitize_next(next_value: Optional[str]) -> str:
     if not next_value:
-        return "/"
+        return "/ai-content-creator.html"
     if next_value.startswith("/") and not next_value.startswith("//"):
         return next_value
-    return "/"
+    return "/ai-content-creator.html"
 
 
 def _state_sign(payload: dict) -> str:
