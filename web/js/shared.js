@@ -130,7 +130,369 @@
     return ok;
   };
 
-  // 3) Shared persistence for team selection + folder IDs between apps
+  // 4) Shared language selector (searchable, strict codes)
+  const LANGUAGE_OPTIONS = [
+    { code: "af", name: "Afrikaans" },
+    { code: "sq", name: "Albanian" },
+    { code: "am", name: "Amharic" },
+    { code: "ar", name: "Arabic" },
+    { code: "hy", name: "Armenian" },
+    { code: "az", name: "Azerbaijani" },
+    { code: "eu", name: "Basque" },
+    { code: "be", name: "Belarusian" },
+    { code: "bn", name: "Bengali" },
+    { code: "bs", name: "Bosnian" },
+    { code: "bg", name: "Bulgarian" },
+    { code: "ca", name: "Catalan" },
+    { code: "ceb", name: "Cebuano" },
+    { code: "zh", name: "Chinese (Simplified)" },
+    { code: "zh-Hant", name: "Chinese (Traditional)" },
+    { code: "co", name: "Corsican" },
+    { code: "hr", name: "Croatian" },
+    { code: "cs", name: "Czech" },
+    { code: "da", name: "Danish" },
+    { code: "nl", name: "Dutch" },
+    { code: "en", name: "English" },
+    { code: "en-GB", name: "English (UK)" },
+    { code: "en-US", name: "English (US)" },
+    { code: "eo", name: "Esperanto" },
+    { code: "et", name: "Estonian" },
+    { code: "fi", name: "Finnish" },
+    { code: "fr", name: "French" },
+    { code: "fr-BE", name: "French (Belgium)" },
+    { code: "fr-CA", name: "French (Canada)" },
+    { code: "fy", name: "Frisian" },
+    { code: "gl", name: "Galician" },
+    { code: "ka", name: "Georgian" },
+    { code: "de", name: "German" },
+    { code: "el", name: "Greek" },
+    { code: "gu", name: "Gujarati" },
+    { code: "ht", name: "Haitian Creole" },
+    { code: "ha", name: "Hausa" },
+    { code: "haw", name: "Hawaiian" },
+    { code: "he", name: "Hebrew" },
+    { code: "hi", name: "Hindi" },
+    { code: "hmn", name: "Hmong" },
+    { code: "hu", name: "Hungarian" },
+    { code: "is", name: "Icelandic" },
+    { code: "ig", name: "Igbo" },
+    { code: "id", name: "Indonesian" },
+    { code: "ga", name: "Irish" },
+    { code: "it", name: "Italian" },
+    { code: "ja", name: "Japanese" },
+    { code: "jv", name: "Javanese" },
+    { code: "kn", name: "Kannada" },
+    { code: "kk", name: "Kazakh" },
+    { code: "km", name: "Khmer" },
+    { code: "rw", name: "Kinyarwanda" },
+    { code: "ko", name: "Korean" },
+    { code: "ku", name: "Kurdish" },
+    { code: "ky", name: "Kyrgyz" },
+    { code: "lo", name: "Lao" },
+    { code: "lv", name: "Latvian" },
+    { code: "lt", name: "Lithuanian" },
+    { code: "lb", name: "Luxembourgish" },
+    { code: "mk", name: "Macedonian" },
+    { code: "mg", name: "Malagasy" },
+    { code: "ms", name: "Malay" },
+    { code: "ml", name: "Malayalam" },
+    { code: "mt", name: "Maltese" },
+    { code: "mi", name: "Maori" },
+    { code: "mr", name: "Marathi" },
+    { code: "mn", name: "Mongolian" },
+    { code: "my", name: "Burmese" },
+    { code: "nb", name: "Norwegian Bokmal" },
+    { code: "ne", name: "Nepali" },
+    { code: "nn", name: "Norwegian Nynorsk" },
+    { code: "no", name: "Norwegian" },
+    { code: "ny", name: "Nyanja" },
+    { code: "or", name: "Odia" },
+    { code: "ps", name: "Pashto" },
+    { code: "fa", name: "Persian" },
+    { code: "pl", name: "Polish" },
+    { code: "pt", name: "Portuguese" },
+    { code: "pa", name: "Punjabi" },
+    { code: "ro", name: "Romanian" },
+    { code: "ru", name: "Russian" },
+    { code: "sm", name: "Samoan" },
+    { code: "gd", name: "Scots Gaelic" },
+    { code: "sr", name: "Serbian" },
+    { code: "st", name: "Sesotho" },
+    { code: "sn", name: "Shona" },
+    { code: "sd", name: "Sindhi" },
+    { code: "si", name: "Sinhala" },
+    { code: "sk", name: "Slovak" },
+    { code: "sl", name: "Slovenian" },
+    { code: "so", name: "Somali" },
+    { code: "es", name: "Spanish" },
+    { code: "su", name: "Sundanese" },
+    { code: "sw", name: "Swahili" },
+    { code: "sv", name: "Swedish" },
+    { code: "tl", name: "Tagalog" },
+    { code: "tg", name: "Tajik" },
+    { code: "ta", name: "Tamil" },
+    { code: "tt", name: "Tatar" },
+    { code: "te", name: "Telugu" },
+    { code: "th", name: "Thai" },
+    { code: "tr", name: "Turkish" },
+    { code: "tk", name: "Turkmen" },
+    { code: "uk", name: "Ukrainian" },
+    { code: "ur", name: "Urdu" },
+    { code: "ug", name: "Uyghur" },
+    { code: "uz", name: "Uzbek" },
+    { code: "vi", name: "Vietnamese" },
+    { code: "cy", name: "Welsh" },
+    { code: "xh", name: "Xhosa" },
+    { code: "yi", name: "Yiddish" },
+    { code: "yo", name: "Yoruba" },
+    { code: "zu", name: "Zulu" },
+    { code: "de-AT", name: "German (Austria)" },
+  ];
+
+  const PRIORITY_LANGUAGE_CODES = [
+    "en",
+    "en-US",
+    "en-GB",
+    "es",
+    "fr",
+    "de",
+    "nl",
+    "ru",
+    "pt",
+    "it",
+    "zh",
+    "ja",
+  ];
+  const PRIORITY_LANGUAGE_INDEX = new Map(
+    PRIORITY_LANGUAGE_CODES.map((code, index) => [code.toLowerCase(), index])
+  );
+
+  const LANGUAGE_CODE_MAP = new Map();
+  const LANGUAGE_LABEL_MAP = new Map();
+  const LANGUAGE_SEARCH = [];
+
+  function normalizeLanguageQuery(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  LANGUAGE_OPTIONS.forEach(({ code, name }) => {
+    const codeLower = code.toLowerCase();
+    LANGUAGE_CODE_MAP.set(codeLower, code);
+    const codeNorm = normalizeLanguageQuery(code);
+    if (codeNorm) LANGUAGE_LABEL_MAP.set(codeNorm, code);
+    const nameNorm = normalizeLanguageQuery(name);
+    if (nameNorm) LANGUAGE_LABEL_MAP.set(nameNorm, code);
+    const comboNorm = normalizeLanguageQuery(`${code} ${name}`);
+    if (comboNorm) LANGUAGE_LABEL_MAP.set(comboNorm, code);
+    LANGUAGE_SEARCH.push({
+      code,
+      name,
+      label: `${code} - ${name}`,
+      search: normalizeLanguageQuery(`${code} ${name}`),
+    });
+  });
+  LANGUAGE_SEARCH.sort((a, b) => {
+    const aIndex = PRIORITY_LANGUAGE_INDEX.get(a.code.toLowerCase());
+    const bIndex = PRIORITY_LANGUAGE_INDEX.get(b.code.toLowerCase());
+    if (aIndex != null || bIndex != null) {
+      if (aIndex == null) return 1;
+      if (bIndex == null) return -1;
+      return aIndex - bIndex;
+    }
+    const nameCmp = a.name.localeCompare(b.name);
+    if (nameCmp !== 0) return nameCmp;
+    return a.code.localeCompare(b.code);
+  });
+
+  function resolveLanguageCode(value) {
+    const trimmed = String(value || "").trim();
+    if (!trimmed) return null;
+    const direct = LANGUAGE_CODE_MAP.get(trimmed.toLowerCase());
+    if (direct) return direct;
+    const normalized = normalizeLanguageQuery(trimmed);
+    return LANGUAGE_LABEL_MAP.get(normalized) || null;
+  }
+
+  function attachLanguageSelect(input) {
+    if (!input || input.dataset.languageSelectReady === "1") return;
+    input.dataset.languageSelectReady = "1";
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "language-select";
+    input.parentNode?.insertBefore(wrapper, input);
+    wrapper.appendChild(input);
+
+    const panel = document.createElement("div");
+    panel.className = "language-select-panel hidden";
+    panel.setAttribute("role", "listbox");
+    wrapper.appendChild(panel);
+
+    const empty = document.createElement("div");
+    empty.className = "language-select-empty hidden";
+    empty.textContent = "No matches.";
+    panel.appendChild(empty);
+
+    const optionButtons = LANGUAGE_SEARCH.map((entry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "language-select-option";
+      btn.textContent = entry.label;
+      btn.dataset.code = entry.code;
+      btn.addEventListener("click", () => {
+        input.value = entry.code;
+        lastValid = entry.code;
+        closePanel();
+      });
+      panel.appendChild(btn);
+      return { entry, button: btn };
+    });
+
+    let lastValid = resolveLanguageCode(input.value) || "en";
+    if (input.value) {
+      const resolved = resolveLanguageCode(input.value);
+      if (resolved) {
+        input.value = resolved;
+        lastValid = resolved;
+      }
+    } else if (lastValid) {
+      input.value = lastValid;
+    }
+
+    let ignoreBlur = false;
+
+    function reorderOptions(order) {
+      const frag = document.createDocumentFragment();
+      frag.appendChild(empty);
+      order.forEach(({ button }) => frag.appendChild(button));
+      panel.appendChild(frag);
+    }
+
+    function filterOptions(query) {
+      const normalized = normalizeLanguageQuery(query);
+      const codeNeedle = normalized.replace(/\s+/g, "");
+      const nameNeedle = normalized;
+      const matches = [];
+      const matchButtons = new Set();
+
+      optionButtons.forEach(({ entry, button }) => {
+        if (!normalized) {
+          button.classList.remove("hidden");
+          matches.push({ entry, button });
+          matchButtons.add(button);
+          return;
+        }
+
+        const codeNorm = normalizeLanguageQuery(entry.code).replace(/\s+/g, "");
+        const nameNorm = normalizeLanguageQuery(entry.name);
+        const codeIndex = codeNeedle ? codeNorm.indexOf(codeNeedle) : -1;
+        const nameIndex = nameNeedle ? nameNorm.indexOf(nameNeedle) : -1;
+        let match = false;
+        let group = 3;
+        let exact = 1;
+        if (codeIndex !== -1) {
+          match = true;
+          group = codeIndex === 0 ? 0 : 1;
+          exact = codeNorm === codeNeedle ? 0 : 1;
+        } else if (nameIndex !== -1) {
+          match = true;
+          group = 2;
+        }
+
+        button.classList.toggle("hidden", !match);
+        if (match) {
+          matches.push({ entry, button, group, exact, codeLen: codeNorm.length });
+          matchButtons.add(button);
+        }
+      });
+
+      empty.classList.toggle("hidden", matches.length !== 0);
+      if (!normalized) {
+        reorderOptions(optionButtons);
+        return;
+      }
+
+      matches.sort((a, b) => {
+        if (a.group !== b.group) return a.group - b.group;
+        if (a.group <= 1) {
+          if (a.exact !== b.exact) return a.exact - b.exact;
+          if (a.codeLen !== b.codeLen) return a.codeLen - b.codeLen;
+          return a.entry.code.localeCompare(b.entry.code);
+        }
+        const nameCmp = a.entry.name.localeCompare(b.entry.name);
+        if (nameCmp !== 0) return nameCmp;
+        return a.entry.code.localeCompare(b.entry.code);
+      });
+
+      const ordered = matches.concat(optionButtons.filter(({ button }) => !matchButtons.has(button)));
+      reorderOptions(ordered);
+    }
+
+    function openPanel() {
+      panel.classList.remove("hidden");
+      filterOptions(input.value);
+    }
+
+    function closePanel() {
+      panel.classList.add("hidden");
+    }
+
+    function normalizeOrRevert() {
+      const resolved = resolveLanguageCode(input.value);
+      if (resolved) {
+        input.value = resolved;
+        lastValid = resolved;
+      } else {
+        input.value = lastValid;
+      }
+    }
+
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("aria-autocomplete", "list");
+    input.setAttribute("role", "combobox");
+    input.setAttribute("aria-expanded", "false");
+
+    input.addEventListener("focus", () => {
+      input.setAttribute("aria-expanded", "true");
+      openPanel();
+    });
+    input.addEventListener("input", () => {
+      if (panel.classList.contains("hidden")) openPanel();
+      filterOptions(input.value);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closePanel();
+        input.blur();
+      }
+    });
+    input.addEventListener("blur", () => {
+      if (ignoreBlur) return;
+      input.setAttribute("aria-expanded", "false");
+      closePanel();
+      normalizeOrRevert();
+    });
+
+    panel.addEventListener("mousedown", () => {
+      ignoreBlur = true;
+    });
+    panel.addEventListener("mouseup", () => {
+      setTimeout(() => { ignoreBlur = false; }, 0);
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!wrapper.contains(event.target)) {
+        closePanel();
+      }
+    });
+  }
+
+  onReady(function initLanguageSelects() {
+    const inputs = document.querySelectorAll('input[data-language-select="1"]');
+    if (!inputs.length) return;
+    inputs.forEach(attachLanguageSelect);
+  });
+
+  // 5) Shared persistence for team selection + folder IDs between apps
   onReady(function initSharedPersistence() {
     const groups = [
       { key: 'st_selected_team', ids: ['teamSelect'] },

@@ -69,6 +69,48 @@ select:focus-visible {
   box-shadow: 0 0 0 1px #4f46e5;
 }
 
+/* Language dropdown */
+.language-select {
+  position: relative;
+}
+
+.language-select-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  width: 100%;
+  max-height: 220px;
+  overflow: auto;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.14);
+  z-index: 50;
+}
+
+.language-select-option {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 0.875rem;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.language-select-option:hover,
+.language-select-option:focus-visible {
+  background: color-mix(in srgb, var(--card) 88%, var(--bg) 12%);
+}
+
+.language-select-empty {
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
 /* Global button polish (excluding the floating theme toggle) */
 button:not(.theme-toggle) {
   transition:
