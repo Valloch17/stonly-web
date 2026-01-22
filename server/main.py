@@ -3897,6 +3897,7 @@ def api_dump(
     teamId: int = ...,
     parentId: Optional[int] = None,
     base: Optional[str] = None,
+    flat: Optional[bool] = False,
 ):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)
@@ -3920,6 +3921,9 @@ def api_dump(
     except Exception as e:
         logger.exception("dump-structure upstream/parse error")
         raise HTTPException(502, detail={"error": "Upstream/parse error", "msg": str(e)})
+
+    if flat:
+        return {"items": items}
 
     # Reconstituer l'arbre
     by_id, children_map = {}, {}

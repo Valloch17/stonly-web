@@ -492,7 +492,454 @@
     inputs.forEach(attachLanguageSelect);
   });
 
-  // 5) Shared persistence for team selection + folder IDs between apps
+  // 5) Shared folder selector (optional dropdown, cached per team)
+  const FOLDER_CACHE_PREFIX = "st_folder_cache_";
+  const folderSelectRegistry = [];
+
+  function normalizeFolderQuery(value) {
+    return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  }
+
+  function buildFolderCacheKey(teamId, rootFolder) {
+    return `${FOLDER_CACHE_PREFIX}${teamId}_${rootFolder}`;
+  }
+
+  function getCachedFolderList(teamId, rootFolder) {
+    if (!teamId || !rootFolder) return null;
+    const key = buildFolderCacheKey(teamId, rootFolder);
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.items)) return null;
+      return parsed.items;
+    } catch {
+      return null;
+    }
+  }
+
+  function setCachedFolderList(teamId, rootFolder, items) {
+    if (!teamId || !rootFolder) return;
+    const key = buildFolderCacheKey(teamId, rootFolder);
+    try {
+      localStorage.setItem(key, JSON.stringify({ items, savedAt: Date.now() }));
+    } catch {}
+  }
+
+  function flattenFolderTree(nodes, acc, seen) {
+    const list = Array.isArray(nodes) ? nodes : [];
+    list.forEach((node) => {
+      if (!node || typeof node !== "object") return;
+      const rawId = node.id ?? node.folderId ?? node.entityId;
+      const id = Number(rawId);
+      if (!Number.isFinite(id)) return;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const name = String(node.name ?? node.entityName ?? "").trim() || "Untitled";
+      acc.push({ id, name });
+      if (Array.isArray(node.children) && node.children.length) {
+        flattenFolderTree(node.children, acc, seen);
+      }
+    });
+  }
+
+  function normalizeFolderItems(items) {
+    const list = Array.isArray(items) ? items : [];
+    const seen = new Set();
+    const output = [];
+    list.forEach((node) => {
+      if (!node || typeof node !== "object") return;
+      const rawId = node.id ?? node.folderId ?? node.entityId;
+      const id = Number(rawId);
+      if (!Number.isFinite(id)) return;
+      if (seen.has(id)) return;
+      seen.add(id);
+      const name = String(node.name ?? node.entityName ?? "").trim() || "Untitled";
+      output.push({ id, name });
+    });
+    return output;
+  }
+
+  function setFolderValue(state, value) {
+    if (!state?.input) return;
+    state.input.value = String(value ?? "");
+    state.input.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+
+  function buildFolderNameMap(items) {
+    const map = new Map();
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const id = Number(item.id);
+      if (!Number.isFinite(id)) return;
+      const name = String(item.name || "").trim();
+      if (name) map.set(String(id), name);
+    });
+    return map;
+  }
+
+  function ensureFolderNameCache(state) {
+    if (!state || state.folderNameById) return;
+    const cached = getCachedFolderList(state.teamId, state.rootFolder);
+    if (Array.isArray(cached)) {
+      state.folderItems = state.folderItems || cached;
+      state.folderNameById = buildFolderNameMap(cached);
+    }
+  }
+
+  function updateFolderBadge(state) {
+    if (!state?.input || !state?.badge) return;
+    const current = String(state.input.value || "").trim();
+    if (!current) {
+      state.badge.classList.add("hidden");
+      state.badge.textContent = "";
+      return;
+    }
+    const root = state.rootFolder ? String(state.rootFolder) : "";
+    ensureFolderNameCache(state);
+    const name = state.folderNameById ? state.folderNameById.get(current) : "";
+    let label = "";
+    if (root && current === root) {
+      label = "Root folder";
+    } else if (name) {
+      label = name;
+    }
+    state.badge.textContent = label;
+    state.badge.classList.toggle("hidden", !label);
+  }
+
+  function setFolderInvalid(state, isInvalid) {
+    if (!state?.wrapper || !state?.input) return;
+    state.wrapper.classList.toggle("is-invalid", !!isInvalid);
+    state.input.setAttribute("aria-invalid", isInvalid ? "true" : "false");
+  }
+
+  function setFolderError(state, message) {
+    if (!state?.error) return;
+    state.error.textContent = message || "";
+    state.error.classList.toggle("hidden", !message);
+  }
+
+  function clearFolderError(state) {
+    setFolderError(state, "");
+  }
+
+  function rebuildFolderOptions(state, entries) {
+    if (!state?.panel) return;
+    state.panel.innerHTML = "";
+    if (state.searchInput) state.panel.appendChild(state.searchInput);
+    state.panel.appendChild(state.empty);
+    state.optionButtons = entries.map((entry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "folder-select-option";
+      btn.textContent = `${entry.id} - ${entry.name}`;
+      if (entry.isRoot) btn.dataset.root = "1";
+      btn.addEventListener("click", () => {
+        setFolderValue(state, entry.id);
+        updateFolderBadge(state);
+        closeFolderPanel(state);
+      });
+      state.panel.appendChild(btn);
+      return { entry, button: btn };
+    });
+  }
+
+  function filterFolderOptions(state, query) {
+    if (!state?.optionButtons || !state.optionButtons.length) return;
+    const needle = normalizeFolderQuery(query);
+    let shown = 0;
+    state.optionButtons.forEach(({ entry, button }) => {
+      const match = !needle || entry.search.includes(needle);
+      button.classList.toggle("hidden", !match);
+      if (match) shown += 1;
+    });
+    state.empty.classList.toggle("hidden", shown !== 0);
+  }
+
+  function openFolderPanel(state) {
+    if (!state?.panel) return;
+    state.panel.classList.remove("hidden");
+    state.panelOpen = true;
+    const query = state.searchInput ? state.searchInput.value : "";
+    filterFolderOptions(state, query);
+  }
+
+  function closeFolderPanel(state) {
+    if (!state?.panel) return;
+    state.panel.classList.add("hidden");
+    state.panelOpen = false;
+  }
+
+  async function fetchFoldersForTeam(teamId, rootFolder) {
+    const base = (window.BASE || window.DEFAULT_BACKEND || "").replace(/\/+$/, "");
+    if (!base) throw new Error("Missing backend base");
+    const url = `${base}/api/dump-structure?teamId=${encodeURIComponent(teamId)}&parentId=${encodeURIComponent(rootFolder)}&flat=1`;
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) {
+      let hint = "Verify root folder ID and team token.";
+      if (res.status === 401) hint = "Verify team token.";
+      if (res.status === 404) hint = "Verify root folder ID.";
+      throw new Error(`Failed to fetch folders (${res.status}) - ${hint}`);
+    }
+    const data = await res.json().catch(() => null);
+    if (!data) return [];
+    if (Array.isArray(data.items)) {
+      return normalizeFolderItems(data.items);
+    }
+    if (Array.isArray(data.root)) {
+      const acc = [];
+      flattenFolderTree(data.root, acc, new Set());
+      return acc;
+    }
+    return [];
+  }
+
+  function ensureRootEntry(items, rootFolder) {
+    const rootId = Number(rootFolder);
+    if (!Number.isFinite(rootId)) return items;
+    const existing = items.find((it) => Number(it.id) === rootId);
+    if (existing) {
+      existing.isRoot = true;
+      if (!existing.name) existing.name = "Root folder";
+      return items;
+    }
+    return [{ id: rootId, name: "Root folder", isRoot: true }].concat(items);
+  }
+
+  function sortFolderEntries(items) {
+    const list = items.slice();
+    list.sort((a, b) => {
+      if (a.isRoot && !b.isRoot) return -1;
+      if (!a.isRoot && b.isRoot) return 1;
+      const nameCmp = String(a.name || "").localeCompare(String(b.name || ""));
+      if (nameCmp !== 0) return nameCmp;
+      return String(a.id).localeCompare(String(b.id));
+    });
+    return list;
+  }
+
+  function syncFolderSelects(team, opts) {
+    const teamId = team?.teamId ? String(team.teamId) : "";
+    const rootFolder = team?.rootFolder ? String(team.rootFolder) : "";
+    const teamChanged = !!opts?.teamChanged;
+    folderSelectRegistry.forEach((state) => {
+      state.teamId = teamId;
+      state.rootFolder = rootFolder;
+      const newKey = teamId && rootFolder ? buildFolderCacheKey(teamId, rootFolder) : "";
+      if (teamChanged && state.cacheKey !== newKey) {
+        state.cacheKey = newKey;
+        state.folderItems = null;
+        state.folderNameById = null;
+        state.optionButtons = [];
+        state.panel.innerHTML = "";
+        state.panel.appendChild(state.empty);
+      } else {
+        state.cacheKey = newKey;
+      }
+      if (teamChanged) {
+        closeFolderPanel(state);
+        clearFolderError(state);
+      }
+
+      if (rootFolder) {
+        if (teamChanged || !String(state.input.value || "").trim()) {
+          setFolderValue(state, rootFolder);
+        }
+        setFolderInvalid(state, false);
+      } else if (teamChanged) {
+        setFolderInvalid(state, true);
+      }
+      updateFolderBadge(state);
+    });
+  }
+
+  window.__syncFolderSelects = syncFolderSelects;
+
+  function attachFolderSelect(input) {
+    if (!input || input.dataset.folderSelectReady === "1") return;
+    input.dataset.folderSelectReady = "1";
+
+    const field = input.parentNode;
+    if (!field) return;
+    const label = field.querySelector("label");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "folder-select";
+    if (label) {
+      field.insertBefore(wrapper, label);
+      wrapper.appendChild(label);
+    } else {
+      field.insertBefore(wrapper, input);
+    }
+
+    const inputWrap = document.createElement("div");
+    inputWrap.className = "folder-select-input";
+    inputWrap.appendChild(input);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "folder-select-button";
+    button.setAttribute("aria-label", "Browse folders");
+    button.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4 1.4-1.4-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>';
+    inputWrap.appendChild(button);
+    wrapper.appendChild(inputWrap);
+
+    const badge = document.createElement("span");
+    badge.className = "folder-select-badge hidden";
+    badge.textContent = "Root folder";
+    wrapper.appendChild(badge);
+
+    const panel = document.createElement("div");
+    panel.className = "folder-select-panel hidden";
+    panel.setAttribute("role", "listbox");
+    wrapper.appendChild(panel);
+
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.className = "folder-select-search";
+    searchInput.setAttribute("placeholder", "Search folders...");
+    searchInput.setAttribute("aria-label", "Search folders");
+    searchInput.setAttribute("autocomplete", "off");
+    panel.appendChild(searchInput);
+
+    const empty = document.createElement("div");
+    empty.className = "folder-select-empty hidden";
+    empty.textContent = "No folders found.";
+    panel.appendChild(empty);
+
+    const error = document.createElement("div");
+    error.className = "folder-select-error hidden";
+    wrapper.appendChild(error);
+
+    const state = {
+      input,
+      wrapper,
+      button,
+      panel,
+      searchInput,
+      badge,
+      empty,
+      error,
+      optionButtons: [],
+      folderItems: null,
+      folderNameById: null,
+      teamId: "",
+      rootFolder: "",
+      cacheKey: "",
+      panelOpen: false,
+      isLoading: false,
+    };
+    folderSelectRegistry.push(state);
+
+    function setLoading(loading) {
+      state.isLoading = !!loading;
+      state.button.disabled = !!loading;
+      state.button.classList.toggle("is-loading", !!loading);
+      state.button.innerHTML = loading
+        ? '<span class="folder-select-spinner" aria-hidden="true"></span>'
+        : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4 1.4-1.4-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>';
+    }
+
+    async function ensureFoldersLoaded() {
+      if (state.folderItems) return state.folderItems;
+      const teamId = state.teamId;
+      const rootFolder = state.rootFolder;
+      if (!teamId) {
+        setFolderError(state, "Select a team first.");
+        return null;
+      }
+      if (!rootFolder) {
+        setFolderError(state, "Set a root folder for this team to scan folders.");
+        setFolderInvalid(state, true);
+        return null;
+      }
+      clearFolderError(state);
+
+      const cached = getCachedFolderList(teamId, rootFolder);
+      if (Array.isArray(cached)) {
+        state.folderItems = cached;
+        state.folderNameById = buildFolderNameMap(cached);
+        return cached;
+      }
+
+      try {
+        setLoading(true);
+        const items = await fetchFoldersForTeam(teamId, rootFolder);
+        const normalized = normalizeFolderItems(items);
+        setCachedFolderList(teamId, rootFolder, normalized);
+        state.folderItems = normalized;
+        state.folderNameById = buildFolderNameMap(normalized);
+        return normalized;
+      } catch (err) {
+        setFolderError(state, err?.message || "Failed to load folders.");
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    function buildPanelOptions(items) {
+      let list = Array.isArray(items) ? items.slice() : [];
+      list = ensureRootEntry(list, state.rootFolder);
+      list = sortFolderEntries(list);
+      state.folderNameById = buildFolderNameMap(list);
+      const entries = list.map((entry) => ({
+        id: entry.id,
+        name: entry.name || "Untitled",
+        isRoot: !!entry.isRoot,
+        search: normalizeFolderQuery(`${entry.id} ${entry.name}`),
+      }));
+      rebuildFolderOptions(state, entries);
+      filterFolderOptions(state, state.searchInput?.value || "");
+    }
+
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      if (state.isLoading) return;
+      clearFolderError(state);
+      const items = await ensureFoldersLoaded();
+      if (!items) return;
+      buildPanelOptions(items);
+      if (state.searchInput) state.searchInput.value = "";
+      openFolderPanel(state);
+      if (state.searchInput) {
+        state.searchInput.focus();
+        state.searchInput.select();
+      }
+    });
+
+    input.addEventListener("input", () => {
+      clearFolderError(state);
+      setFolderInvalid(state, false);
+      updateFolderBadge(state);
+    });
+
+    searchInput.addEventListener("input", () => {
+      filterFolderOptions(state, searchInput.value || "");
+    });
+
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        closeFolderPanel(state);
+        input.blur();
+      }
+    });
+
+    document.addEventListener("click", (event) => {
+      if (!wrapper.contains(event.target)) {
+        closeFolderPanel(state);
+      }
+    });
+  }
+
+  onReady(function initFolderSelects() {
+    const inputs = document.querySelectorAll('input[data-folder-select="1"]');
+    if (!inputs.length) return;
+    inputs.forEach(attachFolderSelect);
+  });
+
+  // 6) Shared persistence for team selection + folder IDs between apps
   onReady(function initSharedPersistence() {
     const groups = [
       { key: 'st_selected_team', ids: ['teamSelect'] },
@@ -825,6 +1272,7 @@
     const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
     let teams = [];
     let lastValidTeamId = '';
+    let lastSelectedTeamId = '';
     let pendingSelectId = '';
     let customButton = null;
     let customPanel = null;
@@ -1100,7 +1548,11 @@
       meta.textContent = `${name}Team ID ${team.teamId}${root}`;
     }
 
-    function applyRootFolder(team) {
+    function applyRootFolder(team, opts) {
+      if (typeof window.__syncFolderSelects === 'function') {
+        window.__syncFolderSelects(team, opts);
+        return;
+      }
       if (!team || !team.rootFolder) return;
       ['folderId', 'parentId'].forEach((id) => {
         const el = document.getElementById(id);
@@ -1112,6 +1564,7 @@
 
     function updateSelection() {
       const selectedId = String(select.value || '');
+      const previousTeamId = lastSelectedTeamId;
       if (selectedId === '__create__') {
         select.value = lastValidTeamId;
         syncCustomLabel();
@@ -1132,8 +1585,10 @@
         lastValidTeamId = selectedId;
         try { localStorage.setItem('st_selected_team', selectedId); } catch {}
       }
+      lastSelectedTeamId = selectedId || '';
       setMeta(team);
-      applyRootFolder(team);
+      const teamChanged = !!(previousTeamId && previousTeamId !== selectedId);
+      applyRootFolder(team, { teamChanged });
       syncCustomLabel();
       syncCustomSelection();
     }

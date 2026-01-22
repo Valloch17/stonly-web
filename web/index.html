@@ -25,9 +25,10 @@
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/shared.css">
     <style>
-
         /* Page-level override of shared tokens */
-        :root { --bg: #e6e3f8; }
+        :root {
+            --bg: #e6e3f8;
+        }
 
         /* Force Reset button to stay readable in both themes */
         #resetTree {
@@ -79,12 +80,17 @@
         }
 
         /* Utility classes used by the tree nodes */
-        .layer-0 { background: var(--layer-0) !important; }
-        .layer-1 { background: var(--layer-1) !important; }
+        .layer-0 {
+            background: var(--layer-0) !important;
+        }
+
+        .layer-1 {
+            background: var(--layer-1) !important;
+        }
     </style>
     <!-- Copy into the head of all HTML pages you wish to display the widget -->
 
-    
+
 
 
 </head>
@@ -93,64 +99,84 @@
     <div id="app" class="max-w-5xl mx-auto px-4 py-8 space-y-6">
         <div class="flex items-start justify-between gap-3">
             <div>
-            <h1 class="text-2xl font-semibold flex items-center gap-2">
-                <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
-                <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly" class="h-12 w-auto logo-dark">
-                <span class="title-text">KB Builder</span>
-            </h1>
-            <p class="text-sm text-slate-500 dark:text-slate-400">
-              Create knowledge-base folders from YAML or Tree builder with the Stonly API.
-            </p>
-          </div>
-          <div class="flex items-center gap-3 pt-1">
-            <div class="tool-menu">
-                <button id="toolMenuButton" class="tool-menu-button inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition" type="button" aria-haspopup="true" aria-expanded="false">
-                    Explore builder tools
-                    <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
-                        <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" />
-                    </svg>
-                </button>
-                <div id="toolMenuPanel" class="tool-menu-panel hidden">
-                    <a href="/ai-content-creator.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-[#eef3ff] text-sm font-medium shadow hover:bg-[#e2e9ff] transition">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4 text-blue-600">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v4m0 12v4m10-10h-4M6 12H2m14.95-6.95-2.828 2.828M7.879 16.121 5.05 18.95m0-13.899 2.829 2.829m11.314 8.242-2.829-2.829" />
-                        </svg>
-                        AI Builder
-                    </a>
-                    <a href="/" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
-                        </svg>
-                        KB Builder
-                    </a>
-                    <a href="/guide-builder.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                            <circle cx="5" cy="6" r="2"></circle>
-                            <circle cx="5" cy="18" r="2"></circle>
-                            <circle cx="19" cy="12" r="2"></circle>
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
-                        </svg>
-                        Guide Builder
-                    </a>
-                    <a href="/guide-publisher.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-4 h-4">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10" />
-                        </svg>
-                        Guide Publisher
-                    </a>
-                    <a href="/expert.html" class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-card text-sm font-medium text-slate-400 shadow hover:text-slate-600 hover:border-slate-300 transition" title="Expert mode">
-                        <img src="/assets/incognito.svg" alt="" class="w-4 h-4 expert-incognito-icon" />
-                        Expert mode
-                    </a>
-                </div>
+                <h1 class="text-2xl font-semibold flex items-center gap-2">
+                    <img src="/assets/Stonly_logotype_master_digital.svg" alt="Stonly" class="h-12 w-auto logo-light">
+                    <img src="/assets/Stonly_logotype_full_white_digital.svg" alt="Stonly"
+                        class="h-12 w-auto logo-dark">
+                    <span class="title-text">KB Builder</span>
+                </h1>
+                <p class="text-sm text-slate-500 dark:text-slate-400">
+                    Create knowledge-base folders from YAML or Tree builder with the Stonly API.
+                </p>
             </div>
+            <div class="flex items-center gap-3 pt-1">
+                <div class="tool-menu">
+                    <button id="toolMenuButton"
+                        class="tool-menu-button inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition"
+                        type="button" aria-haspopup="true" aria-expanded="false">
+                        Explore builder tools
+                        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                            <path fill-rule="evenodd"
+                                d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z"
+                                clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div id="toolMenuPanel" class="tool-menu-panel hidden">
+                        <a href="/ai-content-creator.html"
+                            class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-[#eef3ff] text-sm font-medium shadow hover:bg-[#e2e9ff] transition">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                class="w-4 h-4 text-blue-600">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M12 2v4m0 12v4m10-10h-4M6 12H2m14.95-6.95-2.828 2.828M7.879 16.121 5.05 18.95m0-13.899 2.829 2.829m11.314 8.242-2.829-2.829" />
+                            </svg>
+                            AI Builder
+                        </a>
+                        <a href="/"
+                            class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                class="w-4 h-4">
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M4 6h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z" />
+                            </svg>
+                            KB Builder
+                        </a>
+                        <a href="/guide-builder.html"
+                            class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                class="w-4 h-4">
+                                <circle cx="5" cy="6" r="2"></circle>
+                                <circle cx="5" cy="18" r="2"></circle>
+                                <circle cx="19" cy="12" r="2"></circle>
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M7 6h5a4 4 0 0 1 4 4v0a4 4 0 0 0 4 4"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round"
+                                    d="M7 18h5a4 4 0 0 0 4-4v0a4 4 0 0 1 4-4"></path>
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 8v8"></path>
+                            </svg>
+                            Guide Builder
+                        </a>
+                        <a href="/guide-publisher.html"
+                            class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 bg-card text-sm font-medium shadow hover:bg-slate-50 transition">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+                                class="w-4 h-4">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 7h16M4 12h16M4 17h10" />
+                            </svg>
+                            Guide Publisher
+                        </a>
+                        <a href="/expert.html"
+                            class="tool-menu-item inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 bg-card text-sm font-medium text-slate-400 shadow hover:text-slate-600 hover:border-slate-300 transition"
+                            title="Expert mode">
+                            <img src="/assets/incognito.svg" alt="" class="w-4 h-4 expert-incognito-icon" />
+                            Expert mode
+                        </a>
+                    </div>
+                </div>
                 <div class="user-menu user-menu-fixed">
-                    <button id="userMenuButton" class="user-menu-button" type="button" aria-haspopup="true" aria-expanded="false" aria-label="Account menu">
+                    <button id="userMenuButton" class="user-menu-button" type="button" aria-haspopup="true"
+                        aria-expanded="false" aria-label="Account menu">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M15.75 7.5a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z" />
                             <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5a7.5 7.5 0 0 1 15 0" />
                         </svg>
                     </button>
@@ -160,47 +186,48 @@
                         <button id="userMenuLogout" class="user-menu-item" type="button">Log out</button>
                     </div>
                 </div>
-            <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
-                <span id="themeIcon" aria-hidden="true"></span>
-                <span id="themeLabel">Dark</span>
-            </button>
-          </div>
+                <button id="themeToggle" class="theme-toggle" type="button" aria-label="Toggle dark mode"
+                    title="Toggle dark mode">
+                    <span id="themeIcon" aria-hidden="true"></span>
+                    <span id="themeLabel">Dark</span>
+                </button>
+            </div>
         </div>
-          
+
 
         <div class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-4">
             <!-- Row 1: Team selection and Parent ID -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div>
+            <div class="grid grid-cols-1 lg:grid-cols-7 gap-3 items-start">
+                <div class="lg:col-span-3">
                     <label class="block text-sm font-medium">Team <span class="text-red-600">*</span></label>
                     <select id="teamSelect" class="team-select mt-1 w-full border rounded-lg p-2 text-sm">
                         <option value="">Loading teams...</option>
                     </select>
                     <p id="teamMeta" class="text-xs text-slate-500 mt-1"></p>
-                                        </div>
-                
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
-                    <div>
-                        <label class="block text-sm font-medium">Parent Folder ID <span class="text-red-600">*</span></label>
-                        <input id="parentId" type="number" required aria-required="true" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234" />
-                        <!-- Hidden username populated from login (optional) -->
-                        <input id="st_user" type="hidden" />
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium">Visibility</label>
-                        <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
-                            <option value="1" selected>Public</option>
-                            <option value="0">Private</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label class="block text-sm font-medium">Language</label>
-                        <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en" placeholder="en" data-language-select="1" autocomplete="off" />
-                    </div>
+                </div>
+                <div class="lg:col-span-2">
+                    <label class="block text-sm font-medium">Folder ID <span class="text-red-600">*</span></label>
+                    <input id="parentId" type="number" required aria-required="true"
+                        class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. 456234"
+                        data-folder-select="1" autocomplete="off" inputmode="numeric" />
+                    <!-- Hidden username populated from login (optional) -->
+                    <input id="st_user" type="hidden" />
+                </div>
+                <div class="lg:col-span-1">
+                    <label class="block text-sm font-medium">Visibility</label>
+                    <select id="publicAccess" class="mt-1 w-full border rounded-lg p-2 text-sm">
+                        <option value="1" selected>Public</option>
+                        <option value="0">Private</option>
+                    </select>
+                </div>
+                <div class="lg:col-span-1">
+                    <label class="block text-sm font-medium">Language</label>
+                    <input id="lang" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" value="en"
+                        placeholder="en" data-language-select="1" autocomplete="off" />
                 </div>
             </div>
 
-            
+
 
             <!-- Global creation settings: dry-run -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
@@ -220,12 +247,17 @@
         <section class="mb-4 bg-card border rounded-xl shadow-sm p-5 space-y-3">
             <header class="flex items-center justify-between gap-3">
                 <div>
-                    <h2 class="text-lg font-semibold">KB YAML <span class="text-xs font-normal text-slate-500">(optional)</span></h2>
-                    <p class="text-sm text-slate-500">Describe folders using nested children arrays. Has priority over the Tree Builder.</p>
+                    <h2 class="text-lg font-semibold">KB YAML <span
+                            class="text-xs font-normal text-slate-500">(optional)</span></h2>
+                    <p class="text-sm text-slate-500">Describe folders using nested children arrays. Has priority over
+                        the Tree Builder.</p>
                 </div>
-                <a href="https://gemini.google.com/gem/1EtWRP99BcBjWW09p8DMx_RxtShU06d65?usp=sharing" target="_blank" rel="noopener noreferrer"
-                   class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
-                    <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4"><path d="M12 2l8 10-8 10L4 12 12 2z"/></svg>
+                <a href="https://gemini.google.com/gem/1EtWRP99BcBjWW09p8DMx_RxtShU06d65?usp=sharing" target="_blank"
+                    rel="noopener noreferrer"
+                    class="inline-flex items-center gap-2 px-3 py-2 rounded-md border bg-card text-sm font-medium">
+                    <svg viewBox="0 0 24 24" fill="currentColor" class="w-4 h-4">
+                        <path d="M12 2l8 10-8 10L4 12 12 2z" />
+                    </svg>
                     KB YAML
                 </a>
             </header>
@@ -257,12 +289,14 @@
             <div id="tree" class="space-y-2"></div>
         </div>
 
-          <div class="flex gap-2">
+        <div class="flex gap-2">
             <button id="btnApply" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium">Apply</button>
-              <button id="btnVerify" class="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium">Verify</button>
-              <button id="btnDump" class="px-3 py-2 rounded-md bg-gray-700 text-white text-sm font-medium">Dump structure</button>
+            <button id="btnVerify"
+                class="px-3 py-2 rounded-md bg-emerald-600 text-white text-sm font-medium">Verify</button>
+            <button id="btnDump" class="px-3 py-2 rounded-md bg-gray-700 text-white text-sm font-medium">Dump
+                structure</button>
             <button id="resetTree" type="button" class="px-2 py-1 rounded border">Reset tree</button>
-            
+
 
         </div>
 
@@ -288,9 +322,9 @@
 
 
     </div>
-    
 
-    
+
+
     <div class="contact-badge">
         <span>Contact:
             <a href="mailto:valentin.bourrelier@stonly.com">valentin.bourrelier@stonly.com</a>
@@ -306,7 +340,7 @@
             <span>GitHub</span>
         </a>
     </div>
-    
+
 
 
     <script src="/js/shared.js?v=1"></script>
