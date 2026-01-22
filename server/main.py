@@ -87,7 +87,7 @@ ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
 
 # Session / cookie configuration (account login)
 SESSION_COOKIE_NAME = "st_session"
-SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "259200"))  # 72h default
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_COOKIE_TTL", "604800"))  # 7d default
 SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
 
