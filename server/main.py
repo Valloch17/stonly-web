@@ -236,7 +236,7 @@ app.add_middleware(
 )
 
 from fastapi import Query
-from fastapi.responses import PlainTextResponse, StreamingResponse, RedirectResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse, RedirectResponse, Response
 import os, itertools, collections
 
 LOG_FILE = os.getenv("LOG_FILE", "logs/guide_builder.log")
@@ -2170,6 +2170,7 @@ def _sanitize_inline_svg(svg_text: str) -> str:
     # Replace CSS-driven fills with a concrete color so standalone SVGs render.
     svg_text = re.sub(r'fill="currentColor"', 'fill="#000000"', svg_text, flags=re.I)
     svg_text = re.sub(r'stroke="currentColor"', 'stroke="#000000"', svg_text, flags=re.I)
+    svg_text = _ensure_svg_dimensions(svg_text)
     return svg_text
 
 
@@ -2207,6 +2208,73 @@ def _parse_viewbox_size(value: Optional[str]) -> Optional[Tuple[float, float]]:
         return float(match[2]), float(match[3])
     except Exception:
         return None
+
+
+def _format_svg_dimension(value: float) -> str:
+    if value is None:
+        return ""
+    if abs(value - round(value)) < 0.01:
+        return str(int(round(value)))
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def _ensure_svg_dimensions(svg_text: str) -> str:
+    if not svg_text:
+        return svg_text
+    match = re.search(r"<svg\b[^>]*>", svg_text, flags=re.I)
+    if not match:
+        return svg_text
+    tag = match.group(0)
+
+    def _attr_value(name: str) -> Optional[str]:
+        m = re.search(rf"\b{name}\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", tag, flags=re.I)
+        if not m:
+            return None
+        value = m.group(1)
+        if value and value[0] in {"\"", "'"}:
+            return value[1:-1]
+        return value
+
+    width_val = _parse_numeric_size(_attr_value("width"))
+    height_val = _parse_numeric_size(_attr_value("height"))
+    if width_val is not None and height_val is not None:
+        return svg_text
+
+    ratio = None
+    vb = _parse_viewbox_size(_attr_value("viewbox"))
+    if vb:
+        vb_w, vb_h = vb
+        if vb_w and vb_h:
+            ratio = vb_w / vb_h
+    if ratio is None or ratio <= 0:
+        ratio = 264 / 36
+
+    target_w = 264.0
+    target_h = 36.0
+    target_ratio = target_w / target_h
+    if ratio >= target_ratio:
+        new_w = target_w
+        new_h = target_w / ratio
+    else:
+        new_h = target_h
+        new_w = target_h * ratio
+
+    width_str = _format_svg_dimension(new_w)
+    height_str = _format_svg_dimension(new_h)
+
+    def _strip_attr(text: str, name: str) -> str:
+        return re.sub(rf"\s{name}\s*=\s*(\"[^\"]*\"|'[^']*'|[^\s>]+)", "", text, flags=re.I)
+
+    new_tag = _strip_attr(tag, "width")
+    new_tag = _strip_attr(new_tag, "height")
+    new_tag = re.sub(
+        r"<svg\b",
+        f'<svg width="{width_str}" height="{height_str}"',
+        new_tag,
+        count=1,
+        flags=re.I,
+    )
+    return svg_text[:match.start()] + new_tag + svg_text[match.end():]
 
 
 class _LogoHTMLParser(HTMLParser):
@@ -3808,6 +3876,19 @@ def api_brand_assets_download(url: str, request: Request):
     content_type = resp.headers.get("content-type") or "application/octet-stream"
     filename = os.path.basename(urlparse(normalized).path) or "logo"
     headers_out = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if "svg" in content_type.lower() or normalized.lower().endswith(".svg"):
+        try:
+            raw = resp.content
+            text = raw.decode(resp.encoding or "utf-8", errors="replace")
+            if "<svg" in text.lower():
+                svg_text = _sanitize_inline_svg(text)
+                return Response(
+                    content=svg_text.encode("utf-8"),
+                    media_type="image/svg+xml",
+                    headers=headers_out,
+                )
+        except Exception:
+            pass
     return StreamingResponse(resp.iter_content(chunk_size=8192), media_type=content_type, headers=headers_out)
 
 @app.get("/api/dump-structure", tags=["Structure"], summary="Dump folder tree")
