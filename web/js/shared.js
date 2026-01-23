@@ -657,18 +657,28 @@
     state.empty.classList.toggle("hidden", shown !== 0);
   }
 
+  function isFolderPanelOpen(state) {
+    return !!state?.panel && !state.panel.classList.contains("hidden");
+  }
+
   function openFolderPanel(state) {
     if (!state?.panel) return;
     state.panel.classList.remove("hidden");
     state.panelOpen = true;
     const query = state.searchInput ? state.searchInput.value : "";
     filterFolderOptions(state, query);
+    if (typeof state.updateButtonIcon === "function") {
+      state.updateButtonIcon();
+    }
   }
 
   function closeFolderPanel(state) {
     if (!state?.panel) return;
     state.panel.classList.add("hidden");
     state.panelOpen = false;
+    if (typeof state.updateButtonIcon === "function") {
+      state.updateButtonIcon();
+    }
   }
 
   async function fetchFoldersForTeam(teamId, rootFolder) {
@@ -832,14 +842,26 @@
     };
     folderSelectRegistry.push(state);
 
+    const searchIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4 1.4-1.4-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>';
+    const refreshIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.97 11.3A8 8 0 1 1 17.66 6.34"/><polyline points="15.4 5.5 17.7 6.3 16.8 4.1"/></svg>';
+
+    function updateButtonIcon() {
+      if (!state?.button || state.isLoading) return;
+      const open = isFolderPanelOpen(state);
+      state.panelOpen = open;
+      state.button.innerHTML = open ? refreshIcon : searchIcon;
+      state.button.setAttribute("aria-label", open ? "Refresh folders" : "Browse folders");
+    }
+
     function setLoading(loading) {
       state.isLoading = !!loading;
-      state.button.disabled = !!loading;
       state.button.classList.toggle("is-loading", !!loading);
       state.button.innerHTML = loading
         ? '<span class="folder-select-spinner" aria-hidden="true"></span>'
-        : '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4 1.4-1.4-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>';
+        : (state.panelOpen ? refreshIcon : searchIcon);
+      if (!loading) updateButtonIcon();
     }
+    state.updateButtonIcon = updateButtonIcon;
 
     async function ensureFoldersLoaded() {
       if (state.folderItems) return state.folderItems;
@@ -879,6 +901,36 @@
       }
     }
 
+    async function refreshFoldersLoaded() {
+      const teamId = state.teamId;
+      const rootFolder = state.rootFolder;
+      if (!teamId) {
+        setFolderError(state, "Select a team first.");
+        return null;
+      }
+      if (!rootFolder) {
+        setFolderError(state, "Set a root folder for this team to scan folders.");
+        setFolderInvalid(state, true);
+        return null;
+      }
+      clearFolderError(state);
+
+      try {
+        setLoading(true);
+        const items = await fetchFoldersForTeam(teamId, rootFolder);
+        const normalized = normalizeFolderItems(items);
+        setCachedFolderList(teamId, rootFolder, normalized);
+        state.folderItems = normalized;
+        state.folderNameById = buildFolderNameMap(normalized);
+        return normalized;
+      } catch (err) {
+        setFolderError(state, err?.message || "Failed to load folders.");
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    }
+
     function buildPanelOptions(items) {
       let list = Array.isArray(items) ? items.slice() : [];
       list = ensureRootEntry(list, state.rootFolder);
@@ -896,13 +948,22 @@
 
     button.addEventListener("click", async (event) => {
       event.preventDefault();
-      if (state.isLoading) return;
+      const wasOpen = isFolderPanelOpen(state);
       clearFolderError(state);
-      const items = await ensureFoldersLoaded();
+      if (!wasOpen && state.searchInput) state.searchInput.value = "";
+      openFolderPanel(state);
+      if (state.isLoading) {
+        state.updateButtonIcon();
+        if (state.searchInput) {
+          state.searchInput.focus();
+          state.searchInput.select();
+        }
+        return;
+      }
+      const items = wasOpen ? await refreshFoldersLoaded() : await ensureFoldersLoaded();
       if (!items) return;
       buildPanelOptions(items);
-      if (state.searchInput) state.searchInput.value = "";
-      openFolderPanel(state);
+      state.updateButtonIcon();
       if (state.searchInput) {
         state.searchInput.focus();
         state.searchInput.select();
@@ -927,7 +988,9 @@
     });
 
     document.addEventListener("click", (event) => {
-      if (!wrapper.contains(event.target)) {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : null;
+      const isInside = path ? path.includes(wrapper) : wrapper.contains(event.target);
+      if (!isInside) {
         closeFolderPanel(state);
       }
     });
