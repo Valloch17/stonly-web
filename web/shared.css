@@ -186,8 +186,8 @@ input[data-folder-select="1"]::-webkit-inner-spin-button {
 }
 
 .folder-select-button svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .folder-select-button:hover {
