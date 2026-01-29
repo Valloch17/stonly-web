@@ -133,7 +133,10 @@
   // Remove Gemini citation placeholders that sometimes leak into YAML.
   window.cleanGeminiYaml = function cleanGeminiYaml(text) {
     if (text == null) return "";
-    return String(text).replace(/\[cite_start\]/g, "");
+    return String(text)
+      .replace(/\[cite_start\]/g, "")
+      .replace(/\[cite_end\]/g, "")
+      .replace(/\[cite\s*:[^\]]*]/g, "");
   };
 
   // 4) Shared language selector (searchable, strict codes)

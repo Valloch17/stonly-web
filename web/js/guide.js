@@ -371,6 +371,17 @@ function getGuideYamlText() {
     return (el('guideYaml')?.value || '').trim();
 }
 
+function cleanGuideYamlInput(updateField) {
+    const field = el('guideYaml');
+    const raw = field?.value || '';
+    const cleaned = (typeof window.cleanGeminiYaml === 'function') ? window.cleanGeminiYaml(raw) : raw;
+    if (updateField && field && cleaned !== raw) {
+        field.value = cleaned;
+        try { field.dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+    }
+    return cleaned.trim();
+}
+
 function collectSettings() {
     return {
         dryRun: !!el('dryRun')?.checked,
@@ -831,7 +842,7 @@ async function buildGuideRequest(settings, yamlText) {
 
 
 onReady(() => el('parseYamlBtn')?.addEventListener('click', () => {
-    const yamlText = getGuideYamlText();
+    const yamlText = cleanGuideYamlInput(true);
     const parsed = parseGuideYaml(yamlText);
     renderPreview(parsed);
     if (!parsed) {
@@ -850,7 +861,7 @@ onReady(() => el('createGuideBtn')?.addEventListener('click', async () => {
         if (out) out.textContent = 'Please fill all required fields (*).';
         return;
     }
-    const yamlText = getGuideYamlText();
+    const yamlText = cleanGuideYamlInput(true);
     const parsed = parseGuideYaml(yamlText);
     if (!parsed) {
         return;

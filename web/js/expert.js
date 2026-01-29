@@ -173,6 +173,17 @@
     return String(text).replace(/\[cite_start\]/g, '');
   }
 
+  function cleanGuideYamlInput(updateField){
+    const field = el('guideYaml');
+    const raw = field?.value || '';
+    const cleaned = cleanGeminiYaml(raw);
+    if (updateField && field && cleaned !== raw) {
+      field.value = cleaned;
+      try { field.dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+    }
+    return cleaned.trim();
+  }
+
   function fixUnquotedColonsInScalars(text){
     if (!text) return '';
     const lines = text.split(/\r?\n/);
@@ -849,7 +860,7 @@
   }
 
   async function onGuideParse(){
-    const t = (el('guideYaml')?.value || '').trim();
+    const t = cleanGuideYamlInput(true);
     const err = el('guideYamlError');
     const btn = el('guideParseBtn');
     const defaultLabel = 'Parse YAML | Copy';
