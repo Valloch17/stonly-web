@@ -535,7 +535,8 @@ function parseGuideYaml(source) {
     const err = el('yamlError');
     err.textContent = '';
     const raw = (typeof source === 'string' ? source : getGuideYamlText()).trim();
-    const text = fixPreBlockIndentation(raw);
+    const cleaned = (typeof window.cleanGeminiYaml === 'function') ? window.cleanGeminiYaml(raw) : raw;
+    const text = fixPreBlockIndentation(cleaned);
     if (!text) {
         err.textContent = 'YAML input is required.';
         return null;

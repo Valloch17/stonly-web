@@ -177,6 +177,12 @@ if (typeof window.requireAdmin === "function") {
     return out.join("\n");
   }
 
+  function cleanGeminiYaml(text) {
+    if (typeof window.cleanGeminiYaml === "function") return window.cleanGeminiYaml(text);
+    if (text == null) return "";
+    return String(text).replace(/\[cite_start\]/g, "");
+  }
+
   async function ensureTestingDelay(startedAt, testingActive) {
     if (!testingActive) return;
     const elapsed = nowMs() - startedAt;
@@ -230,7 +236,8 @@ if (typeof window.requireAdmin === "function") {
 
   function renderPreviewFromYaml(yamlText) {
     if (!previewContent) return;
-    const sanitized = fixPreBlockIndentation(String(yamlText || ""));
+    const cleaned = cleanGeminiYaml(String(yamlText || ""));
+    const sanitized = fixPreBlockIndentation(cleaned);
     if (!sanitized || !sanitized.trim()) {
       showPreviewMessage("No preview available yet.");
       return;
@@ -421,7 +428,7 @@ if (typeof window.requireAdmin === "function") {
         const detail = data?.detail || data || {};
         const msg = detail?.error || detail?.message || res.statusText || "Request failed";
         setStatus(msg, "error");
-        const modelText = detail?.modelText || "";
+        const modelText = cleanGeminiYaml(detail?.modelText || "");
         if (yamlOut) yamlOut.textContent = modelText;
         if (buildOut) buildOut.textContent = JSON.stringify(detail, null, 2);
         if (modelText) {
@@ -433,7 +440,7 @@ if (typeof window.requireAdmin === "function") {
         return false;
       }
 
-      const yamlText = data?.yaml || "";
+      const yamlText = cleanGeminiYaml(data?.yaml || "");
       if (yamlOut) yamlOut.textContent = yamlText;
       if (yamlText) lastYaml = yamlText;
       renderPreviewFromYaml(yamlText);

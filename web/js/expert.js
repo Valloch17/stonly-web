@@ -167,6 +167,12 @@
     return out.join('\n');
   }
 
+  function cleanGeminiYaml(text){
+    if (typeof window.cleanGeminiYaml === 'function') return window.cleanGeminiYaml(text);
+    if (text == null) return '';
+    return String(text).replace(/\[cite_start\]/g, '');
+  }
+
   function fixUnquotedColonsInScalars(text){
     if (!text) return '';
     const lines = text.split(/\r?\n/);
@@ -211,6 +217,7 @@
   function normalizeAiYaml(text){
     if (text == null) return '';
     let s = stripCodeFences(text);
+    s = cleanGeminiYaml(s);
     s = s.replace(/\t/g, '  ');
     s = fixPreBlockIndentation(s);
     s = fixUnquotedColonsInScalars(s);
@@ -894,7 +901,7 @@
     if (!orgText) return guideYaml;
 
     const guideDocs = [];
-    const guideText = fixPreBlockIndentation((guideYaml || '').trim());
+    const guideText = fixPreBlockIndentation(cleanGeminiYaml((guideYaml || '').trim()));
     jsyaml.loadAll(guideText, (d) => { guideDocs.push(d); });
     if (!guideDocs.length) throw new Error('No guides found in Guide YAML');
 
@@ -1157,7 +1164,7 @@
       setOut('guideOut', 'Please fill all required fields (*).');
       return;
     }
-    const yamlText = fixPreBlockIndentation((el('guideYaml')?.value || '').trim());
+    const yamlText = fixPreBlockIndentation(cleanGeminiYaml((el('guideYaml')?.value || '').trim()));
     if (!yamlText){ setOut('guideOut', 'Please provide Guide YAML.'); return; }
     try {
       const docs = [];
