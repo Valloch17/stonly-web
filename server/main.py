@@ -2162,6 +2162,31 @@ def _normalize_url(raw: str) -> Optional[str]:
     return text
 
 
+def _brand_request_headers(url: Optional[str] = None, accept: Optional[str] = None) -> dict[str, str]:
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": accept
+        or "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Cache-Control": "no-cache",
+        "Pragma": "no-cache",
+        "Upgrade-Insecure-Requests": "1",
+    }
+    if url:
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme and parsed.netloc:
+                headers["Referer"] = f"{parsed.scheme}://{parsed.netloc}/"
+                headers["Origin"] = f"{parsed.scheme}://{parsed.netloc}"
+        except Exception:
+            pass
+    return headers
+
+
 def _sanitize_inline_svg(svg_text: str) -> str:
     if not svg_text:
         return svg_text
@@ -2196,6 +2221,73 @@ def _parse_sizes_attr(value: Optional[str]) -> Optional[Tuple[float, float]]:
         return float(match.group(1)), float(match.group(2))
     except Exception:
         return None
+
+
+def _parse_widths_attr(value: Optional[str]) -> Optional[int]:
+    if not value:
+        return None
+    numbers = [int(n) for n in re.findall(r"\d+", value)]
+    if not numbers:
+        return None
+    return max(numbers)
+
+
+def _resolve_cmp_src(src: str, attrs: dict[str, str]) -> str:
+    if not src:
+        return src
+    if "{width}" in src:
+        widths = attrs.get("data-cmp-widths") or attrs.get("data-widths")
+        max_width = _parse_widths_attr(widths)
+        if max_width:
+            return src.replace("{width}", str(max_width))
+    return src
+
+
+def _pick_best_src_from_srcset(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    best_url = None
+    best_score = -1
+    for part in value.split(","):
+        item = part.strip()
+        if not item:
+            continue
+        bits = item.split()
+        url = bits[0]
+        score = 0
+        if len(bits) > 1:
+            desc = bits[1].strip().lower()
+            if desc.endswith("w"):
+                try:
+                    score = int(float(desc[:-1]))
+                except Exception:
+                    score = 0
+            elif desc.endswith("x"):
+                try:
+                    score = int(float(desc[:-1]) * 1000)
+                except Exception:
+                    score = 0
+        if score >= best_score:
+            best_score = score
+            best_url = url
+    return best_url
+
+
+def _pick_lazy_image_source(attrs: dict[str, str]) -> tuple[Optional[str], Optional[str]]:
+    srcset = attrs.get("srcset") or attrs.get("data-srcset") or ""
+    best_from_srcset = _pick_best_src_from_srcset(srcset) if srcset else None
+    src = (
+        attrs.get("src")
+        or attrs.get("data-src")
+        or attrs.get("data-lazy-src")
+        or attrs.get("data-original")
+        or best_from_srcset
+    )
+    if src and "{width}" in src:
+        src = _resolve_cmp_src(src, attrs)
+    if best_from_srcset and "{width}" in best_from_srcset:
+        best_from_srcset = _resolve_cmp_src(best_from_srcset, attrs)
+    return src, best_from_srcset
 
 
 def _parse_viewbox_size(value: Optional[str]) -> Optional[Tuple[float, float]]:
@@ -2306,6 +2398,7 @@ class _LogoHTMLParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         attrs_map = {k.lower(): (v or "") for k, v in attrs}
         self._stack.append((tag, attrs_map))
+        context_hint = self._stack_hint()
         inline_style = attrs_map.get("style")
         if inline_style:
             self.inline_styles.append(inline_style)
@@ -2316,6 +2409,25 @@ class _LogoHTMLParser(HTMLParser):
             self._in_style = True
             self._style_chunks = []
             return
+        cmp_src = attrs_map.get("data-cmp-src")
+        if cmp_src:
+            resolved = _resolve_cmp_src(cmp_src, attrs_map)
+            hint = " ".join([context_hint, resolved]).lower()
+            score = 0
+            if "logo" in hint:
+                score = 92
+            elif "brand" in hint:
+                score = 82
+            if score:
+                width = _parse_numeric_size(attrs_map.get("width"))
+                height = _parse_numeric_size(attrs_map.get("height"))
+                self.candidates.append({
+                    "url": resolved,
+                    "score": score,
+                    "reason": "data-cmp-src",
+                    "width": width,
+                    "height": height,
+                })
         if self._in_svg:
             text = self.get_starttag_text() or ""
             if text:
@@ -2367,15 +2479,18 @@ class _LogoHTMLParser(HTMLParser):
                 })
             return
         if tag == "img":
-            src = attrs_map.get("src")
+            src, best_srcset = _pick_lazy_image_source(attrs_map)
             if not src:
                 return
             hint = " ".join([
                 attrs_map.get("alt", ""),
                 attrs_map.get("class", ""),
                 attrs_map.get("id", ""),
+                attrs_map.get("aria-label", ""),
+                attrs_map.get("title", ""),
+                src,
+                best_srcset or "",
             ]).lower()
-            context_hint = self._stack_hint()
             score = 0
             if "logo" in hint:
                 score = 90
@@ -2389,7 +2504,7 @@ class _LogoHTMLParser(HTMLParser):
                 width = _parse_numeric_size(attrs_map.get("width"))
                 height = _parse_numeric_size(attrs_map.get("height"))
                 self.candidates.append({
-                    "url": src,
+                    "url": best_srcset or src,
                     "score": score,
                     "reason": "img",
                     "width": width,
@@ -3808,11 +3923,19 @@ def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
     url = _normalize_url(payload.url)
     if not url:
         raise HTTPException(400, detail="Invalid URL")
-    headers = {"User-Agent": "Mozilla/5.0 (StonlyBrandFetcher/1.0)"}
+    headers = _brand_request_headers(url)
     try:
         resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
     except Exception as e:
         raise HTTPException(502, detail={"error": "Failed to fetch URL", "message": str(e)})
+    if resp.status_code == 403:
+        try:
+            headers_retry = _brand_request_headers(resp.url or url)
+            resp_retry = requests.get(url, headers=headers_retry, timeout=10, allow_redirects=True)
+            if resp_retry.ok:
+                resp = resp_retry
+        except Exception:
+            pass
     if not resp.ok:
         raise HTTPException(502, detail={"error": "Upstream returned error", "status": resp.status_code})
     content_type = (resp.headers.get("content-type") or "").lower()
@@ -3866,7 +3989,10 @@ def api_brand_assets_download(url: str, request: Request):
     normalized = _normalize_url(url)
     if not normalized:
         raise HTTPException(400, detail="Invalid URL")
-    headers = {"User-Agent": "Mozilla/5.0 (StonlyBrandFetcher/1.0)"}
+    headers = _brand_request_headers(
+        normalized,
+        accept="image/avif,image/webp,image/*,*/*;q=0.8",
+    )
     try:
         resp = requests.get(normalized, headers=headers, timeout=10, stream=True)
     except Exception as e:

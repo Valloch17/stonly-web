@@ -418,6 +418,39 @@
     URL.revokeObjectURL(objectUrl);
   }
 
+  function replaceFileExtension(filename, nextExt){
+    const safeExt = (nextExt || '').replace(/^\.+/, '') || 'png';
+    if (!filename) return `logo.${safeExt}`;
+    const base = filename.replace(/\.[^/.]+$/, '');
+    return `${base}.${safeExt}`;
+  }
+
+  async function convertBlobToPng(blob){
+    if (!blob) return null;
+    const objectUrl = URL.createObjectURL(blob);
+    try {
+      const img = new Image();
+      img.decoding = 'async';
+      const loaded = new Promise((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Image decode failed.'));
+      });
+      img.src = objectUrl;
+      await loaded;
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width || 0;
+      canvas.height = img.naturalHeight || img.height || 0;
+      const ctx = canvas.getContext('2d');
+      if (!ctx || !canvas.width || !canvas.height) return null;
+      ctx.drawImage(img, 0, 0);
+      return await new Promise((resolve) => {
+        canvas.toBlob((pngBlob) => resolve(pngBlob || null), 'image/png');
+      });
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+
   async function downloadLogoAsset(url){
     if (!url) return;
     const base = getBASE();
@@ -440,11 +473,19 @@
           const decoded = decodeURIComponent(data);
           bytes = new TextEncoder().encode(decoded);
         }
-        const blob = new Blob([bytes], { type: mime });
+        let blob = new Blob([bytes], { type: mime });
+        let filename = mime.includes('svg') ? 'logo.svg' : 'logo';
+        if (mime.includes('webp')) {
+          const pngBlob = await convertBlobToPng(blob);
+          if (pngBlob) {
+            blob = pngBlob;
+            filename = replaceFileExtension(filename, 'png');
+          }
+        }
         const objectUrl = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = objectUrl;
-        a.download = mime.includes('svg') ? 'logo.svg' : 'logo';
+        a.download = filename;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
@@ -456,7 +497,8 @@
       if (!res.ok) {
         throw new Error(`Download failed (${res.status})`);
       }
-      const blob = await res.blob();
+      let blob = await res.blob();
+      const ct = (res.headers.get('content-type') || '').toLowerCase();
       const disposition = res.headers.get('content-disposition') || '';
       const match = disposition.match(/filename=\"?([^\";]+)\"?/i);
       let filename = match && match[1] ? match[1] : '';
@@ -466,6 +508,13 @@
           filename = parsed.pathname.split('/').pop() || 'logo';
         } catch {
           filename = 'logo';
+        }
+      }
+      if (ct.includes('image/webp') || /\.webp(\?|$)/i.test(filename)) {
+        const pngBlob = await convertBlobToPng(blob);
+        if (pngBlob) {
+          blob = pngBlob;
+          filename = replaceFileExtension(filename, 'png');
         }
       }
       const objectUrl = URL.createObjectURL(blob);
