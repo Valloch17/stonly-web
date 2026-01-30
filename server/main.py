@@ -2871,7 +2871,14 @@ def parse_guides_multi(source: str, defaults: GuideDefaults) -> list[dict]:
         # Allow item-level overrides
         top_ct = raw.get("contentType")
         top_lang = raw.get("language")
-        folder_id = raw.get("folderId") or raw.get("folder_id")
+        # Prefer folderId inside the guide block, then top-level override.
+        folder_id = guide_data.get("folderId")
+        if folder_id is None:
+            folder_id = guide_data.get("folder_id")
+        if folder_id is None:
+            folder_id = raw.get("folderId")
+        if folder_id is None:
+            folder_id = raw.get("folder_id")
         publish = raw.get("publish")
 
         first_step_raw = guide_data.get("firstStep") if isinstance(guide_data, dict) else None
@@ -3558,7 +3565,7 @@ def api_build_guide(payload: GuideBuildPayload, *, user_id: Optional[int] = None
     if len(items) == 1:
         definition = items[0]["definition"]
         ov = items[0]["overrides"] or {}
-        folder_id = int(ov.get("folderId") or payload.folderId)
+        folder_id = int(ov.get("folderId") if ov.get("folderId") is not None else payload.folderId)
         publish = bool(ov.get("publish") if ov.get("publish") is not None else getattr(payload, "publish", False))
 
         try:
@@ -3589,7 +3596,7 @@ def api_build_guide(payload: GuideBuildPayload, *, user_id: Optional[int] = None
     for idx, item in enumerate(items):
         definition = item["definition"]
         ov = item.get("overrides") or {}
-        folder_id = int(ov.get("folderId") or payload.folderId)
+        folder_id = int(ov.get("folderId") if ov.get("folderId") is not None else payload.folderId)
         item_publish = bool(ov.get("publish") if ov.get("publish") is not None else getattr(payload, "publish", False))
         try:
             result = _build_one_guide(
