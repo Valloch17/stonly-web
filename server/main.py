@@ -2970,7 +2970,8 @@ def _build_one_guide(
         choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
 
         if choice.ref:  # create a link to an existing step
-            position_value = choice.position if choice.position is not None else choice_index
+            # Only send explicit positions; Stonly rejects implicit indices when appending.
+            position_value = choice.position
             target_id = by_key.get(choice.ref)
             if dry_run:
                 links_created.append({
@@ -3010,9 +3011,8 @@ def _build_one_guide(
         # else: create a brand new step
         step = choice.step  # type: ignore
         language = step.language or definition.language
-        position_value = choice.position if choice.position is not None else (
-            step.position if step.position is not None else choice_index
-        )
+        # Only send explicit positions; otherwise let Stonly append in creation order.
+        position_value = choice.position if choice.position is not None else step.position
 
         if dry_run:
             counter += 1
