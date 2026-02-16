@@ -5,6 +5,12 @@ if (typeof window.requireAdmin === "function") {
 (function () {
   const el = (id) => document.getElementById(id);
   const STORAGE_PROMPT = "ai_creator_prompt";
+  const STORAGE_AI_MODEL = "ai_creator_model";
+  const DEFAULT_AI_MODEL = "gemini";
+  const AI_MODEL_META = {
+    gemini: { label: "Gemini 3 Pro" },
+    gpt52: { label: "GPT 5.2" },
+  };
   const previewSpinner = el("previewSpinner");
   const previewSpinnerText = el("previewSpinnerText");
   const previewPlaceholder = el("previewPlaceholder");
@@ -23,11 +29,17 @@ if (typeof window.requireAdmin === "function") {
   const testingToggle = el("testingModeToggle");
   const testingToggleLabel = el("testingModeToggleLabel");
   const testingBanner = el("testingModeBanner");
+  const aiModelButton = el("aiModelButton");
+  const aiModelButtonText = el("aiModelButtonText");
+  const aiModelMenu = el("aiModelMenu");
+  const aiModelOptions = Array.from(document.querySelectorAll("[data-model-option]"));
+  const modelOutputTitle = el("modelOutputTitle");
   const searchParams = new URLSearchParams(window.location.search || "");
   const allowTestingToggle = detectLocalHost() || ["1", "true", "on"].includes((searchParams.get("enableTesting") || "").toLowerCase());
   const REFRESH_GUARD_MESSAGE = "A preview is in progress. Refreshing now will discard it.";
   let testingMode = false;
   let lastResponseTesting = false;
+  let selectedAiModel = DEFAULT_AI_MODEL;
 
   let lastYaml = "";
   let lastPromptValue = "";
@@ -47,6 +59,91 @@ if (typeof window.requireAdmin === "function") {
     } catch { testingMode = false; }
   }
   if (!allowTestingToggle) testingMode = false;
+
+  function normalizeAiModel(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw || raw === "gemini" || raw === "gemini-3-pro" || raw === "gemini-3-pro-preview") return "gemini";
+    if (raw === "gpt" || raw === "gpt52" || raw === "gpt5.2" || raw === "gpt-5.2") return "gpt52";
+    return DEFAULT_AI_MODEL;
+  }
+
+  function getSelectedModelLabel() {
+    return AI_MODEL_META[selectedAiModel]?.label || AI_MODEL_META[DEFAULT_AI_MODEL].label;
+  }
+
+  function closeAiModelMenu() {
+    if (!aiModelMenu || !aiModelButton) return;
+    aiModelMenu.classList.add("hidden");
+    aiModelButton.setAttribute("aria-expanded", "false");
+  }
+
+  function syncModelSelectionUI() {
+    const label = getSelectedModelLabel();
+    if (aiModelButtonText) aiModelButtonText.textContent = `Model: ${label}`;
+    if (modelOutputTitle) modelOutputTitle.textContent = `Output from ${label}`;
+    aiModelOptions.forEach((optionEl) => {
+      const isSelected = normalizeAiModel(optionEl.getAttribute("data-model-option")) === selectedAiModel;
+      optionEl.classList.toggle("is-selected", isSelected);
+      optionEl.setAttribute("aria-pressed", isSelected ? "true" : "false");
+    });
+  }
+
+  function setSelectedAiModel(value, { persist = true } = {}) {
+    selectedAiModel = normalizeAiModel(value);
+    if (persist) {
+      try { localStorage.setItem(STORAGE_AI_MODEL, selectedAiModel); } catch { }
+    }
+    syncModelSelectionUI();
+    syncTestingBanner();
+  }
+
+  function initSelectedAiModel() {
+    const paramModel = normalizeAiModel(searchParams.get("model"));
+    if (searchParams.has("model")) {
+      setSelectedAiModel(paramModel, { persist: true });
+      return;
+    }
+    try {
+      const stored = localStorage.getItem(STORAGE_AI_MODEL);
+      setSelectedAiModel(stored || DEFAULT_AI_MODEL, { persist: false });
+    } catch {
+      setSelectedAiModel(DEFAULT_AI_MODEL, { persist: false });
+    }
+  }
+
+  function setupAiModelMenu() {
+    if (!aiModelButton || !aiModelMenu) return;
+    aiModelButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      const willOpen = aiModelMenu.classList.contains("hidden");
+      if (willOpen) {
+        aiModelMenu.classList.remove("hidden");
+        aiModelButton.setAttribute("aria-expanded", "true");
+      } else {
+        closeAiModelMenu();
+      }
+    });
+
+    aiModelOptions.forEach((optionEl) => {
+      optionEl.addEventListener("click", (event) => {
+        event.preventDefault();
+        const nextModel = optionEl.getAttribute("data-model-option");
+        setSelectedAiModel(nextModel, { persist: true });
+        closeAiModelMenu();
+      });
+    });
+
+    document.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (aiModelButton.contains(target) || aiModelMenu.contains(target)) return;
+      closeAiModelMenu();
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeAiModelMenu();
+    });
+  }
 
   function detectLocalHost() {
     try {
@@ -69,7 +166,8 @@ if (typeof window.requireAdmin === "function") {
       testingToggle.setAttribute("aria-pressed", testingMode ? "true" : "false");
       testingToggle.classList.toggle("testing-on", isActive);
     }
-    if (testingToggleLabel) testingToggleLabel.textContent = isActive ? "Mocked Gemini" : "Gemini live";
+    const modelLabel = getSelectedModelLabel();
+    if (testingToggleLabel) testingToggleLabel.textContent = isActive ? `Mocked ${modelLabel}` : `${modelLabel} live`;
   }
 
   function setTestingMode(next) {
@@ -205,6 +303,7 @@ if (typeof window.requireAdmin === "function") {
       prompt: (el("prompt")?.value || "").trim(),
       teamId: el("teamSelect")?.value ? Number(el("teamSelect").value) : null,
       folderId: el("folderId")?.value ? Number(el("folderId").value) : null,
+      aiModel: selectedAiModel,
       publish: !!el("publish")?.checked,
     };
   }
@@ -402,9 +501,10 @@ if (typeof window.requireAdmin === "function") {
     const spinnerText = typeof spinnerMessage === "string"
       ? spinnerMessage
       : (previewOnly ? "Building preview…" : "Validating & publishing…");
+    const activeModelLabel = getSelectedModelLabel();
     const statusText = typeof statusMessage === "string"
       ? statusMessage
-      : (previewOnly ? "Generating preview via Gemini…" : "Generating & building guide…");
+      : (previewOnly ? `Generating preview via ${activeModelLabel}…` : "Generating & building guide…");
 
     startPreviewLoading(spinnerText);
     setStatus(statusText, "info");
@@ -418,6 +518,7 @@ if (typeof window.requireAdmin === "function") {
         body: JSON.stringify(payload),
       });
       const data = await res.json().catch(() => null);
+      if (typeof data?.modelUsed === "string") setSelectedAiModel(data.modelUsed, { persist: true });
       const responseTesting = typeof data?.testingMode === "boolean" ? !!data.testingMode : expectedTesting;
       await ensureTestingDelay(requestStartedAt, responseTesting);
       syncTestingBanner(data?.testingMode);
@@ -426,6 +527,7 @@ if (typeof window.requireAdmin === "function") {
 
       if (!res.ok) {
         const detail = data?.detail || data || {};
+        if (typeof detail?.modelUsed === "string") setSelectedAiModel(detail.modelUsed, { persist: true });
         const msg = detail?.error || detail?.message || res.statusText || "Request failed";
         setStatus(msg, "error");
         const modelText = cleanGeminiYaml(detail?.modelText || "");
@@ -515,6 +617,9 @@ if (typeof window.requireAdmin === "function") {
       fn();
     }
   })(function () {
+    initSelectedAiModel();
+    setupAiModelMenu();
+
     if (testingToggle) {
       if (allowTestingToggle) {
         testingToggle.classList.remove("hidden");

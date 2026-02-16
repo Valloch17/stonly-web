@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import List, Optional, Dict, Any, Tuple
+from typing import List, Optional, Dict, Any, Tuple, Literal
 import re
 import json
 import base64
@@ -12,7 +12,7 @@ from urllib.parse import urlencode, urljoin
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ValidationError
 try:
     # pydantic v2
     from pydantic import model_validator  # type: ignore
@@ -84,6 +84,27 @@ GOOGLE_STATE_TTL = int(os.getenv("GOOGLE_STATE_TTL", "600"))
 
 # Allow local testing shortcuts (e.g., ephemeral keys, sqlite fallback)
 ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
+
+AIModel = Literal["gemini", "gpt52"]
+AI_MODEL_GEMINI: AIModel = "gemini"
+AI_MODEL_GPT52: AIModel = "gpt52"
+AI_MODEL_DEFAULT: AIModel = AI_MODEL_GEMINI
+GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3-pro-preview")
+GPT_AZURE_ENDPOINT = os.getenv("GPT_AZURE_ENDPOINT", "https://eastus2-internal.cognitiveservices.azure.com/")
+GPT_AZURE_DEPLOYMENT = os.getenv("GPT_AZURE_DEPLOYMENT", "AiBuilder-Gpt52-20251211")
+GPT_AZURE_API_VERSION = os.getenv("GPT_AZURE_API_VERSION", "2025-04-01-preview")
+GPT_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_MAX_OUTPUT_TOKENS", "15000"))
+GPT_PREVIEW_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_PREVIEW_MAX_OUTPUT_TOKENS", "10000"))
+GPT_REASONING_EFFORT = os.getenv("GPT_REASONING_EFFORT", "none").strip().lower() or "none"
+
+
+def _normalize_ai_model(value: Optional[str]) -> AIModel:
+    raw = (value or "").strip().lower()
+    if raw in {"", "gemini", "gemini-3-pro", "gemini-3-pro-preview"}:
+        return AI_MODEL_GEMINI
+    if raw in {"gpt", "gpt52", "gpt-5.2", "gpt5.2"}:
+        return AI_MODEL_GPT52
+    raise ValueError("aiModel must be one of: gemini, gpt52")
 
 # Session / cookie configuration (account login)
 SESSION_COOKIE_NAME = "st_session"
@@ -939,6 +960,7 @@ class AIGuidePayload(BaseModel):
     prompt: str = ""
     teamId: int
     folderId: int
+    aiModel: str = AI_MODEL_DEFAULT
     publish: bool = False
     dryRun: bool = False
     base: Optional[str] = None
@@ -961,6 +983,11 @@ class AIGuidePayload(BaseModel):
     def base_default(cls, v: Optional[str]):
         s = (v or "").strip()
         return s or None
+
+    @field_validator("aiModel")
+    @classmethod
+    def ai_model_supported(cls, v: str):
+        return _normalize_ai_model(v)
 
     @field_validator("baseYaml", "yamlOverride", mode="before")
     @classmethod
@@ -1335,6 +1362,28 @@ def resolve_missing_refs(defn: "GuideDefinition") -> "GuideDefinition":
     return defn
 
 
+def dedupe_duplicate_ref_choices(defn: "GuideDefinition") -> "GuideDefinition":
+    """
+    Remove duplicate ref choices that point to the same key under the same parent step.
+    Keep the first occurrence, preserving author intent while preventing duplicate links.
+    """
+    def walk(step: "GuideStep"):
+        seen_refs: set[str] = set()
+        kept: List[GuideStepChoice] = []
+        for ch in step.choices or []:
+            ref_key = (ch.ref or "").strip() if ch.ref else ""
+            if ref_key:
+                if ref_key in seen_refs:
+                    continue
+                seen_refs.add(ref_key)
+            if ch.step:
+                walk(ch.step)
+            kept.append(ch)
+        step.choices = kept
+    walk(defn.firstStep)
+    return defn
+
+
 def wrap_root_if_needed(text: str) -> str:
     """If YAML appears to be a bare guide object (contentTitle + firstStep) without a top-level 'guide:', wrap it."""
     try:
@@ -1527,6 +1576,35 @@ def _load_gemini_client():
     return client, types
 
 
+def _load_azure_openai_client():
+    """Import Azure OpenAI client lazily and initialize GPT deployment."""
+    try:
+        from openai import AzureOpenAI  # type: ignore
+    except Exception:
+        raise HTTPException(
+            500,
+            detail={
+                "error": "Missing dependency for GPT",
+                "hint": "Install openai>=1.0.0 on the server",
+            },
+        )
+
+    api_key = os.getenv("GPT_API_KEY")
+    if not api_key:
+        raise HTTPException(500, detail={"error": "Missing env: GPT_API_KEY"})
+    if not GPT_AZURE_ENDPOINT:
+        raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_ENDPOINT"})
+    if not GPT_AZURE_DEPLOYMENT:
+        raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_DEPLOYMENT"})
+
+    client = AzureOpenAI(
+        api_version=GPT_AZURE_API_VERSION,
+        azure_endpoint=GPT_AZURE_ENDPOINT,
+        api_key=api_key,
+    )
+    return client, GPT_AZURE_DEPLOYMENT
+
+
 SYSTEM_PROMPT = """You are a GUIDE GENERATOR for Stonly. OUTPUT ONLY VALID STONLY GUIDE YAML based on the user request — NO prose, NO Markdown fences, NO code blocks.
 
 ROLE & STYLE:
@@ -1537,8 +1615,12 @@ ROLE & STYLE:
 OUTPUT RULES (MUST FOLLOW):
 - CONTENT TYPES: default GUIDE unless ARTICLE is clearly requested or it's a single step output; GUIDED_TOUR ONLY if explicitly asked. Articles MUST NOT use media property (inline <img> is fine).
 - REQUIRED: contentTitle, contentType, language, firstStep. Steps live only under guide.firstStep/choices.
+- ROOT STEP: guide.firstStep MUST be a full step object with title and content; NEVER set guide.firstStep to a ref.
 - STEP: title + HTML content; optional key (for reuse), media (<=3 URLs; ignored for ARTICLE), choices[].
 - CHOICE: label?, position?, EXACTLY ONE OF step OR ref. Use key/ref for branching/rejoining; avoid one-step “Back” links.
+- CONTENT VS YAML: `content` must contain HTML/text only. NEVER place YAML keys inside `content` (forbidden inside content: `choices:`, `label:`, `step:`, `ref:`, `key:`).
+- BRANCHING FORMAT: every branch must be emitted as real YAML under `choices:`. If content asks a question (e.g., "Which applies?"), follow it with actual `choices:` nodes, not inline pseudo-YAML text.
+- CHOICE DEDUPE: Under a single parent step, do not create multiple choices that resolve to the same target step (same ref/key). Merge wording into one choice.
 - NAVIGATION: Avoid using ref to simulate a single-step “Back” to the immediate parent; the UI already provides a back button. If a back choice is needed, it should jump multiple levels (e.g., “Back to start”, “Back to verification”).
 - KEYS/REFS: Every ref MUST match a defined key. Define keyed steps inline first time; reuse via ref thereafter. NO YAML anchors (*, &). AVOID ":" in titles/labels; if you must use ":", wrap the value in quotes.
 - PROHIBITED TAGS: never emit <hr>, <hr/>, or <hr /> anywhere in the HTML.
@@ -1718,7 +1800,7 @@ def generate_testing_mode_yaml(prompt: str, refine_prompt: Optional[str], base_y
     prompt_snippet = html.escape(_testing_snippet(prompt) or "No prompt provided")
     refine_snippet = html.escape(_testing_snippet(refine_prompt) or "")
     body_sections = [
-        "<p>Testing mode is active. Gemini calls stay offline so you can iterate on layout safely.</p>",
+        "<p>Testing mode is active. Model calls stay offline so you can iterate on layout safely.</p>",
         f'<aside class="tip"><p><strong>Prompt sample:</strong> {prompt_snippet}</p></aside>',
     ]
     if refine_snippet:
@@ -1732,7 +1814,7 @@ def generate_testing_mode_yaml(prompt: str, refine_prompt: Optional[str], base_y
     confirmation_step = {
         "key": "testing_confirmation",
         "title": "Mock run complete",
-        "content": "<p>Switch off testing mode to call Gemini for real content.</p>",
+        "content": "<p>Switch off testing mode to call the live model for real content.</p>",
     }
 
     guides = [
@@ -1743,7 +1825,7 @@ def generate_testing_mode_yaml(prompt: str, refine_prompt: Optional[str], base_y
                 "language": "en",
                 "firstStep": {
                     "key": "testing_intro",
-                    "title": "Preview mocked Gemini output",
+                    "title": "Preview mocked model output",
                     "content": "\n".join(body_sections),
                     "choices": [
                         {
@@ -2047,7 +2129,7 @@ def generate_gemini_text(
     try:
         parts: list[str] = []
         for chunk in client.models.generate_content_stream(
-            model="gemini-2.5-pro",
+            model=GEMINI_MODEL_NAME,
             contents=contents,
             config=cfg,
         ):
@@ -2057,7 +2139,7 @@ def generate_gemini_text(
         if not text:
             try:
                 resp = client.models.generate_content(
-                    model="gemini-2.5-pro",
+                    model=GEMINI_MODEL_NAME,
                     contents=contents,
                     config=cfg,
                 )
@@ -2079,12 +2161,123 @@ def generate_gemini_text(
     return cleaned
 
 
-def generate_yaml_with_gemini(
+def _extract_openai_chat_text(resp: Any) -> str:
+    if resp is None:
+        return ""
+    try:
+        choices = getattr(resp, "choices", None) or []
+        if not choices:
+            return ""
+        message = getattr(choices[0], "message", None)
+        if message is None:
+            return ""
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for part in content:
+                if isinstance(part, dict):
+                    text_part = part.get("text")
+                else:
+                    text_part = getattr(part, "text", None)
+                if text_part:
+                    parts.append(str(text_part))
+            return "".join(parts)
+    except Exception:
+        pass
+    return ""
+
+
+def generate_azure_gpt_text(
+    contents: list[str],
+    *,
+    system_prompt: str,
+    max_output_tokens: int = 15000,
+) -> str:
+    client, deployment = _load_azure_openai_client()
+    user_text = "\n\n".join([str(part).strip() for part in (contents or []) if str(part).strip()]).strip()
+    if not user_text:
+        user_text = "Generate an improved Stonly guide."
+
+    req_kwargs: dict[str, Any] = {
+        "model": deployment,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
+        ],
+        "max_completion_tokens": max_output_tokens,
+        "reasoning_effort": GPT_REASONING_EFFORT,
+    }
+
+    try:
+        resp = client.chat.completions.create(**req_kwargs)
+    except TypeError:
+        # Fallback for SDK/API versions that do not accept one or more optional args.
+        req_kwargs.pop("reasoning_effort", None)
+        try:
+            resp = client.chat.completions.create(**req_kwargs)
+        except Exception as e:
+            logger.exception("Azure GPT call failed")
+            raise HTTPException(502, detail={"error": "Azure GPT call failed", "message": str(e)})
+    except Exception as e:
+        msg = str(e).lower()
+        if "unsupported parameter" in msg and "reasoning_effort" in msg:
+            # Older deployments may not accept reasoning controls.
+            req_kwargs.pop("reasoning_effort", None)
+            try:
+                resp = client.chat.completions.create(**req_kwargs)
+            except Exception as e2:
+                logger.exception("Azure GPT call failed after reasoning fallback")
+                raise HTTPException(502, detail={"error": "Azure GPT call failed", "message": str(e2)})
+        else:
+            logger.exception("Azure GPT call failed")
+            raise HTTPException(502, detail={"error": "Azure GPT call failed", "message": str(e)})
+
+    cleaned = strip_code_fences(_extract_openai_chat_text(resp).strip())
+    if not cleaned:
+        logger.error("Azure GPT returned empty content")
+        raise HTTPException(502, detail={"error": "Azure GPT returned empty content"})
+    return cleaned
+
+
+def generate_ai_text(
+    contents: list[str],
+    *,
+    ai_model: str,
+    system_prompt: str,
+    temperature: float = 1.0,
+    top_p: float = 0.9,
+    max_output_tokens: int = 15000,
+    response_mime_type: Optional[str] = None,
+) -> str:
+    model = _normalize_ai_model(ai_model)
+    if model == AI_MODEL_GPT52:
+        gpt_tokens = min(int(max_output_tokens or 0) or GPT_MAX_OUTPUT_TOKENS, GPT_MAX_OUTPUT_TOKENS)
+        return generate_azure_gpt_text(
+            contents,
+            system_prompt=system_prompt,
+            max_output_tokens=gpt_tokens,
+        )
+    return generate_gemini_text(
+        contents,
+        system_prompt=system_prompt,
+        temperature=temperature,
+        top_p=top_p,
+        max_output_tokens=max_output_tokens,
+        response_mime_type=response_mime_type,
+    )
+
+
+def generate_yaml_with_ai(
     prompt: str,
     *,
+    ai_model: str = AI_MODEL_DEFAULT,
     base_yaml: Optional[str] = None,
     refine_prompt: Optional[str] = None,
+    max_output_tokens: int = 15000,
 ) -> str:
+    model = _normalize_ai_model(ai_model)
     user_prompt = (prompt or "").strip()
     sections: list[str] = []
     if user_prompt:
@@ -2097,12 +2290,27 @@ def generate_yaml_with_gemini(
         sections.append("User prompt:\nGenerate an improved Stonly guide.")
     sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
     contents = ["\n\n".join(sections)]
-    return generate_gemini_text(
+    return generate_ai_text(
         contents,
+        ai_model=model,
         system_prompt=SYSTEM_PROMPT,
-        temperature=0.7,
+        temperature=0.8,
         top_p=0.9,
-        max_output_tokens=15000,
+        max_output_tokens=max_output_tokens,
+    )
+
+
+def generate_yaml_with_gemini(
+    prompt: str,
+    *,
+    base_yaml: Optional[str] = None,
+    refine_prompt: Optional[str] = None,
+) -> str:
+    return generate_yaml_with_ai(
+        prompt,
+        ai_model=AI_MODEL_GEMINI,
+        base_yaml=base_yaml,
+        refine_prompt=refine_prompt,
     )
 
 
@@ -2802,6 +3010,43 @@ def generate_brand_colors_with_gemini(brand_name: str, url: Optional[str] = None
         raise e
 
 
+def _parse_first_step_or_400(first_step_raw: Any, *, context: str = "") -> GuideStep:
+    suffix = f" {context}".rstrip()
+    if not isinstance(first_step_raw, dict):
+        raise HTTPException(400, detail={"error": f"guide.firstStep must be an object{suffix}"})
+
+    # Common model failure mode: firstStep is emitted as { ref: "<key>" }.
+    # A root step must be a concrete step body; refs are only valid inside choices.
+    ref_val = first_step_raw.get("ref")
+    if (
+        isinstance(ref_val, str)
+        and ref_val.strip()
+        and not str(first_step_raw.get("title") or "").strip()
+        and not str(first_step_raw.get("content") or "").strip()
+    ):
+        raise HTTPException(
+            400,
+            detail={
+                "error": f"Invalid guide.firstStep{suffix}: ref-only root step is not allowed",
+                "hint": "guide.firstStep must include title and content; use ref only inside choices[].",
+                "ref": ref_val.strip(),
+            },
+        )
+
+    try:
+        return GuideStep.model_validate(first_step_raw)
+    except ValidationError as e:
+        detail: dict[str, Any] = {
+            "error": f"Invalid guide.firstStep{suffix}",
+            "message": str(e),
+        }
+        try:
+            detail["validation"] = e.errors()
+        except Exception:
+            pass
+        raise HTTPException(400, detail=detail)
+
+
 def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
     text = (source or "").strip()
     if not text:
@@ -2817,9 +3062,7 @@ def parse_guide_yaml(source: str, defaults: GuideDefaults) -> GuideDefinition:
     if not isinstance(guide_data, dict):
         raise HTTPException(400, detail={"error": "Missing guide object"})
     first_step_raw = guide_data.get("firstStep")
-    if not isinstance(first_step_raw, dict):
-        raise HTTPException(400, detail={"error": "guide.firstStep must be an object"})
-    first_step = GuideStep.model_validate(first_step_raw)
+    first_step = _parse_first_step_or_400(first_step_raw)
     content_title = guide_data.get("contentTitle") or defaults.contentTitle or first_step.title
     if not content_title:
         raise HTTPException(400, detail={"error": "Missing contentTitle for guide"})
@@ -2882,9 +3125,7 @@ def parse_guides_multi(source: str, defaults: GuideDefaults) -> list[dict]:
         publish = raw.get("publish")
 
         first_step_raw = guide_data.get("firstStep") if isinstance(guide_data, dict) else None
-        if not isinstance(first_step_raw, dict):
-            raise HTTPException(400, detail={"error": f"guide.firstStep must be an object in document {idx}"})
-        first_step = GuideStep.model_validate(first_step_raw)
+        first_step = _parse_first_step_or_400(first_step_raw, context=f"in document {idx}")
 
         # Compute merged fields with precedence: guide > top-level > defaults
         content_title = guide_data.get("contentTitle") or defaults.contentTitle or first_step.title
@@ -2921,8 +3162,10 @@ def _build_one_guide(
     """
     steps_created: List[Dict[str, Any]] = []
     links_created: List[Dict[str, Any]] = []
+    skipped_duplicate_links: List[Dict[str, Any]] = []
     # key -> stepId mapping for reuse
     by_key: Dict[str, Any] = {}
+    created_link_pairs: set[tuple[Any, Any]] = set()
     if dry_run:
         guide_id: Any = "dry-run-guide"
         first_step_id: Any = "dry-step-1"
@@ -2981,6 +3224,17 @@ def _build_one_guide(
             position_value = choice.position
             target_id = by_key.get(choice.ref)
             if dry_run:
+                if target_id is not None and (parent_step_id, target_id) in created_link_pairs:
+                    skipped_duplicate_links.append({
+                        "sourceStepId": parent_step_id,
+                        "targetKey": choice.ref,
+                        "targetStepId": target_id,
+                        "choiceLabel": choice.label,
+                        "position": position_value,
+                        "parent": parent_title,
+                        "parentPath": path,
+                    })
+                    continue
                 links_created.append({
                     "action": "link",
                     "sourceStepId": parent_step_id,
@@ -2993,6 +3247,17 @@ def _build_one_guide(
                 })
             else:
                 if target_id is not None:
+                    if (parent_step_id, target_id) in created_link_pairs:
+                        skipped_duplicate_links.append({
+                            "sourceStepId": parent_step_id,
+                            "targetKey": choice.ref,
+                            "targetStepId": target_id,
+                            "choiceLabel": choice.label,
+                            "position": position_value,
+                            "parent": parent_title,
+                            "parentPath": path,
+                        })
+                        continue
                     st.link_steps(
                         guide_id=guide_id,
                         source_step_id=parent_step_id,
@@ -3000,6 +3265,7 @@ def _build_one_guide(
                         choice_label=choice.label,
                         position=position_value,
                     )
+                    created_link_pairs.add((parent_step_id, target_id))
                     links_created.append({
                         "action": "link",
                         "sourceStepId": parent_step_id,
@@ -3045,6 +3311,7 @@ def _build_one_guide(
             "choiceLabel": choice.label,
             "position": position_value,
         })
+        created_link_pairs.add((parent_step_id, step_id))
 
         # Register step key for reuse
         if step.key:
@@ -3063,6 +3330,17 @@ def _build_one_guide(
             if tgt is None:
                 unresolved.append(target_key)
                 continue
+            if (source_id, tgt) in created_link_pairs:
+                skipped_duplicate_links.append({
+                    "sourceStepId": source_id,
+                    "targetKey": target_key,
+                    "targetStepId": tgt,
+                    "choiceLabel": label,
+                    "position": pos,
+                    "parent": parent_title,
+                    "parentPath": path,
+                })
+                continue
             st.link_steps(
                 guide_id=guide_id,
                 source_step_id=source_id,
@@ -3070,6 +3348,7 @@ def _build_one_guide(
                 choice_label=label,
                 position=pos,
             )
+            created_link_pairs.add((source_id, tgt))
             links_created.append({
                 "action": "link",
                 "sourceStepId": source_id,
@@ -3100,9 +3379,11 @@ def _build_one_guide(
         "firstStepId": first_step_id,
         "steps": steps_created,
         "links": links_created,
+        "skippedDuplicateLinks": skipped_duplicate_links,
         "summary": {
             "stepCount": len(steps_created),
             "branchCount": max(len(steps_created) - 1, 0),
+            "skippedDuplicateLinks": len(skipped_duplicate_links),
         },
         "published": published,
     }
@@ -3755,24 +4036,26 @@ def api_build_guide_http(payload: GuideBuildPayload, request: Request):
 @app.post(
     "/api/ai-guides/build",
     tags=["Builder"],
-    summary="Generate guide YAML via Gemini, then build/publish it",
+    summary="Generate guide YAML via selected AI model, then build/publish it",
 )
 def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)
     request_id = str(uuid.uuid4())
+    selected_model = _normalize_ai_model(payload.aiModel)
     testing_mode_active = should_use_testing_mode(request, payload.testingMode)
     logger.info(
-        "REQUEST %s :: /api/ai-guides/build team=%s folder=%s publish=%s previewOnly=%s testingMode=%s",
+        "REQUEST %s :: /api/ai-guides/build team=%s folder=%s publish=%s previewOnly=%s model=%s testingMode=%s",
         request_id,
         payload.teamId,
         payload.folderId,
         payload.publish,
         payload.previewOnly,
+        selected_model,
         testing_mode_active,
     )
 
-    # 1) Determine YAML source (manual override vs Gemini)
+    # 1) Determine YAML source (manual override vs selected model)
     provided_yaml = (payload.yamlOverride or "").strip() or None
     if provided_yaml:
         raw_yaml = provided_yaml
@@ -3783,10 +4066,15 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
             base_yaml=payload.baseYaml,
         )
     else:
-        raw_yaml = generate_yaml_with_gemini(
+        ai_token_budget = 15000
+        if selected_model == AI_MODEL_GPT52:
+            ai_token_budget = GPT_PREVIEW_MAX_OUTPUT_TOKENS if payload.previewOnly else GPT_MAX_OUTPUT_TOKENS
+        raw_yaml = generate_yaml_with_ai(
             payload.prompt or "",
+            ai_model=selected_model,
             base_yaml=payload.baseYaml,
             refine_prompt=payload.refinePrompt,
+            max_output_tokens=ai_token_budget,
         )
     yaml_text = normalize_ai_yaml(raw_yaml)
 
@@ -3801,9 +4089,9 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
         except HTTPException as e2:
             detail = getattr(e2, "detail", str(e2))
             if isinstance(detail, dict):
-                detail = {**detail, "modelText": raw_yaml}
+                detail = {**detail, "modelText": raw_yaml, "modelUsed": selected_model}
             else:
-                detail = {"error": detail, "modelText": raw_yaml}
+                detail = {"error": detail, "modelText": raw_yaml, "modelUsed": selected_model}
             raise HTTPException(getattr(e2, "status_code", 400), detail=detail)
 
     # 3) Auto-sanitize titles/labels, clamp choice positions, and resolve missing refs to reduce failures
@@ -3812,13 +4100,20 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
         definition = sanitize_titles_and_labels(definition)
         definition = clamp_positions(definition)
         definition = resolve_missing_refs(definition)
+        definition = dedupe_duplicate_ref_choices(definition)
         item["definition"] = definition
 
     # 4) Re-serialize cleaned YAML for display/traceability
     yaml_text = serialize_items_to_yaml(items)
 
     if payload.previewOnly:
-        return {"ok": True, "yaml": yaml_text, "previewOnly": True, "testingMode": testing_mode_active}
+        return {
+            "ok": True,
+            "yaml": yaml_text,
+            "previewOnly": True,
+            "testingMode": testing_mode_active,
+            "modelUsed": selected_model,
+        }
 
     # 3) Build using existing pipeline (use stored team token)
     dry_run_flag = bool(payload.dryRun or testing_mode_active)
@@ -3840,15 +4135,18 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     except HTTPException as e:
         detail = getattr(e, "detail", str(e))
         if isinstance(detail, dict):
-            detail = {**detail, "modelText": yaml_text}
+            detail = {**detail, "modelText": yaml_text, "modelUsed": selected_model}
         else:
-            detail = {"error": detail, "modelText": yaml_text}
+            detail = {"error": detail, "modelText": yaml_text, "modelUsed": selected_model}
         raise HTTPException(getattr(e, "status_code", 500), detail=detail)
     except Exception as e:
         logger.exception("AI build failed (request %s)", request_id)
-        raise HTTPException(502, detail={"error": "Guide build failed", "modelText": yaml_text, "message": str(e)})
+        raise HTTPException(
+            502,
+            detail={"error": "Guide build failed", "modelText": yaml_text, "message": str(e), "modelUsed": selected_model},
+        )
 
-    resp = {"ok": True, "yaml": yaml_text, "build": build_result}
+    resp = {"ok": True, "yaml": yaml_text, "build": build_result, "modelUsed": selected_model}
     if testing_mode_active:
         resp["testingMode"] = True
     return resp
