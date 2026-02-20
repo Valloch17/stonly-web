@@ -85,13 +85,15 @@ GOOGLE_STATE_TTL = int(os.getenv("GOOGLE_STATE_TTL", "600"))
 # Allow local testing shortcuts (e.g., ephemeral keys, sqlite fallback)
 ALLOW_LOCAL_TESTING_MODE = os.getenv("AI_ALLOW_TESTING_MODE", "1") != "0"
 
-AIModel = Literal["gemini", "gpt52"]
+AIModel = Literal["gemini", "gpt51", "gpt52"]
 AI_MODEL_GEMINI: AIModel = "gemini"
+AI_MODEL_GPT51: AIModel = "gpt51"
 AI_MODEL_GPT52: AIModel = "gpt52"
 AI_MODEL_DEFAULT: AIModel = AI_MODEL_GEMINI
 GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3-pro-preview")
 GPT_AZURE_ENDPOINT = os.getenv("GPT_AZURE_ENDPOINT", "https://eastus2-internal.cognitiveservices.azure.com/")
-GPT_AZURE_DEPLOYMENT = os.getenv("GPT_AZURE_DEPLOYMENT", "AiBuilder-Gpt52-20251211")
+GPT_AZURE_DEPLOYMENT_GPT52 = os.getenv("GPT_AZURE_DEPLOYMENT_GPT52", "AiBuilder-Gpt52-20251211")
+GPT_AZURE_DEPLOYMENT_GPT51 = os.getenv("GPT_AZURE_DEPLOYMENT_GPT51", "AiBuilder-Gpt51-20251113")
 GPT_AZURE_API_VERSION = os.getenv("GPT_AZURE_API_VERSION", "2025-04-01-preview")
 GPT_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_MAX_OUTPUT_TOKENS", "15000"))
 GPT_PREVIEW_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_PREVIEW_MAX_OUTPUT_TOKENS", "10000"))
@@ -102,9 +104,19 @@ def _normalize_ai_model(value: Optional[str]) -> AIModel:
     raw = (value or "").strip().lower()
     if raw in {"", "gemini", "gemini-3-pro", "gemini-3-pro-preview"}:
         return AI_MODEL_GEMINI
+    if raw in {"gpt51", "gpt-5.1", "gpt5.1"}:
+        return AI_MODEL_GPT51
     if raw in {"gpt", "gpt52", "gpt-5.2", "gpt5.2"}:
         return AI_MODEL_GPT52
-    raise ValueError("aiModel must be one of: gemini, gpt52")
+    raise ValueError("aiModel must be one of: gemini, gpt51, gpt52")
+
+
+def _get_azure_deployment_for_model(model: AIModel) -> str:
+    if model == AI_MODEL_GPT51:
+        return (GPT_AZURE_DEPLOYMENT_GPT51 or "").strip()
+    if model == AI_MODEL_GPT52:
+        return (GPT_AZURE_DEPLOYMENT_GPT52 or "").strip()
+    return ""
 
 # Session / cookie configuration (account login)
 SESSION_COOKIE_NAME = "st_session"
@@ -1594,15 +1606,13 @@ def _load_azure_openai_client():
         raise HTTPException(500, detail={"error": "Missing env: GPT_API_KEY"})
     if not GPT_AZURE_ENDPOINT:
         raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_ENDPOINT"})
-    if not GPT_AZURE_DEPLOYMENT:
-        raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_DEPLOYMENT"})
 
     client = AzureOpenAI(
         api_version=GPT_AZURE_API_VERSION,
         azure_endpoint=GPT_AZURE_ENDPOINT,
         api_key=api_key,
     )
-    return client, GPT_AZURE_DEPLOYMENT
+    return client
 
 
 SYSTEM_PROMPT = """You are a GUIDE GENERATOR for Stonly. OUTPUT ONLY VALID STONLY GUIDE YAML based on the user request — NO prose, NO Markdown fences, NO code blocks.
@@ -2192,10 +2202,16 @@ def _extract_openai_chat_text(resp: Any) -> str:
 def generate_azure_gpt_text(
     contents: list[str],
     *,
+    ai_model: AIModel,
     system_prompt: str,
     max_output_tokens: int = 15000,
 ) -> str:
-    client, deployment = _load_azure_openai_client()
+    client = _load_azure_openai_client()
+    deployment = _get_azure_deployment_for_model(ai_model)
+    if not deployment:
+        if ai_model == AI_MODEL_GPT51:
+            raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_DEPLOYMENT_GPT51"})
+        raise HTTPException(500, detail={"error": "Missing env: GPT_AZURE_DEPLOYMENT_GPT52"})
     user_text = "\n\n".join([str(part).strip() for part in (contents or []) if str(part).strip()]).strip()
     if not user_text:
         user_text = "Generate an improved Stonly guide."
@@ -2252,10 +2268,11 @@ def generate_ai_text(
     response_mime_type: Optional[str] = None,
 ) -> str:
     model = _normalize_ai_model(ai_model)
-    if model == AI_MODEL_GPT52:
+    if model in {AI_MODEL_GPT51, AI_MODEL_GPT52}:
         gpt_tokens = min(int(max_output_tokens or 0) or GPT_MAX_OUTPUT_TOKENS, GPT_MAX_OUTPUT_TOKENS)
         return generate_azure_gpt_text(
             contents,
+            ai_model=model,
             system_prompt=system_prompt,
             max_output_tokens=gpt_tokens,
         )
@@ -4067,7 +4084,7 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
         )
     else:
         ai_token_budget = 15000
-        if selected_model == AI_MODEL_GPT52:
+        if selected_model in {AI_MODEL_GPT51, AI_MODEL_GPT52}:
             ai_token_budget = GPT_PREVIEW_MAX_OUTPUT_TOKENS if payload.previewOnly else GPT_MAX_OUTPUT_TOKENS
         raw_yaml = generate_yaml_with_ai(
             payload.prompt or "",
