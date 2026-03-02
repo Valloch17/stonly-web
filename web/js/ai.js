@@ -6,12 +6,7 @@ if (typeof window.requireAdmin === "function") {
   const el = (id) => document.getElementById(id);
   const STORAGE_PROMPT = "ai_creator_prompt";
   const STORAGE_AI_MODEL = "ai_creator_model";
-  const DEFAULT_AI_MODEL = "gemini";
-  const AI_MODEL_META = {
-    gemini: { label: "Gemini 3 Pro" },
-    gpt51: { label: "GPT 5.1" },
-    gpt52: { label: "GPT 5.2" },
-  };
+  const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || "gemini";
   const previewSpinner = el("previewSpinner");
   const previewSpinnerText = el("previewSpinnerText");
   const previewPlaceholder = el("previewPlaceholder");
@@ -30,17 +25,13 @@ if (typeof window.requireAdmin === "function") {
   const testingToggle = el("testingModeToggle");
   const testingToggleLabel = el("testingModeToggleLabel");
   const testingBanner = el("testingModeBanner");
-  const aiModelButton = el("aiModelButton");
-  const aiModelButtonText = el("aiModelButtonText");
-  const aiModelMenu = el("aiModelMenu");
-  const aiModelOptions = Array.from(document.querySelectorAll("[data-model-option]"));
   const modelOutputTitle = el("modelOutputTitle");
   const searchParams = new URLSearchParams(window.location.search || "");
   const allowTestingToggle = detectLocalHost() || ["1", "true", "on"].includes((searchParams.get("enableTesting") || "").toLowerCase());
   const REFRESH_GUARD_MESSAGE = "A preview is in progress. Refreshing now will discard it.";
   let testingMode = false;
   let lastResponseTesting = false;
-  let selectedAiModel = DEFAULT_AI_MODEL;
+  let aiModelSelector = null;
 
   let lastYaml = "";
   let lastPromptValue = "";
@@ -61,90 +52,18 @@ if (typeof window.requireAdmin === "function") {
   }
   if (!allowTestingToggle) testingMode = false;
 
-  function normalizeAiModel(value) {
-    const raw = String(value || "").trim().toLowerCase();
-    if (!raw || raw === "gemini" || raw === "gemini-3-pro" || raw === "gemini-3-pro-preview") return "gemini";
-    if (raw === "gpt51" || raw === "gpt5.1" || raw === "gpt-5.1") return "gpt51";
-    if (raw === "gpt" || raw === "gpt52" || raw === "gpt5.2" || raw === "gpt-5.2") return "gpt52";
-    return DEFAULT_AI_MODEL;
+  function getSelectedAiModel() {
+    return aiModelSelector ? aiModelSelector.getValue() : DEFAULT_AI_MODEL;
   }
 
   function getSelectedModelLabel() {
-    return AI_MODEL_META[selectedAiModel]?.label || AI_MODEL_META[DEFAULT_AI_MODEL].label;
-  }
-
-  function closeAiModelMenu() {
-    if (!aiModelMenu || !aiModelButton) return;
-    aiModelMenu.classList.add("hidden");
-    aiModelButton.setAttribute("aria-expanded", "false");
-  }
-
-  function syncModelSelectionUI() {
-    const label = getSelectedModelLabel();
-    if (aiModelButtonText) aiModelButtonText.textContent = `Model: ${label}`;
-    if (modelOutputTitle) modelOutputTitle.textContent = `Output from ${label}`;
-    aiModelOptions.forEach((optionEl) => {
-      const isSelected = normalizeAiModel(optionEl.getAttribute("data-model-option")) === selectedAiModel;
-      optionEl.classList.toggle("is-selected", isSelected);
-      optionEl.setAttribute("aria-pressed", isSelected ? "true" : "false");
-    });
+    if (aiModelSelector) return aiModelSelector.getLabel();
+    return typeof window.getAiModelLabel === "function" ? window.getAiModelLabel(DEFAULT_AI_MODEL) : "Gemini 3 Pro";
   }
 
   function setSelectedAiModel(value, { persist = true } = {}) {
-    selectedAiModel = normalizeAiModel(value);
-    if (persist) {
-      try { localStorage.setItem(STORAGE_AI_MODEL, selectedAiModel); } catch { }
-    }
-    syncModelSelectionUI();
-    syncTestingBanner();
-  }
-
-  function initSelectedAiModel() {
-    const paramModel = normalizeAiModel(searchParams.get("model"));
-    if (searchParams.has("model")) {
-      setSelectedAiModel(paramModel, { persist: true });
-      return;
-    }
-    try {
-      const stored = localStorage.getItem(STORAGE_AI_MODEL);
-      setSelectedAiModel(stored || DEFAULT_AI_MODEL, { persist: false });
-    } catch {
-      setSelectedAiModel(DEFAULT_AI_MODEL, { persist: false });
-    }
-  }
-
-  function setupAiModelMenu() {
-    if (!aiModelButton || !aiModelMenu) return;
-    aiModelButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      const willOpen = aiModelMenu.classList.contains("hidden");
-      if (willOpen) {
-        aiModelMenu.classList.remove("hidden");
-        aiModelButton.setAttribute("aria-expanded", "true");
-      } else {
-        closeAiModelMenu();
-      }
-    });
-
-    aiModelOptions.forEach((optionEl) => {
-      optionEl.addEventListener("click", (event) => {
-        event.preventDefault();
-        const nextModel = optionEl.getAttribute("data-model-option");
-        setSelectedAiModel(nextModel, { persist: true });
-        closeAiModelMenu();
-      });
-    });
-
-    document.addEventListener("click", (event) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (aiModelButton.contains(target) || aiModelMenu.contains(target)) return;
-      closeAiModelMenu();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") closeAiModelMenu();
-    });
+    if (!aiModelSelector) return DEFAULT_AI_MODEL;
+    return aiModelSelector.setValue(value, { persist });
   }
 
   function detectLocalHost() {
@@ -305,7 +224,7 @@ if (typeof window.requireAdmin === "function") {
       prompt: (el("prompt")?.value || "").trim(),
       teamId: el("teamSelect")?.value ? Number(el("teamSelect").value) : null,
       folderId: el("folderId")?.value ? Number(el("folderId").value) : null,
-      aiModel: selectedAiModel,
+      aiModel: getSelectedAiModel(),
       publish: !!el("publish")?.checked,
     };
   }
@@ -619,8 +538,23 @@ if (typeof window.requireAdmin === "function") {
       fn();
     }
   })(function () {
-    initSelectedAiModel();
-    setupAiModelMenu();
+    if (!aiModelSelector && typeof window.createAiModelSelector === "function") {
+      aiModelSelector = window.createAiModelSelector({
+        storageKey: STORAGE_AI_MODEL,
+        buttonId: "aiModelButton",
+        buttonTextId: "aiModelButtonText",
+        menuId: "aiModelMenu",
+        optionSelector: "[data-model-option]",
+        optionAttr: "data-model-option",
+        defaultModel: DEFAULT_AI_MODEL,
+        onRender: ({ label }) => {
+          if (modelOutputTitle) modelOutputTitle.textContent = `Output from ${label}`;
+        },
+        onChange: () => {
+          syncTestingBanner();
+        },
+      });
+    }
 
     if (testingToggle) {
       if (allowTestingToggle) {

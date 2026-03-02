@@ -41,6 +41,50 @@
       border-color: rgba(74, 222, 128, 0.75) !important;
       color: #bbf7d0 !important;
     }
+    .ai-model-trigger {
+      color: var(--muted);
+      background: transparent;
+      box-shadow: none;
+      filter: none;
+    }
+    button.ai-model-trigger:hover,
+    button.ai-model-trigger:active,
+    button.ai-model-trigger:focus-visible {
+      color: var(--text);
+      background: transparent !important;
+      box-shadow: none !important;
+      filter: none !important;
+      outline: none;
+      outline-offset: 0;
+    }
+    #expertAiModelMenu {
+      box-shadow: none;
+      border-color: var(--border);
+      background: var(--card);
+    }
+    .ai-model-option {
+      color: var(--muted);
+      background: transparent;
+    }
+    .ai-model-option:hover,
+    .ai-model-option:focus-visible {
+      color: var(--text);
+      background: transparent;
+      outline: none;
+    }
+    button.ai-model-option:hover,
+    button.ai-model-option:active,
+    button.ai-model-option:focus-visible {
+      background: transparent !important;
+      box-shadow: none !important;
+      filter: none !important;
+      outline: none;
+      outline-offset: 0;
+    }
+    .ai-model-option.is-selected {
+      color: var(--text);
+      font-weight: 600;
+    }
     .mode-toggle {
       display: inline-flex;
       align-items: center;
@@ -214,6 +258,22 @@
         <div class="md:col-span-2">
           <label class="block text-sm font-medium">Prompt instructions <span class="text-red-600">*</span></label>
           <textarea id="autoPrompt" rows="6" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Describe the product, audience, and topics to cover."></textarea>
+          <div class="mt-2 flex items-center justify-between gap-2">
+            <p class="text-xs text-slate-500">Used for automated KB, guide, and organiser generation.</p>
+            <div class="relative inline-flex">
+              <button id="expertAiModelButton" type="button" class="ai-model-trigger inline-flex items-center gap-1 text-xs transition-colors" aria-haspopup="true" aria-expanded="false">
+                <span id="expertAiModelButtonText">Model: GPT 5.1</span>
+                <svg viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
+                  <path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 0 1 1.06.02L10 11.17l3.71-3.94a.75.75 0 1 1 1.08 1.04l-4.24 4.5a.75.75 0 0 1-1.08 0l-4.24-4.5a.75.75 0 0 1 .02-1.06z" clip-rule="evenodd" />
+                </svg>
+              </button>
+              <div id="expertAiModelMenu" class="hidden absolute right-0 top-5 mt-1 z-20 min-w-[170px] rounded-lg border bg-card p-1">
+                <button type="button" data-expert-model-option="gemini" class="ai-model-option w-full text-left text-xs px-2 py-1.5 rounded-md transition-colors">Gemini 3 Pro (shorter)</button>
+                <button type="button" data-expert-model-option="gpt51" class="ai-model-option w-full text-left text-xs px-2 py-1.5 rounded-md transition-colors">GPT 5.1 (complete)</button>
+                <button type="button" data-expert-model-option="gpt52" class="ai-model-option w-full text-left text-xs px-2 py-1.5 rounded-md transition-colors">GPT 5.2 (slower)</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <p id="autoStatus" class="text-sm text-slate-500">Ready.</p>
@@ -382,8 +442,8 @@
     </a>
   </div>
 
-  <script src="/js/shared.js"></script>
-  <script src="/js/expert.js"></script>
+  <script src="/js/shared.js?v=2"></script>
+  <script src="/js/expert.js?v=2"></script>
 </body>
 
 </html>

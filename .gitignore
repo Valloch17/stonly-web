@@ -1,4 +1,10 @@
 logs/*
+server/logs/*
 samples/*
 stonly.db
 .env
+server/.env
+.venv/
+.DS_Store
+server/stonly.db
+*.swp

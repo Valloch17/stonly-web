@@ -139,6 +139,151 @@
       .replace(/\[cite\s*:[^\]]*]/g, "");
   };
 
+  const DEFAULT_AI_MODEL = "gpt51";
+  const AI_MODEL_META = Object.freeze({
+    gemini: { label: "Gemini 3 Pro" },
+    gpt51: { label: "GPT 5.1" },
+    gpt52: { label: "GPT 5.2" },
+  });
+
+  window.DEFAULT_AI_MODEL = DEFAULT_AI_MODEL;
+  window.AI_MODEL_META = AI_MODEL_META;
+  window.normalizeAiModel = function normalizeAiModel(value) {
+    const raw = String(value || "").trim().toLowerCase();
+    if (!raw || raw === "gemini" || raw === "gemini-3-pro" || raw === "gemini-3-pro-preview") return "gemini";
+    if (raw === "gpt51" || raw === "gpt5.1" || raw === "gpt-5.1") return "gpt51";
+    if (raw === "gpt" || raw === "gpt52" || raw === "gpt5.2" || raw === "gpt-5.2") return "gpt52";
+    return DEFAULT_AI_MODEL;
+  };
+  window.getAiModelLabel = function getAiModelLabel(value) {
+    const model = window.normalizeAiModel(value);
+    return AI_MODEL_META[model]?.label || AI_MODEL_META[DEFAULT_AI_MODEL].label;
+  };
+  window.createAiModelSelector = function createAiModelSelector({
+    storageKey,
+    buttonId,
+    buttonTextId,
+    menuId,
+    optionSelector,
+    optionAttr,
+    defaultModel,
+    queryParam = "model",
+    renderButtonText,
+    onRender,
+    onChange,
+  } = {}) {
+    const fallbackModel = window.normalizeAiModel(defaultModel || DEFAULT_AI_MODEL);
+    const button = buttonId ? document.getElementById(buttonId) : null;
+    const buttonText = buttonTextId ? document.getElementById(buttonTextId) : null;
+    const menu = menuId ? document.getElementById(menuId) : null;
+    const options = Array.from(document.querySelectorAll(optionSelector || ""));
+    const attrName = optionAttr || "data-model-option";
+    const searchParams = new URLSearchParams(window.location.search || "");
+    let selectedModel = fallbackModel;
+
+    function getValue() {
+      return selectedModel;
+    }
+
+    function getLabel() {
+      return window.getAiModelLabel(selectedModel);
+    }
+
+    function closeMenu() {
+      if (!menu || !button) return;
+      menu.classList.add("hidden");
+      button.setAttribute("aria-expanded", "false");
+    }
+
+    function syncUI() {
+      const label = getLabel();
+      if (buttonText) {
+        buttonText.textContent = typeof renderButtonText === "function"
+          ? renderButtonText({ value: selectedModel, label })
+          : `Model: ${label}`;
+      }
+      options.forEach((optionEl) => {
+        const isSelected = window.normalizeAiModel(optionEl.getAttribute(attrName)) === selectedModel;
+        optionEl.classList.toggle("is-selected", isSelected);
+        optionEl.setAttribute("aria-pressed", isSelected ? "true" : "false");
+      });
+      if (typeof onRender === "function") onRender({ value: selectedModel, label });
+    }
+
+    function setValue(value, { persist = true, silent = false } = {}) {
+      selectedModel = window.normalizeAiModel(value || fallbackModel);
+      if (persist && storageKey) {
+        try { localStorage.setItem(storageKey, selectedModel); } catch {}
+      }
+      syncUI();
+      if (!silent && typeof onChange === "function") onChange({ value: selectedModel, label: getLabel() });
+      return selectedModel;
+    }
+
+    function initValue() {
+      const paramModel = window.normalizeAiModel(searchParams.get(queryParam));
+      if (searchParams.has(queryParam)) {
+        setValue(paramModel, { persist: true, silent: true });
+        return;
+      }
+      try {
+        const stored = storageKey ? localStorage.getItem(storageKey) : null;
+        setValue(stored || fallbackModel, { persist: false, silent: true });
+      } catch {
+        setValue(fallbackModel, { persist: false, silent: true });
+      }
+    }
+
+    function setDisabled(disabled) {
+      if (!button) return;
+      button.disabled = !!disabled;
+      button.classList.toggle("opacity-70", !!disabled);
+      button.classList.toggle("cursor-not-allowed", !!disabled);
+    }
+
+    if (button && menu) {
+      button.addEventListener("click", (event) => {
+        event.preventDefault();
+        const willOpen = menu.classList.contains("hidden");
+        if (willOpen) {
+          menu.classList.remove("hidden");
+          button.setAttribute("aria-expanded", "true");
+        } else {
+          closeMenu();
+        }
+      });
+
+      options.forEach((optionEl) => {
+        optionEl.addEventListener("click", (event) => {
+          event.preventDefault();
+          setValue(optionEl.getAttribute(attrName), { persist: true });
+          closeMenu();
+        });
+      });
+
+      document.addEventListener("click", (event) => {
+        const target = event.target;
+        if (!(target instanceof Node)) return;
+        if (button.contains(target) || menu.contains(target)) return;
+        closeMenu();
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") closeMenu();
+      });
+    }
+
+    initValue();
+
+    return {
+      getValue,
+      getLabel,
+      setValue,
+      setDisabled,
+      closeMenu,
+    };
+  };
+
   // 4) Shared language selector (searchable, strict codes)
   const LANGUAGE_OPTIONS = [
     { code: "af", name: "Afrikaans" },

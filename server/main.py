@@ -1012,6 +1012,7 @@ class AIGuidePayload(BaseModel):
 
 class AIPromptPayload(BaseModel):
     prompt: str = ""
+    aiModel: str = AI_MODEL_DEFAULT
 
     @field_validator("prompt")
     @classmethod
@@ -1020,6 +1021,11 @@ class AIPromptPayload(BaseModel):
         if len(text) > 40000:
             raise ValueError("prompt is too long (max 40000 characters)")
         return text
+
+    @field_validator("aiModel")
+    @classmethod
+    def ai_model_supported(cls, v: str):
+        return _normalize_ai_model(v)
 
 
 class BrandWebsitePayload(BaseModel):
@@ -2331,12 +2337,13 @@ def generate_yaml_with_gemini(
     )
 
 
-def generate_kb_yaml_with_gemini(prompt: str) -> str:
+def generate_kb_yaml_with_ai(prompt: str, *, ai_model: str = AI_MODEL_DEFAULT) -> str:
     user_prompt = (prompt or "").strip()
     if not user_prompt:
         user_prompt = "Create a knowledge base structure."
-    return generate_gemini_text(
+    return generate_ai_text(
         [user_prompt],
+        ai_model=ai_model,
         system_prompt=KB_SYSTEM_PROMPT,
         temperature=0.4,
         top_p=0.9,
@@ -2344,17 +2351,26 @@ def generate_kb_yaml_with_gemini(prompt: str) -> str:
     )
 
 
-def generate_organiser_yaml_with_gemini(prompt: str) -> str:
+def generate_kb_yaml_with_gemini(prompt: str) -> str:
+    return generate_kb_yaml_with_ai(prompt, ai_model=AI_MODEL_GEMINI)
+
+
+def generate_organiser_yaml_with_ai(prompt: str, *, ai_model: str = AI_MODEL_DEFAULT) -> str:
     user_prompt = (prompt or "").strip()
     if not user_prompt:
         user_prompt = "Categorize the guides into the KB folders."
-    return generate_gemini_text(
+    return generate_ai_text(
         [user_prompt],
+        ai_model=ai_model,
         system_prompt=ORGANISER_SYSTEM_PROMPT,
         temperature=0.2,
         top_p=0.9,
         max_output_tokens=12000,
     )
+
+
+def generate_organiser_yaml_with_gemini(prompt: str) -> str:
+    return generate_organiser_yaml_with_ai(prompt, ai_model=AI_MODEL_GEMINI)
 
 
 def _extract_first_url(text: str) -> Optional[str]:
@@ -4172,14 +4188,15 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
 @app.post(
     "/api/ai-kb/generate",
     tags=["Builder"],
-    summary="Generate KB YAML via Gemini",
+    summary="Generate KB YAML via selected AI model",
 )
 def api_ai_kb_generate(payload: AIPromptPayload, request: Request):
     with SessionLocal() as db:
         _user = get_user_from_request(db, request)
     request_id = str(uuid.uuid4())
-    logger.info("REQUEST %s :: /api/ai-kb/generate", request_id)
-    raw_yaml = generate_kb_yaml_with_gemini(payload.prompt or "")
+    selected_model = _normalize_ai_model(payload.aiModel)
+    logger.info("REQUEST %s :: /api/ai-kb/generate model=%s", request_id, selected_model)
+    raw_yaml = generate_kb_yaml_with_ai(payload.prompt or "", ai_model=selected_model)
     yaml_text = normalize_ai_yaml(raw_yaml)
     return {"ok": True, "yaml": yaml_text}
 
@@ -4187,14 +4204,15 @@ def api_ai_kb_generate(payload: AIPromptPayload, request: Request):
 @app.post(
     "/api/ai-organiser/generate",
     tags=["Builder"],
-    summary="Generate Guide Organiser YAML via Gemini",
+    summary="Generate Guide Organiser YAML via selected AI model",
 )
 def api_ai_organiser_generate(payload: AIPromptPayload, request: Request):
     with SessionLocal() as db:
         _user = get_user_from_request(db, request)
     request_id = str(uuid.uuid4())
-    logger.info("REQUEST %s :: /api/ai-organiser/generate", request_id)
-    raw_yaml = generate_organiser_yaml_with_gemini(payload.prompt or "")
+    selected_model = _normalize_ai_model(payload.aiModel)
+    logger.info("REQUEST %s :: /api/ai-organiser/generate model=%s", request_id, selected_model)
+    raw_yaml = generate_organiser_yaml_with_ai(payload.prompt or "", ai_model=selected_model)
     yaml_text = normalize_ai_yaml(raw_yaml)
     return {"ok": True, "yaml": yaml_text}
 

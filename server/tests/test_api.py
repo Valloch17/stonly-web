@@ -1,4 +1,9 @@
 import json
+try:
+    import server.main as main
+except ModuleNotFoundError:
+    import main as main
+
 PARENT_ID = 1000           # matches FakeStonly root parent
 SUPPORT_ID = 2000          # existing Support in FakeStonly
 FAQS_ID = 2001             # existing FAQs in FakeStonly
@@ -107,3 +112,49 @@ def test_verify_no_diffs_when_tree_matches(client, creds):
         assert data["missing"] in ([], {})
     if "unexpected" in data:
         assert data["unexpected"] in ([], {})
+
+
+def test_ai_kb_generate_uses_selected_model(client, monkeypatch):
+    captured = {}
+
+    def fake_generate(prompt, *, ai_model):
+        captured["prompt"] = prompt
+        captured["ai_model"] = ai_model
+        return "- name: Support"
+
+    monkeypatch.setattr(main, "generate_kb_yaml_with_ai", fake_generate)
+
+    r = client.post("/api/ai-kb/generate", json={
+        "prompt": "Build a KB",
+        "aiModel": "gpt51",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["yaml"] == "- name: Support"
+    assert captured == {
+        "prompt": "Build a KB",
+        "ai_model": "gpt51",
+    }
+
+
+def test_ai_organiser_generate_uses_selected_model(client, monkeypatch):
+    captured = {}
+
+    def fake_generate(prompt, *, ai_model):
+        captured["prompt"] = prompt
+        captured["ai_model"] = ai_model
+        return "- title: Guide\n  folderId: 123"
+
+    monkeypatch.setattr(main, "generate_organiser_yaml_with_ai", fake_generate)
+
+    r = client.post("/api/ai-organiser/generate", json={
+        "prompt": "Map guides",
+        "aiModel": "gpt52",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["yaml"] == "- title: Guide\n  folderId: 123"
+    assert captured == {
+        "prompt": "Map guides",
+        "ai_model": "gpt52",
+    }

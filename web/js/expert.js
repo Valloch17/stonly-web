@@ -7,6 +7,10 @@
   const MODE_STORAGE_KEY = 'expert_mode';
   const AUTO_BRAND_KEY = 'expert_auto_brand';
   const AUTO_PROMPT_KEY = 'expert_auto_prompt';
+  const AUTO_AI_MODEL_KEY = 'expert_auto_ai_model';
+  const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || 'gemini';
+  const autoAiModelButton = el('expertAiModelButton');
+  let autoAiModelSelector = null;
 
   function getBASE(){
     try { return (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, ''); } catch { return ''; }
@@ -61,6 +65,10 @@
     const publicAccess = parseInt((el('publicAccess')?.value || '1'), 10);
     const language = (el('lang')?.value || 'en').trim() || 'en';
     return { user, teamId, base, parentId, publicAccess, language };
+  }
+
+  function getSelectedAutoAiModel() {
+    return autoAiModelSelector ? autoAiModelSelector.getValue() : DEFAULT_AI_MODEL;
   }
 
   function setOut(id, value){
@@ -755,6 +763,12 @@
     btn.disabled = !!disabled;
     btn.classList.toggle('opacity-70', !!disabled);
     btn.classList.toggle('cursor-not-allowed', !!disabled);
+    if (autoAiModelSelector) autoAiModelSelector.setDisabled(disabled);
+    else if (autoAiModelButton) {
+      autoAiModelButton.disabled = !!disabled;
+      autoAiModelButton.classList.toggle('opacity-70', !!disabled);
+      autoAiModelButton.classList.toggle('cursor-not-allowed', !!disabled);
+    }
   }
 
   function buildKbPrompt(brand, instructions){
@@ -1031,7 +1045,7 @@
       const kbResp = await apiFetch('/api/ai-kb/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: kbPrompt }),
+        body: JSON.stringify({ prompt: kbPrompt, aiModel: getSelectedAutoAiModel() }),
       });
       const kbYamlRaw = normalizeAiYaml(kbResp?.yaml || '');
       if (!kbYamlRaw) throw new Error('KB gem returned empty YAML.');
@@ -1076,6 +1090,7 @@
           prompt: guidePrompt,
           teamId: c.teamId,
           folderId: c.parentId,
+          aiModel: getSelectedAutoAiModel(),
           publish: false,
           previewOnly: true,
           base: c.base,
@@ -1098,7 +1113,7 @@
       const organiserResp = await apiFetch('/api/ai-organiser/generate', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt: organiserInput }),
+        body: JSON.stringify({ prompt: organiserInput, aiModel: getSelectedAutoAiModel() }),
       });
       const organiserYamlRaw = normalizeAiYaml(organiserResp?.yaml || '');
       if (!organiserYamlRaw) throw new Error('Organiser gem returned empty YAML.');
@@ -1311,6 +1326,18 @@
 
   // Wire events on DOM ready (shared.js exposes window.onReady)
   (window.onReady || ((fn)=>fn()))(() => {
+    if (!autoAiModelSelector && typeof window.createAiModelSelector === 'function') {
+      autoAiModelSelector = window.createAiModelSelector({
+        storageKey: AUTO_AI_MODEL_KEY,
+        buttonId: 'expertAiModelButton',
+        buttonTextId: 'expertAiModelButtonText',
+        menuId: 'expertAiModelMenu',
+        optionSelector: '[data-expert-model-option]',
+        optionAttr: 'data-expert-model-option',
+        defaultModel: DEFAULT_AI_MODEL,
+      });
+    }
+
     el('kbRunBtn')?.addEventListener('click', onKbRun);
     el('kbDumpBtn')?.addEventListener('click', onKbDump);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
