@@ -8,3 +8,4 @@ server/.env
 .DS_Store
 server/stonly.db
 *.swp
+.vscode/*
