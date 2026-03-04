@@ -183,7 +183,8 @@ def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch)
             "publish": payload.publish,
             "user_id": user_id,
             "team_id": getattr(stonly_client, "team_id", None),
-            "auth": getattr(getattr(stonly_client, "s", None), "auth", None),
+            "user": getattr(stonly_client, "user", None),
+            "password": getattr(stonly_client, "password", None),
         }
         return {"ok": True, "guideId": "g-1"}
 
@@ -218,7 +219,8 @@ def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch)
     assert captured["build"]["publish"] is True
     assert captured["build"]["user_id"] is None
     assert captured["build"]["team_id"] == 39539
-    assert captured["build"]["auth"] == ("Importer", "importer-team-token")
+    assert captured["build"]["user"] == "Importer"
+    assert captured["build"]["password"] == "importer-team-token"
 
 
 def test_importer_html_to_guide_requires_auth_without_session(monkeypatch):
