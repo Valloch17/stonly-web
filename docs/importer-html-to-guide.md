@@ -4,6 +4,8 @@
 
 `POST /api/importer/html-to-guide`
 
+Base URL for direct backend calls: `https://ai-builder-api.stonly.com`
+
 Converts one HTML document into one Stonly guide using the selected AI model, then optionally creates and publishes that guide in Stonly.
 
 ## What it does
@@ -72,7 +74,7 @@ Recommendation: use a dedicated `IMPORTER_ADMIN_TOKEN` for this endpoint instead
 ## Example request
 
 ```bash
-curl -X POST https://ai-builder.stonly.com/api/importer/html-to-guide \
+curl -X POST https://ai-builder-api.stonly.com/api/importer/html-to-guide \
   -H "Content-Type: application/json" \
   -H "X-Admin-Token: $IMPORTER_ADMIN_TOKEN" \
   -d '{
@@ -91,7 +93,7 @@ curl -X POST https://ai-builder.stonly.com/api/importer/html-to-guide \
 ## Example preview request
 
 ```bash
-curl -X POST https://ai-builder.stonly.com/api/importer/html-to-guide \
+curl -X POST https://ai-builder-api.stonly.com/api/importer/html-to-guide \
   -H "Content-Type: application/json" \
   -H "X-Admin-Token: $IMPORTER_ADMIN_TOKEN" \
   -d '{
