@@ -1,4 +1,5 @@
 import json
+from fastapi.testclient import TestClient
 try:
     import server.main as main
 except ModuleNotFoundError:
@@ -158,3 +159,100 @@ def test_ai_organiser_generate_uses_selected_model(client, monkeypatch):
         "prompt": "Map guides",
         "ai_model": "gpt52",
     }
+
+
+def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch):
+    captured = {}
+
+    def fake_generate_html_import_yaml_with_ai(**kwargs):
+        captured["generate"] = kwargs
+        return """guide:
+  contentTitle: Imported guide
+  contentType: GUIDE
+  language: en-US
+  firstStep:
+    title: Start
+    content: "<p>Imported from HTML</p>"
+"""
+
+    def fake_build(payload, *, user_id=None, stonly_client=None):
+        captured["build"] = {
+            "yaml": payload.yaml,
+            "teamId": payload.creds.teamId,
+            "folderId": payload.folderId,
+            "publish": payload.publish,
+            "user_id": user_id,
+            "team_id": getattr(stonly_client, "team_id", None),
+            "user": getattr(stonly_client, "user", None),
+            "password": getattr(stonly_client, "password", None),
+        }
+        return {"ok": True, "guideId": "g-1"}
+
+    monkeypatch.setattr(main, "generate_html_import_yaml_with_ai", fake_generate_html_import_yaml_with_ai)
+    monkeypatch.setattr(main, "api_build_guide", fake_build)
+
+    with TestClient(main.app) as raw_client:
+        r = raw_client.post(
+            "/api/importer/html-to-guide",
+            headers={"x-admin-token": "secret"},
+            json={
+                "teamId": 39539,
+                "teamToken": "importer-team-token",
+                "folderId": 2000,
+                "html": "<html><head><title>Imported Doc</title></head><body><h1>Hello</h1></body></html>",
+                "aiModel": "gpt51",
+                "publish": True,
+                "documentName": "Forced title",
+            },
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["authMode"] == "admin_token"
+    assert body["modelUsed"] == "gpt51"
+    assert captured["generate"]["ai_model"] == "gpt51"
+    assert captured["generate"]["content_title"] == "Forced title"
+    assert captured["generate"]["document_name"] == "Forced title"
+    assert captured["build"]["teamId"] == 39539
+    assert captured["build"]["folderId"] == 2000
+    assert captured["build"]["publish"] is True
+    assert captured["build"]["user_id"] is None
+    assert captured["build"]["team_id"] == 39539
+    assert captured["build"]["user"] == "Importer"
+    assert captured["build"]["password"] == "importer-team-token"
+
+
+def test_importer_html_to_guide_requires_auth_without_session(monkeypatch):
+    monkeypatch.setattr(main, "generate_html_import_yaml_with_ai", lambda **kwargs: "guide: {}")
+
+    with TestClient(main.app) as raw_client:
+        r = raw_client.post(
+            "/api/importer/html-to-guide",
+            json={
+                "teamId": 39539,
+                "folderId": 2000,
+                "html": "<html><body>Hello</body></html>",
+            },
+        )
+
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Missing or expired session"
+
+
+def test_importer_html_to_guide_requires_team_token_for_admin_auth(monkeypatch):
+    monkeypatch.setattr(main, "generate_html_import_yaml_with_ai", lambda **kwargs: "guide: {}")
+
+    with TestClient(main.app) as raw_client:
+        r = raw_client.post(
+            "/api/importer/html-to-guide",
+            headers={"Authorization": "Bearer secret"},
+            json={
+                "teamId": 39539,
+                "folderId": 2000,
+                "html": "<html><body>Hello</body></html>",
+            },
+        )
+
+    assert r.status_code == 400
+    assert r.json()["detail"] == "teamToken is required when using importer admin auth"

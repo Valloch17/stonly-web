@@ -98,6 +98,7 @@ GPT_AZURE_API_VERSION = os.getenv("GPT_AZURE_API_VERSION", "2025-04-01-preview")
 GPT_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_MAX_OUTPUT_TOKENS", "15000"))
 GPT_PREVIEW_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_PREVIEW_MAX_OUTPUT_TOKENS", "10000"))
 GPT_REASONING_EFFORT = os.getenv("GPT_REASONING_EFFORT", "none").strip().lower() or "none"
+IMPORTER_ADMIN_TOKEN = (os.getenv("IMPORTER_ADMIN_TOKEN") or ADMIN_TOKEN or "").strip()
 
 
 def _normalize_ai_model(value: Optional[str]) -> AIModel:
@@ -463,6 +464,31 @@ def get_user_from_request(db, request: Request) -> User:
     if not user:
         raise HTTPException(401, detail="Unknown session user")
     return user
+
+
+def _extract_bearer_token(request: Request) -> Optional[str]:
+    auth_header = (request.headers.get("authorization") or "").strip()
+    if not auth_header.lower().startswith("bearer "):
+        return None
+    token = auth_header[7:].strip()
+    return token or None
+
+
+def get_admin_token_from_request(request: Request, explicit_token: Optional[str] = None) -> Optional[str]:
+    if explicit_token and explicit_token.strip():
+        return explicit_token.strip()
+    header_token = request.headers.get("x-admin-token")
+    if header_token and header_token.strip():
+        return header_token.strip()
+    return _extract_bearer_token(request)
+
+
+def has_valid_importer_admin_token(request: Request, explicit_token: Optional[str] = None) -> bool:
+    provided = get_admin_token_from_request(request, explicit_token)
+    expected = IMPORTER_ADMIN_TOKEN
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided, expected)
 
 
 def get_team_for_user(db, user_id: int, team_id: int) -> Team:
@@ -1026,6 +1052,80 @@ class AIPromptPayload(BaseModel):
     @classmethod
     def ai_model_supported(cls, v: str):
         return _normalize_ai_model(v)
+
+
+class HTMLImportPayload(BaseModel):
+    teamId: int
+    folderId: int
+    html: str
+    documentName: Optional[str] = None
+    sourceUrl: Optional[str] = None
+    contentType: Literal["GUIDE", "ARTICLE", "GUIDED_TOUR"] = "GUIDE"
+    language: str = "en-US"
+    aiModel: str = AI_MODEL_DEFAULT
+    publish: bool = False
+    previewOnly: bool = False
+    base: Optional[str] = None
+    user: str = "Importer"
+    teamToken: Optional[str] = None
+    adminToken: Optional[str] = None
+
+    @field_validator("teamId", "folderId")
+    @classmethod
+    def required_ints(cls, v):
+        if v is None:
+            raise ValueError("teamId and folderId are required")
+        return int(v)
+
+    @field_validator("html", mode="before")
+    @classmethod
+    def trim_large_text(cls, v):
+        text = str(v).strip()
+        if not text:
+            raise ValueError("html is required")
+        if len(text) > 250_000:
+            raise ValueError("html is too long (max 250000 characters)")
+        return text
+
+    @field_validator("documentName", "sourceUrl", "base", "user", "teamToken", "adminToken", mode="before")
+    @classmethod
+    def trim_optional_text(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("documentName")
+    @classmethod
+    def validate_document_name(cls, v: Optional[str]):
+        if v and len(v) > 500:
+            raise ValueError("documentName is too long (max 500 characters)")
+        return v
+
+    @field_validator("sourceUrl")
+    @classmethod
+    def validate_source_url(cls, v: Optional[str]):
+        if v and len(v) > 2000:
+            raise ValueError("sourceUrl is too long (max 2000 characters)")
+        return v
+
+    @field_validator("base")
+    @classmethod
+    def base_default(cls, v: Optional[str]):
+        return v or None
+
+    @field_validator("user")
+    @classmethod
+    def default_user_label(cls, v: Optional[str]):
+        return v or "Importer"
+
+    @field_validator("aiModel")
+    @classmethod
+    def ai_model_supported(cls, v: str):
+        return _normalize_ai_model(v)
+
+    def source_html(self) -> str:
+        return self.html
 
 
 class BrandWebsitePayload(BaseModel):
@@ -1691,6 +1791,30 @@ guide:
           content: |
             <p>Setup complete.</p>
             <aside class="tip"><p>Reach out if you need help.</p></aside>
+"""
+
+HTML_IMPORT_SYSTEM_PROMPT = """You convert HTML knowledge content into exactly one valid Stonly guide YAML document.
+OUTPUT ONLY YAML. Do not include Markdown fences, code blocks, or commentary.
+
+OUTPUT CONTRACT:
+- Return exactly one YAML document.
+- Use a top-level `guide:` object.
+- The guide must contain: contentTitle, contentType, language, firstStep.
+- firstStep must contain: title, content. choices are optional.
+- Keep HTML inside `content` fields valid and concise.
+
+CONVERSION RULES:
+- Treat the source HTML as the ground truth. Preserve the original meaning; do not invent product facts.
+- Remove navigation chrome, cookie banners, duplicated footers, and irrelevant boilerplate.
+- Prefer a practical Stonly structure:
+  - ARTICLE: one main step, no branching unless the input clearly contains separate procedural flows.
+  - GUIDE: turn major sections or procedures into a usable sequence of steps; create branches only when the source clearly presents alternatives.
+  - GUIDED_TOUR: use short linear steps with "Next" style progression.
+- Reuse step keys and refs only when branches naturally rejoin.
+- Keep tables, lists, callouts, code blocks, and warnings when they matter to the instructions.
+- Do not include media unless the source explicitly contains stable absolute media URLs worth preserving.
+- Use the requested content title, type, and language when provided.
+- If the HTML is mostly informational and not a decision tree, still return one valid guide structure with a single first step rather than forcing fake branching.
 """
 
 KB_SYSTEM_PROMPT = """You are a knowledge manager who builds clear, logical knowledge base structures.
@@ -2371,6 +2495,73 @@ def generate_organiser_yaml_with_ai(prompt: str, *, ai_model: str = AI_MODEL_DEF
 
 def generate_organiser_yaml_with_gemini(prompt: str) -> str:
     return generate_organiser_yaml_with_ai(prompt, ai_model=AI_MODEL_GEMINI)
+
+
+def _extract_html_title(source_html: str) -> Optional[str]:
+    if not source_html:
+        return None
+    match = re.search(r"<title[^>]*>(.*?)</title>", source_html, re.I | re.S)
+    if not match:
+        return None
+    title = html.unescape(re.sub(r"\s+", " ", match.group(1))).strip()
+    return title or None
+
+
+def _build_html_import_prompt(
+    *,
+    source_html: str,
+    content_type: str,
+    language: str,
+    content_title: Optional[str],
+    document_name: Optional[str],
+    source_url: Optional[str],
+) -> str:
+    sections = [
+        "Convert the following HTML into one Stonly guide YAML document.",
+        f"Requested content type: {content_type}",
+        f"Requested language: {language}",
+    ]
+    if content_title:
+        sections.append(f"Preferred content title: {content_title}")
+    if document_name:
+        sections.append(f"Document name: {document_name}")
+    if source_url:
+        sections.append(f"Source URL: {source_url}")
+    extracted_title = _extract_html_title(source_html)
+    if extracted_title:
+        sections.append(f"HTML <title>: {extracted_title}")
+    sections.append(f"Format examples:\n{FEW_SHOT_EXAMPLE.strip()}")
+    sections.append("Source HTML:\n" + source_html)
+    return "\n\n".join(sections)
+
+
+def generate_html_import_yaml_with_ai(
+    *,
+    source_html: str,
+    ai_model: str,
+    content_type: str,
+    language: str,
+    content_title: Optional[str] = None,
+    document_name: Optional[str] = None,
+    source_url: Optional[str] = None,
+) -> str:
+    return generate_ai_text(
+        [
+            _build_html_import_prompt(
+                source_html=source_html,
+                content_type=content_type,
+                language=language,
+                content_title=content_title,
+                document_name=document_name,
+                source_url=source_url,
+            )
+        ],
+        ai_model=ai_model,
+        system_prompt=HTML_IMPORT_SYSTEM_PROMPT,
+        temperature=0.3,
+        top_p=0.9,
+        max_output_tokens=12000,
+    )
 
 
 def _extract_first_url(text: str) -> Optional[str]:
@@ -3822,7 +4013,12 @@ def api_verify(payload: VerifyPayload, request: Request):
     return {"ok": True, "missing": missing, "extra": extra}
 
 
-def api_build_guide(payload: GuideBuildPayload, *, user_id: Optional[int] = None):
+def api_build_guide(
+    payload: GuideBuildPayload,
+    *,
+    user_id: Optional[int] = None,
+    stonly_client: Optional["Stonly"] = None,
+):
     request_id = str(uuid.uuid4())
     logger.info("REQUEST %s :: /api/guides/build", request_id)
     def _log(prefix, msg):
@@ -3855,7 +4051,9 @@ def api_build_guide(payload: GuideBuildPayload, *, user_id: Optional[int] = None
         payload.creds.base,
     )
 
-    if user_id is None and payload.creds.password and ALLOW_LOCAL_TESTING_MODE:
+    if stonly_client is not None:
+        st = stonly_client
+    elif user_id is None and payload.creds.password and ALLOW_LOCAL_TESTING_MODE:
         st = Stonly(
             base=payload.creds.base,
             user=payload.creds.user,
@@ -4183,6 +4381,145 @@ def api_ai_guides_build(payload: AIGuidePayload, request: Request):
     if testing_mode_active:
         resp["testingMode"] = True
     return resp
+
+
+@app.post(
+    "/api/importer/html-to-guide",
+    tags=["Builder"],
+    summary="Convert HTML into a Stonly guide via AI and build it",
+)
+def api_importer_html_to_guide(payload: HTMLImportPayload, request: Request):
+    request_id = str(uuid.uuid4())
+    selected_model = _normalize_ai_model(payload.aiModel)
+    source_html = payload.source_html()
+    importer_auth = has_valid_importer_admin_token(request, payload.adminToken)
+    logger.info(
+        "REQUEST %s :: /api/importer/html-to-guide team=%s folder=%s publish=%s previewOnly=%s model=%s authMode=%s htmlChars=%s",
+        request_id,
+        payload.teamId,
+        payload.folderId,
+        payload.publish,
+        payload.previewOnly,
+        selected_model,
+        "admin_token" if importer_auth else "session",
+        len(source_html),
+    )
+
+    stonly_client: Optional[Stonly] = None
+    user_id: Optional[int] = None
+    if importer_auth:
+        if not payload.teamToken:
+            raise HTTPException(400, detail="teamToken is required when using importer admin auth")
+        stonly_client = Stonly(
+            base=(payload.base or DEFAULT_STONLY_BASE),
+            user=payload.user or "Importer",
+            password=payload.teamToken,
+            team_id=payload.teamId,
+        )
+    else:
+        with SessionLocal() as db:
+            user = get_user_from_request(db, request)
+            user_id = user.id
+
+    raw_yaml = generate_html_import_yaml_with_ai(
+        source_html=source_html,
+        ai_model=selected_model,
+        content_type=payload.contentType,
+        language=payload.language,
+        content_title=payload.documentName,
+        document_name=payload.documentName,
+        source_url=payload.sourceUrl,
+    )
+    yaml_text = normalize_ai_yaml(raw_yaml)
+
+    try:
+        items = parse_guides_multi(
+            yaml_text,
+            GuideDefaults(
+                contentTitle=payload.documentName,
+                contentType=payload.contentType,
+                language=payload.language,
+            ),
+        )
+    except HTTPException as e:
+        detail = getattr(e, "detail", str(e))
+        if isinstance(detail, dict):
+            detail = {**detail, "modelText": yaml_text, "modelUsed": selected_model}
+        else:
+            detail = {"error": detail, "modelText": yaml_text, "modelUsed": selected_model}
+        raise HTTPException(getattr(e, "status_code", 400), detail=detail)
+
+    if len(items) != 1:
+        raise HTTPException(
+            502,
+            detail={
+                "error": "HTML import must produce exactly one guide",
+                "guideCount": len(items),
+                "modelText": yaml_text,
+                "modelUsed": selected_model,
+            },
+        )
+
+    definition: GuideDefinition = items[0]["definition"]
+    if payload.documentName:
+        definition.contentTitle = payload.documentName
+    if payload.contentType:
+        definition.contentType = payload.contentType
+    if payload.language:
+        definition.language = payload.language
+        if not definition.firstStep.language:
+            definition.firstStep.language = payload.language
+
+    definition = sanitize_titles_and_labels(definition)
+    definition = clamp_positions(definition)
+    definition = resolve_missing_refs(definition)
+    definition = dedupe_duplicate_ref_choices(definition)
+    items[0]["definition"] = definition
+    yaml_text = serialize_items_to_yaml(items)
+
+    if payload.previewOnly:
+        return {
+            "ok": True,
+            "yaml": yaml_text,
+            "previewOnly": True,
+            "modelUsed": selected_model,
+            "authMode": "admin_token" if importer_auth else "session",
+        }
+
+    build_payload = GuideBuildPayload(
+        creds=Creds(
+            user=payload.user or "Importer",
+            teamId=payload.teamId,
+            base=payload.base,
+        ),
+        folderId=payload.folderId,
+        yaml=yaml_text,
+        dryRun=False,
+        defaults=GuideDefaults(
+            contentTitle=payload.documentName,
+            contentType=payload.contentType,
+            language=payload.language,
+        ),
+        publish=payload.publish,
+    )
+
+    try:
+        build_result = api_build_guide(build_payload, user_id=user_id, stonly_client=stonly_client)
+    except HTTPException as e:
+        detail = getattr(e, "detail", str(e))
+        if isinstance(detail, dict):
+            detail = {**detail, "modelText": yaml_text, "modelUsed": selected_model}
+        else:
+            detail = {"error": detail, "modelText": yaml_text, "modelUsed": selected_model}
+        raise HTTPException(getattr(e, "status_code", 500), detail=detail)
+
+    return {
+        "ok": True,
+        "yaml": yaml_text,
+        "build": build_result,
+        "modelUsed": selected_model,
+        "authMode": "admin_token" if importer_auth else "session",
+    }
 
 
 @app.post(
