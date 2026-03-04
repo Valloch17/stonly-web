@@ -57,3 +57,7 @@ Teams are saved to your account so you can reuse them without re-entering tokens
 ## Support
 
 For access issues or admin tokens, contact valentin.bourrelier@stonly.com.
+
+## Additional docs
+
+- Importer endpoint: `docs/importer-html-to-guide.md`
