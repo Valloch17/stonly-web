@@ -64,19 +64,13 @@ In this mode:
 - the backend bypasses user session auth
 - the backend creates a Stonly client directly from `teamId` + `teamToken`
 
-## Recommended env vars
-
-- `IMPORTER_ADMIN_TOKEN`: dedicated shared secret for the importer endpoint
-- `APP_ADMIN_TOKEN`: existing app admin token; currently used as fallback if `IMPORTER_ADMIN_TOKEN` is not set
-
-Recommendation: use a dedicated `IMPORTER_ADMIN_TOKEN` for this endpoint instead of reusing the broader app admin token.
 
 ## Example request
 
 ```bash
 curl -X POST https://ai-builder-api.stonly.com/api/importer/html-to-guide \
   -H "Content-Type: application/json" \
-  -H "X-Admin-Token: $IMPORTER_ADMIN_TOKEN" \
+  -H "X-Admin-Token: $IMPORTER_TOKEN" \
   -d '{
     "teamId": 39539,
     "teamToken": "stonly-team-token",
