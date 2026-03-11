@@ -8,9 +8,18 @@
   const AUTO_BRAND_KEY = 'expert_auto_brand';
   const AUTO_PROMPT_KEY = 'expert_auto_prompt';
   const AUTO_AI_MODEL_KEY = 'expert_auto_ai_model';
+  const MARKDOWN_OUTPUT_MODE_KEY = 'expert_markdown_output_mode';
+  const MARKDOWN_BATCH_SIZE_KEY = 'expert_markdown_batch_size';
+  const MARKDOWN_MAX_CONCURRENCY_KEY = 'expert_markdown_max_concurrency';
+  const MARKDOWN_CALL_INTERVAL_KEY = 'expert_markdown_call_interval_seconds';
+  const MARKDOWN_STRUCTURE_KEY = 'expert_markdown_structure_yaml';
+  const MARKDOWN_MODEL_KEY = 'expert_markdown_ai_model';
   const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || 'gemini';
   const autoAiModelButton = el('expertAiModelButton');
+  const markdownAiModelButton = el('markdownAiModelButton');
   let autoAiModelSelector = null;
+  let markdownAiModelSelector = null;
+  let markdownFileState = { name: '', content: '', size: 0 };
 
   function getBASE(){
     try { return (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, ''); } catch { return ''; }
@@ -69,6 +78,10 @@
 
   function getSelectedAutoAiModel() {
     return autoAiModelSelector ? autoAiModelSelector.getValue() : DEFAULT_AI_MODEL;
+  }
+
+  function getSelectedMarkdownAiModel() {
+    return markdownAiModelSelector ? markdownAiModelSelector.getValue() : DEFAULT_AI_MODEL;
   }
 
   function setOut(id, value){
@@ -268,25 +281,36 @@
   function setExpertMode(mode){
     const manualBtn = el('expertModeManual');
     const autoBtn = el('expertModeAuto');
+    const markdownBtn = el('expertModeMarkdown');
     const manualSection = el('expertManualSections');
     const autoSection = el('expertAutomatedSection');
+    const markdownSection = el('expertMarkdownSection');
     const brandSection = el('brandAssetsSection');
     const useAuto = mode === 'automated';
+    const useMarkdown = mode === 'markdown';
+    const useManual = !useAuto && !useMarkdown;
 
-    if (manualSection) manualSection.classList.toggle('hidden', useAuto);
+    if (manualSection) manualSection.classList.toggle('hidden', !useManual);
     if (autoSection) autoSection.classList.toggle('hidden', !useAuto);
+    if (markdownSection) markdownSection.classList.toggle('hidden', !useMarkdown);
     if (brandSection) brandSection.classList.toggle('hidden', !useAuto);
 
     if (manualBtn) {
-      manualBtn.classList.toggle('is-active', !useAuto);
-      manualBtn.setAttribute('aria-pressed', (!useAuto).toString());
+      manualBtn.classList.toggle('is-active', useManual);
+      manualBtn.setAttribute('aria-pressed', useManual.toString());
     }
     if (autoBtn) {
       autoBtn.classList.toggle('is-active', useAuto);
       autoBtn.setAttribute('aria-pressed', useAuto.toString());
     }
+    if (markdownBtn) {
+      markdownBtn.classList.toggle('is-active', useMarkdown);
+      markdownBtn.setAttribute('aria-pressed', useMarkdown.toString());
+    }
 
-    try { localStorage.setItem(MODE_STORAGE_KEY, useAuto ? 'automated' : 'manual'); } catch {}
+    try {
+      localStorage.setItem(MODE_STORAGE_KEY, useAuto ? 'automated' : (useMarkdown ? 'markdown' : 'manual'));
+    } catch {}
   }
 
   function setAutoStatus(message, tone){
@@ -771,6 +795,126 @@
     }
   }
 
+  function setMarkdownStatus(message, tone){
+    const status = el('markdownStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600');
+    if (tone === 'error') status.classList.add('text-red-600');
+    else if (tone === 'success') status.classList.add('text-green-600');
+    else status.classList.add('text-slate-500');
+  }
+
+  function setMarkdownSpinner(active, message){
+    const spinner = el('markdownSpinner');
+    const text = el('markdownSpinnerText');
+    if (!spinner) return;
+    spinner.classList.toggle('hidden', !active);
+    if (text && message) text.textContent = message;
+  }
+
+  function setMarkdownButtonsDisabled(disabled){
+    const ids = ['markdownGenerateStructureBtn', 'markdownBuildBtn'];
+    ids.forEach((id) => {
+      const btn = el(id);
+      if (!btn) return;
+      btn.disabled = !!disabled;
+      btn.classList.toggle('opacity-70', !!disabled);
+      btn.classList.toggle('cursor-not-allowed', !!disabled);
+    });
+    if (markdownAiModelSelector) markdownAiModelSelector.setDisabled(disabled);
+    else if (markdownAiModelButton) {
+      markdownAiModelButton.disabled = !!disabled;
+      markdownAiModelButton.classList.toggle('opacity-70', !!disabled);
+      markdownAiModelButton.classList.toggle('cursor-not-allowed', !!disabled);
+    }
+  }
+
+  function setMarkdownOut(value){
+    setOut('markdownOut', value);
+  }
+
+  function clearMarkdownOut(){
+    const out = el('markdownOut');
+    if (out) out.textContent = '';
+  }
+
+  function appendMarkdownLog(line, extra){
+    const out = el('markdownOut');
+    if (!out) return;
+    const current = (out.textContent || '').trimEnd();
+    const lines = current ? [current] : [];
+    if (line) lines.push(line);
+    if (extra != null) {
+      if (typeof extra === 'string') lines.push(extra);
+      else lines.push(JSON.stringify(extra, null, 2));
+    }
+    out.textContent = lines.join('\n');
+    try { out.scrollTop = out.scrollHeight; } catch {}
+  }
+
+  function sleep(ms){
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function formatMarkdownJobEvent(evt){
+    const e = evt || {};
+    const t = String(e.type || '').trim();
+    if (t === 'batch_attempt') return `Batch ${e.batch}/${e.totalBatches} - attempt ${e.attempt}/${e.maxRetries}`;
+    if (t === 'batch_retry') return `Batch ${e.batch}/${e.totalBatches} retrying (${e.attempts})`;
+    if (t === 'batch_ok') return `Batch ${e.batch}/${e.totalBatches} completed on attempt ${e.attempts}`;
+    if (t === 'batch_failed') return `Batch ${e.batch}/${e.totalBatches} failed after ${e.attempts} attempt(s)`;
+    if (t === 'build_start') return 'All batches done. Building guides in Stonly...';
+    if (typeof e.message === 'string' && e.message.trim()) return e.message.trim();
+    return t || 'Progress update';
+  }
+
+  function formatBytes(bytes){
+    const n = Number(bytes || 0);
+    if (!Number.isFinite(n) || n <= 0) return '0 B';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+    return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function markdownDocumentNameFromFile(fileName){
+    const name = String(fileName || '').trim();
+    if (!name) return '';
+    return name.replace(/\.[^.]+$/, '').trim();
+  }
+
+  function updateMarkdownFileMeta(){
+    const meta = el('markdownFileMeta');
+    if (!meta) return;
+    if (!markdownFileState.content) {
+      meta.textContent = 'Max size: 10MB';
+      return;
+    }
+    meta.textContent = `${markdownFileState.name || 'Untitled'} · ${formatBytes(markdownFileState.size)}`;
+  }
+
+  async function onMarkdownFileChange(event){
+    const input = event?.target;
+    const file = input && input.files ? input.files[0] : null;
+    markdownFileState = { name: '', content: '', size: 0 };
+    updateMarkdownFileMeta();
+    if (!file) return;
+    if (file.size > 10 * 1024 * 1024) {
+      setMarkdownStatus('File is too large (max 10MB).', 'error');
+      if (input) input.value = '';
+      return;
+    }
+    try {
+      const text = await file.text();
+      markdownFileState = { name: file.name || '', content: text || '', size: file.size || 0 };
+      updateMarkdownFileMeta();
+      setMarkdownStatus('Markdown file loaded.', 'info');
+    } catch (e) {
+      setMarkdownStatus(e?.message || 'Failed to read markdown file.', 'error');
+      if (input) input.value = '';
+    }
+  }
+
   function buildKbPrompt(brand, instructions){
     const name = (brand || '').trim();
     const details = (instructions || '').trim();
@@ -1179,6 +1323,188 @@
     }
   }
 
+  async function onMarkdownGenerateStructure(){
+    const err = el('markdownStructureYamlError');
+    if (err) err.textContent = '';
+    if (!markdownFileState.content) {
+      setMarkdownStatus('Please upload a Markdown file first.', 'error');
+      return;
+    }
+
+    const outputMode = (el('markdownOutputMode')?.value || 'single').trim() || 'single';
+    const language = (el('lang')?.value || 'en-US').trim() || 'en-US';
+    const documentName = markdownDocumentNameFromFile(markdownFileState.name);
+
+    setMarkdownButtonsDisabled(true);
+    setMarkdownSpinner(true, 'Generating structure...');
+    setMarkdownStatus('Generating structure...', 'info');
+    setMarkdownOut('Running...');
+    try {
+      const data = await apiFetch('/api/importer/markdown-to-guide/structure', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          markdown: markdownFileState.content,
+          documentName,
+          outputMode,
+          aiModel: getSelectedMarkdownAiModel(),
+          contentType: 'GUIDE',
+          language,
+        }),
+      });
+      const yamlText = normalizeAiYaml(data?.yaml || '');
+      if (!yamlText) throw new Error('Structure generation returned empty YAML.');
+      const field = el('markdownStructureYaml');
+      if (field) {
+        field.value = yamlText;
+        try { field.dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+      }
+      setMarkdownOut(data);
+      setMarkdownStatus(
+        `Structure ready (${data?.guideCount || 0} guide(s), ${data?.stepCount || 0} steps). Review/edit YAML before build.`,
+        'success'
+      );
+    } catch (e) {
+      const msg = e?.message || 'Failed to generate structure.';
+      setMarkdownStatus(msg, 'error');
+      setMarkdownOut(msg);
+    } finally {
+      setMarkdownSpinner(false);
+      setMarkdownButtonsDisabled(false);
+    }
+  }
+
+  async function onMarkdownBuild(){
+    const err = el('markdownStructureYamlError');
+    if (err) err.textContent = '';
+
+    if (!(window.validateRequired && window.validateRequired(['teamSelect', 'parentId']))) {
+      setMarkdownStatus('Please fill all required settings (*).', 'error');
+      return;
+    }
+    if (!markdownFileState.content) {
+      setMarkdownStatus('Please upload a Markdown file first.', 'error');
+      return;
+    }
+
+    const structureRaw = (el('markdownStructureYaml')?.value || '').trim();
+    if (!structureRaw) {
+      setMarkdownStatus('Please generate or paste structure YAML first.', 'error');
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = parseGuideYamlWithFixes(structureRaw);
+    } catch (e) {
+      const msg = 'Invalid structure YAML: ' + (e?.message || e);
+      if (err) err.textContent = msg;
+      setMarkdownStatus(msg, 'error');
+      return;
+    }
+    if (parsed.normalized && el('markdownStructureYaml')) {
+      el('markdownStructureYaml').value = parsed.yamlText;
+      try { el('markdownStructureYaml').dispatchEvent(new Event('input', { bubbles: true })); } catch {}
+    }
+
+    const c = collectCommon();
+    const publish = !!(el('markdownPublish') && el('markdownPublish').checked);
+    const batchRaw = Number(el('markdownBatchSize')?.value || 10);
+    const batchSize = Number.isFinite(batchRaw) ? Math.min(50, Math.max(1, Math.floor(batchRaw))) : 10;
+    const concurrencyRaw = Number(el('markdownMaxConcurrency')?.value || 3);
+    const maxConcurrentBatches = Number.isFinite(concurrencyRaw) ? Math.min(10, Math.max(1, Math.floor(concurrencyRaw))) : 3;
+    const intervalRaw = Number(el('markdownCallIntervalSeconds')?.value || 1);
+    const minCallIntervalSeconds = Number.isFinite(intervalRaw) ? Math.min(30, Math.max(0, intervalRaw)) : 1;
+    if (el('markdownMaxConcurrency')) el('markdownMaxConcurrency').value = String(maxConcurrentBatches);
+    if (el('markdownCallIntervalSeconds')) el('markdownCallIntervalSeconds').value = String(minCallIntervalSeconds);
+    const documentName = markdownDocumentNameFromFile(markdownFileState.name);
+
+    setMarkdownButtonsDisabled(true);
+    setSettingsLocked(true);
+    setMarkdownSpinner(true, 'Building content in batches...');
+    setMarkdownStatus('Generating step content and building guide(s)...', 'info');
+    clearMarkdownOut();
+    appendMarkdownLog('Starting markdown build job...');
+    try {
+      const startResp = await apiFetch('/api/importer/markdown-to-guide/build/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          creds: { user: c.user, teamId: c.teamId, base: c.base },
+          folderId: c.parentId,
+          markdown: markdownFileState.content,
+          structureYaml: parsed.yamlText,
+          aiModel: getSelectedMarkdownAiModel(),
+          publish,
+          batchSize,
+          maxConcurrentBatches,
+          minCallIntervalSeconds,
+          maxRetriesPerBatch: 3,
+          defaults: { language: c.language },
+          documentName,
+        }),
+      });
+      const jobId = startResp?.jobId;
+      if (!jobId) throw new Error('Missing markdown build job id.');
+      appendMarkdownLog(`Job started: ${jobId}`);
+
+      let lastSeq = 0;
+      let completed = false;
+      while (!completed) {
+        const statusResp = await apiFetch(`/api/importer/markdown-to-guide/build/status/${encodeURIComponent(jobId)}`, {
+          method: 'GET',
+        });
+        const events = Array.isArray(statusResp?.events) ? statusResp.events : [];
+        const fresh = events
+          .filter((e) => Number(e?.seq || 0) > lastSeq)
+          .sort((a, b) => Number(a?.seq || 0) - Number(b?.seq || 0));
+        for (const evt of fresh) {
+          const seq = Number(evt?.seq || 0);
+          if (seq > lastSeq) lastSeq = seq;
+          const line = formatMarkdownJobEvent(evt);
+          appendMarkdownLog(line);
+          if (evt?.type === 'batch_attempt') {
+            setMarkdownSpinner(true, line);
+          }
+          if (evt?.type === 'batch_retry' && evt?.error) {
+            appendMarkdownLog(`Retry reason: ${evt.error}`);
+          }
+        }
+
+        const status = String(statusResp?.status || '').toLowerCase();
+        if (status === 'succeeded') {
+          const result = statusResp?.result || {};
+          appendMarkdownLog('Build finished successfully.');
+          appendMarkdownLog(null, { summary: { guides: result?.guideCount, batches: result?.batchCount, steps: result?.stepCount } });
+          if (result?.build) setOut('guideOut', result.build);
+          const batches = result?.batchCount ?? 0;
+          const guides = result?.guideCount ?? 0;
+          setMarkdownStatus(`Build complete (${guides} guide(s), ${batches} batch(es)).`, 'success');
+          completed = true;
+          break;
+        }
+        if (status === 'failed') {
+          const err = statusResp?.error?.detail || statusResp?.error || 'Markdown build failed.';
+          appendMarkdownLog('Build failed.');
+          appendMarkdownLog(null, err);
+          const msg = typeof err === 'string' ? err : JSON.stringify(err);
+          setMarkdownStatus(msg, 'error');
+          completed = true;
+          break;
+        }
+        await sleep(1200);
+      }
+    } catch (e) {
+      const msg = e?.message || 'Markdown build failed.';
+      appendMarkdownLog(`Error: ${msg}`);
+      setMarkdownStatus(msg, 'error');
+    } finally {
+      setMarkdownSpinner(false);
+      setMarkdownButtonsDisabled(false);
+      setSettingsLocked(false);
+    }
+  }
+
   async function onBrandAssetsRun(){
     const brandName = (el('autoBrand')?.value || '').trim();
     if (!brandName) {
@@ -1337,17 +1663,32 @@
         defaultModel: DEFAULT_AI_MODEL,
       });
     }
+    if (!markdownAiModelSelector && typeof window.createAiModelSelector === 'function') {
+      markdownAiModelSelector = window.createAiModelSelector({
+        storageKey: MARKDOWN_MODEL_KEY,
+        buttonId: 'markdownAiModelButton',
+        buttonTextId: 'markdownAiModelButtonText',
+        menuId: 'markdownAiModelMenu',
+        optionSelector: '[data-markdown-model-option]',
+        optionAttr: 'data-markdown-model-option',
+        defaultModel: DEFAULT_AI_MODEL,
+      });
+    }
 
     el('kbRunBtn')?.addEventListener('click', onKbRun);
     el('kbDumpBtn')?.addEventListener('click', onKbDump);
     el('guideParseBtn')?.addEventListener('click', onGuideParse);
     el('guideRunBtn')?.addEventListener('click', onGuideRun);
     el('autoRunBtn')?.addEventListener('click', onAutomatedRun);
+    el('markdownGenerateStructureBtn')?.addEventListener('click', onMarkdownGenerateStructure);
+    el('markdownBuildBtn')?.addEventListener('click', onMarkdownBuild);
+    el('markdownFile')?.addEventListener('change', onMarkdownFileChange);
     el('brandAssetsBtn')?.addEventListener('click', onBrandAssetsRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
     el('expertModeManual')?.addEventListener('click', () => setExpertMode('manual'));
     el('expertModeAuto')?.addEventListener('click', () => setExpertMode('automated'));
+    el('expertModeMarkdown')?.addEventListener('click', () => setExpertMode('markdown'));
 
     // Copy buttons
     try {
@@ -1355,12 +1696,14 @@
         window.attachCopyButton({ buttonId: 'copyKbOut', sourceId: 'kbOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'copyGuideOut', sourceId: 'guideOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'autoCopyOut', sourceId: 'autoOut', disableWhenEmpty: true });
+        window.attachCopyButton({ buttonId: 'copyMarkdownOut', sourceId: 'markdownOut', disableWhenEmpty: true });
       }
     } catch {}
 
     try {
       const storedMode = (localStorage.getItem(MODE_STORAGE_KEY) || 'manual').toLowerCase();
-      setExpertMode(storedMode === 'automated' ? 'automated' : 'manual');
+      if (storedMode === 'automated' || storedMode === 'markdown') setExpertMode(storedMode);
+      else setExpertMode('manual');
     } catch {
       setExpertMode('manual');
     }
@@ -1409,6 +1752,61 @@
           } catch {}
         });
       });
+    } catch {}
+
+    try {
+      const structureField = el('markdownStructureYaml');
+      if (structureField) {
+        const stored = localStorage.getItem(MARKDOWN_STRUCTURE_KEY);
+        if (typeof stored === 'string' && stored.length) {
+          structureField.value = stored;
+        }
+        structureField.addEventListener('input', () => {
+          try { localStorage.setItem(MARKDOWN_STRUCTURE_KEY, structureField.value || ''); } catch {}
+        });
+      }
+      const outputModeField = el('markdownOutputMode');
+      if (outputModeField) {
+        const stored = localStorage.getItem(MARKDOWN_OUTPUT_MODE_KEY);
+        if (stored === 'single' || stored === 'multiple') outputModeField.value = stored;
+        outputModeField.addEventListener('change', () => {
+          try { localStorage.setItem(MARKDOWN_OUTPUT_MODE_KEY, outputModeField.value || 'single'); } catch {}
+        });
+      }
+      const batchSizeField = el('markdownBatchSize');
+      if (batchSizeField) {
+        const stored = localStorage.getItem(MARKDOWN_BATCH_SIZE_KEY);
+        const n = Number(stored);
+        if (Number.isFinite(n) && n >= 1 && n <= 50) batchSizeField.value = String(Math.floor(n));
+        batchSizeField.addEventListener('input', () => {
+          const raw = Number(batchSizeField.value || 10);
+          const next = Number.isFinite(raw) ? Math.min(50, Math.max(1, Math.floor(raw))) : 10;
+          try { localStorage.setItem(MARKDOWN_BATCH_SIZE_KEY, String(next)); } catch {}
+        });
+      }
+      const concurrencyField = el('markdownMaxConcurrency');
+      if (concurrencyField) {
+        const stored = localStorage.getItem(MARKDOWN_MAX_CONCURRENCY_KEY);
+        const n = Number(stored);
+        if (Number.isFinite(n) && n >= 1 && n <= 10) concurrencyField.value = String(Math.floor(n));
+        concurrencyField.addEventListener('input', () => {
+          const raw = Number(concurrencyField.value || 3);
+          const next = Number.isFinite(raw) ? Math.min(10, Math.max(1, Math.floor(raw))) : 3;
+          try { localStorage.setItem(MARKDOWN_MAX_CONCURRENCY_KEY, String(next)); } catch {}
+        });
+      }
+      const intervalField = el('markdownCallIntervalSeconds');
+      if (intervalField) {
+        const stored = localStorage.getItem(MARKDOWN_CALL_INTERVAL_KEY);
+        const n = Number(stored);
+        if (Number.isFinite(n) && n >= 0 && n <= 30) intervalField.value = String(n);
+        intervalField.addEventListener('input', () => {
+          const raw = Number(intervalField.value || 1);
+          const next = Number.isFinite(raw) ? Math.min(30, Math.max(0, raw)) : 1;
+          try { localStorage.setItem(MARKDOWN_CALL_INTERVAL_KEY, String(next)); } catch {}
+        });
+      }
+      updateMarkdownFileMeta();
     } catch {}
   });
 })();

@@ -29,7 +29,11 @@ Publish guides in bulk. Use it to push multiple guides live in one pass.
 
 ### Expert Mode
 
-Combines KB Builder and Guide Builder into one workflow for full, end-to-end builds. Includes an automated mode to speed up larger runs.
+Combines KB Builder and Guide Builder into one workflow for full, end-to-end builds. Includes:
+- Automated mode for one-prompt KB + guides + organiser runs.
+- Markdown mode for long `.md` documents with a 2-step AI flow:
+  1. Structure generation/review.
+  2. Batched step-content generation (configurable batch size), then build/publish.
 
 ## Accounts and access
 
