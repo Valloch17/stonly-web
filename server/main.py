@@ -4326,6 +4326,21 @@ def parse_guides_multi(source: str, defaults: GuideDefaults) -> list[dict]:
 
     return items
 
+
+def _stonly_choice_insert_position(desired_position: Optional[int], existing_choice_count: int) -> Optional[int]:
+    """
+    Stonly only accepts `position` when inserting before an existing choice.
+    To append at the end, the field must be omitted.
+    """
+    if desired_position is None:
+        return None
+    pos = max(0, int(desired_position))
+    count = max(0, int(existing_choice_count))
+    if pos >= count:
+        return None
+    return pos
+
+
 def _build_one_guide(
     *,
     st: Stonly,
@@ -4387,6 +4402,7 @@ def _build_one_guide(
         })
 
     counter = len(steps_created)
+    actual_choice_counts: Dict[Any, int] = {first_step_id: 0}
     queue: List[Tuple[GuideStepChoice, str, str, Any, int]] = []
     for idx, choice in enumerate(definition.firstStep.choices):
         queue.append((choice, f"firstStep.choices[{idx}]", definition.firstStep.title, first_step_id, idx))
@@ -4397,10 +4413,11 @@ def _build_one_guide(
 
     while queue:
         choice, path, parent_title, parent_step_id, choice_index = queue.pop(0)
+        existing_choice_count = actual_choice_counts.get(parent_step_id, 0)
 
         if choice.ref:  # create a link to an existing step
-            # Only send explicit positions; Stonly rejects implicit indices when appending.
-            position_value = choice.position
+            desired_position = choice.position
+            position_value = _stonly_choice_insert_position(desired_position, existing_choice_count)
             target_id = by_key.get(choice.ref)
             if dry_run:
                 if target_id is not None and (parent_step_id, target_id) in created_link_pairs:
@@ -4424,6 +4441,7 @@ def _build_one_guide(
                     "parent": parent_title,
                     "parentPath": path,
                 })
+                actual_choice_counts[parent_step_id] = existing_choice_count + 1
             else:
                 if target_id is not None:
                     if (parent_step_id, target_id) in created_link_pairs:
@@ -4455,16 +4473,17 @@ def _build_one_guide(
                         "parent": parent_title,
                         "parentPath": path,
                     })
+                    actual_choice_counts[parent_step_id] = existing_choice_count + 1
                 else:
-                    pending_links.append((choice.ref, parent_step_id, choice.label, position_value, parent_title, path))
+                    pending_links.append((choice.ref, parent_step_id, choice.label, desired_position, parent_title, path))
             # Do not traverse into referenced step (already part of the tree)
             continue
 
         # else: create a brand new step
         step = choice.step  # type: ignore
         language = step.language or definition.language
-        # Only send explicit positions; otherwise let Stonly append in creation order.
-        position_value = choice.position if choice.position is not None else step.position
+        desired_position = choice.position if choice.position is not None else step.position
+        position_value = _stonly_choice_insert_position(desired_position, existing_choice_count)
 
         if dry_run:
             counter += 1
@@ -4491,6 +4510,8 @@ def _build_one_guide(
             "position": position_value,
         })
         created_link_pairs.add((parent_step_id, step_id))
+        actual_choice_counts[parent_step_id] = existing_choice_count + 1
+        actual_choice_counts.setdefault(step_id, 0)
 
         # Register step key for reuse
         if step.key:
@@ -4520,21 +4541,23 @@ def _build_one_guide(
                     "parentPath": path,
                 })
                 continue
+            position_value = _stonly_choice_insert_position(pos, actual_choice_counts.get(source_id, 0))
             st.link_steps(
                 guide_id=guide_id,
                 source_step_id=source_id,
                 target_step_id=tgt,
                 choice_label=label,
-                position=pos,
+                position=position_value,
             )
             created_link_pairs.add((source_id, tgt))
+            actual_choice_counts[source_id] = actual_choice_counts.get(source_id, 0) + 1
             links_created.append({
                 "action": "link",
                 "sourceStepId": source_id,
                 "targetKey": target_key,
                 "targetStepId": tgt,
                 "choiceLabel": label,
-                "position": pos,
+                "position": position_value,
                 "parent": parent_title,
                 "parentPath": path,
             })

@@ -457,3 +457,109 @@ def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):
     assert "Body for g1-s002" in captured["yaml"]
     assert "Body for g1-s003" in captured["yaml"]
     assert captured["publish"] is True
+
+
+class RecordingGuideBuilderStonly:
+    def __init__(self):
+        self.append_calls = []
+        self.link_calls = []
+
+    def create_guide(self, **kwargs):
+        return {"guideId": "g-1", "firstStepId": "s-1", "raw": kwargs}
+
+    def append_step(self, **kwargs):
+        self.append_calls.append(kwargs)
+        return {"stepId": f"s-{len(self.append_calls) + 1}", "raw": kwargs}
+
+    def link_steps(self, **kwargs):
+        self.link_calls.append(kwargs)
+        return {"raw": kwargs}
+
+
+def test_build_one_guide_omits_append_position_when_choice_targets_end():
+    definition = main.GuideDefinition(
+        contentTitle="AccurisTech Login Help",
+        contentType="GUIDE",
+        language="en",
+        firstStep=main.GuideStep(
+            title="Intro",
+            content="<p>Welcome</p>",
+            choices=[
+                main.GuideStepChoice(
+                    label="First path",
+                    position=1,
+                    step=main.GuideStep(title="A", content="<p>A</p>"),
+                ),
+                main.GuideStepChoice(
+                    label="Second path",
+                    position=2,
+                    step=main.GuideStep(title="B", content="<p>B</p>"),
+                ),
+                main.GuideStepChoice(
+                    label="Third path",
+                    position=2,
+                    step=main.GuideStep(title="C", content="<p>C</p>"),
+                ),
+            ],
+        ),
+    )
+    st = RecordingGuideBuilderStonly()
+
+    result = main._build_one_guide(
+        st=st,
+        team_id=39539,
+        folder_id=2000,
+        definition=definition,
+        dry_run=False,
+        publish=False,
+    )
+
+    assert [call["position"] for call in st.append_calls] == [None, None, None]
+    assert [step["position"] for step in result["steps"][1:]] == [None, None, None]
+
+
+def test_build_one_guide_keeps_insert_position_for_deferred_link():
+    definition = main.GuideDefinition(
+        contentTitle="Deferred link ordering",
+        contentType="GUIDE",
+        language="en",
+        firstStep=main.GuideStep(
+            title="Intro",
+            content="<p>Welcome</p>",
+            choices=[
+                main.GuideStepChoice(label="Go to future", position=0, ref="future"),
+                main.GuideStepChoice(
+                    label="Current branch",
+                    position=1,
+                    step=main.GuideStep(
+                        title="Current branch",
+                        content="<p>Current</p>",
+                        choices=[
+                            main.GuideStepChoice(
+                                label="Define future",
+                                step=main.GuideStep(
+                                    key="future",
+                                    title="Future step",
+                                    content="<p>Future</p>",
+                                ),
+                            )
+                        ],
+                    ),
+                ),
+            ],
+        ),
+    )
+    st = RecordingGuideBuilderStonly()
+
+    result = main._build_one_guide(
+        st=st,
+        team_id=39539,
+        folder_id=2000,
+        definition=definition,
+        dry_run=False,
+        publish=False,
+    )
+
+    assert [call["position"] for call in st.append_calls] == [None, None]
+    assert [call["position"] for call in st.link_calls] == [0]
+    assert result["links"][0]["position"] == 0
