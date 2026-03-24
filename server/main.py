@@ -512,6 +512,17 @@ def has_valid_importer_admin_token(request: Request, explicit_token: Optional[st
     return hmac.compare_digest(provided, expected)
 
 
+def require_session_or_importer_admin(
+    db,
+    request: Request,
+    explicit_token: Optional[str] = None,
+) -> str:
+    if has_valid_importer_admin_token(request, explicit_token):
+        return "admin_token"
+    get_user_from_request(db, request)
+    return "session"
+
+
 def get_team_for_user(db, user_id: int, team_id: int) -> Team:
     team = db.query(Team).filter(Team.user_id == user_id, Team.team_id == team_id).first()
     if not team:
@@ -6119,15 +6130,15 @@ def api_ai_organiser_generate(payload: AIPromptPayload, request: Request):
 )
 def api_ai_brand_website(payload: BrandWebsitePayload, request: Request):
     with SessionLocal() as db:
-        _user = get_user_from_request(db, request)
+        auth_mode = require_session_or_importer_admin(db, request)
     request_id = str(uuid.uuid4())
-    logger.info("REQUEST %s :: /api/ai-brand-website", request_id)
+    logger.info("REQUEST %s :: /api/ai-brand-website authMode=%s", request_id, auth_mode)
     raw = generate_brand_website_with_gemini(payload.brandName)
     url = _extract_first_url(raw) or raw
     normalized = _normalize_url(url)
     if not normalized:
         raise HTTPException(502, detail={"error": "Invalid URL from Gemini", "raw": raw})
-    return {"ok": True, "url": normalized}
+    return {"ok": True, "url": normalized, "authMode": auth_mode}
 
 
 @app.post(
@@ -6137,36 +6148,29 @@ def api_ai_brand_website(payload: BrandWebsitePayload, request: Request):
 )
 def api_ai_brand_colors(payload: BrandColorsPayload, request: Request):
     with SessionLocal() as db:
-        _user = get_user_from_request(db, request)
+        auth_mode = require_session_or_importer_admin(db, request)
     request_id = str(uuid.uuid4())
-    logger.info("REQUEST %s :: /api/ai-brand-colors", request_id)
+    logger.info("REQUEST %s :: /api/ai-brand-colors authMode=%s", request_id, auth_mode)
     try:
         colors = generate_brand_colors_with_gemini(payload.brandName, payload.url)
     except Exception as e:
         raise HTTPException(502, detail={"error": "Failed to parse colors", "message": str(e)})
-    return {"ok": True, "colors": colors}
+    return {"ok": True, "colors": colors, "authMode": auth_mode}
 
 
-@app.post(
-    "/api/brand-assets/scrape",
-    tags=["Builder"],
-    summary="Scrape logo candidates from a brand website",
-)
-def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
-    with SessionLocal() as db:
-        _user = get_user_from_request(db, request)
-    url = _normalize_url(payload.url)
-    if not url:
+def _scrape_brand_assets(url: str) -> dict[str, Any]:
+    normalized = _normalize_url(url)
+    if not normalized:
         raise HTTPException(400, detail="Invalid URL")
-    headers = _brand_request_headers(url)
+    headers = _brand_request_headers(normalized)
     try:
-        resp = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
+        resp = requests.get(normalized, headers=headers, timeout=10, allow_redirects=True)
     except Exception as e:
         raise HTTPException(502, detail={"error": "Failed to fetch URL", "message": str(e)})
     if resp.status_code == 403:
         try:
-            headers_retry = _brand_request_headers(resp.url or url)
-            resp_retry = requests.get(url, headers=headers_retry, timeout=10, allow_redirects=True)
+            headers_retry = _brand_request_headers(resp.url or normalized)
+            resp_retry = requests.get(normalized, headers=headers_retry, timeout=10, allow_redirects=True)
             if resp_retry.ok:
                 resp = resp_retry
         except Exception:
@@ -6177,7 +6181,7 @@ def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
     if "text/html" not in content_type:
         raise HTTPException(502, detail={"error": "URL did not return HTML"})
 
-    base_url = resp.url or url
+    base_url = resp.url or normalized
     parser = _LogoHTMLParser()
     try:
         parser.feed(resp.text)
@@ -6213,6 +6217,59 @@ def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
     return {"ok": True, "url": base_url, "logos": logos, "siteColors": site_colors}
 
 
+def _brand_asset_download_url(request: Request, asset_url: str) -> str:
+    base_url = str(request.url_for("api_brand_assets_download"))
+    return f"{base_url}?{urlencode({'url': asset_url})}"
+
+
+@app.post(
+    "/api/brand-assets/resolve",
+    tags=["Builder"],
+    summary="Resolve website, logo, and KB colors for a brand",
+)
+def api_brand_assets_resolve(payload: BrandColorsPayload, request: Request):
+    with SessionLocal() as db:
+        auth_mode = require_session_or_importer_admin(db, request)
+    request_id = str(uuid.uuid4())
+    logger.info("REQUEST %s :: /api/brand-assets/resolve brand=%s authMode=%s", request_id, payload.brandName, auth_mode)
+
+    source_url = payload.url
+    if not source_url:
+        raw = generate_brand_website_with_gemini(payload.brandName)
+        source_url = _extract_first_url(raw) or raw
+
+    assets = _scrape_brand_assets(source_url or "")
+    website_url = str(assets.get("url") or "").strip()
+    logos = assets.get("logos") if isinstance(assets.get("logos"), list) else []
+    logo_url = str(logos[0]).strip() if logos else None
+    colors = generate_brand_colors_with_gemini(payload.brandName, website_url or None)
+
+    return {
+        "ok": True,
+        "authMode": auth_mode,
+        "brandName": payload.brandName,
+        "url": website_url,
+        "logoUrl": logo_url,
+        "logoDownloadUrl": _brand_asset_download_url(request, logo_url) if logo_url else None,
+        "logos": logos[:3],
+        "siteColors": assets.get("siteColors") or [],
+        "colors": colors,
+    }
+
+
+@app.post(
+    "/api/brand-assets/scrape",
+    tags=["Builder"],
+    summary="Scrape logo candidates from a brand website",
+)
+def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
+    with SessionLocal() as db:
+        auth_mode = require_session_or_importer_admin(db, request)
+    data = _scrape_brand_assets(payload.url)
+    data["authMode"] = auth_mode
+    return data
+
+
 @app.get(
     "/api/brand-assets/download",
     tags=["Builder"],
@@ -6220,7 +6277,7 @@ def api_brand_assets_scrape(payload: BrandAssetsPayload, request: Request):
 )
 def api_brand_assets_download(url: str, request: Request):
     with SessionLocal() as db:
-        _user = get_user_from_request(db, request)
+        require_session_or_importer_admin(db, request)
     normalized = _normalize_url(url)
     if not normalized:
         raise HTTPException(400, detail="Invalid URL")

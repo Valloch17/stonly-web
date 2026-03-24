@@ -198,6 +198,50 @@ def test_ai_kb_generate_rejects_prompt_above_max(client, monkeypatch):
     assert f"max {main.AI_PROMPT_MAX_CHARS} characters" in json.dumps(r.json())
 
 
+def test_brand_assets_resolve_accepts_admin_token_without_session(monkeypatch):
+    monkeypatch.setattr(main, "generate_brand_website_with_gemini", lambda brand_name: "https://accuris.com")
+    monkeypatch.setattr(
+        main,
+        "_scrape_brand_assets",
+        lambda url: {
+            "ok": True,
+            "url": "https://accuris.com",
+            "logos": ["https://cdn.accuris.com/logo.svg"],
+            "siteColors": ["#112233", "#445566", "#778899"],
+        },
+    )
+    monkeypatch.setattr(
+        main,
+        "generate_brand_colors_with_gemini",
+        lambda brand_name, url=None: {
+            "headerBackground": "#0F172A",
+            "iconColor": "#2563EB",
+            "highlightColor": "#22C55E",
+        },
+    )
+
+    with TestClient(main.app) as raw_client:
+        r = raw_client.post(
+            "/api/brand-assets/resolve",
+            headers={"x-admin-token": "secret"},
+            json={"brandName": "Accuris"},
+        )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["authMode"] == "admin_token"
+    assert body["brandName"] == "Accuris"
+    assert body["url"] == "https://accuris.com"
+    assert body["logoUrl"] == "https://cdn.accuris.com/logo.svg"
+    assert body["logoDownloadUrl"] == "http://testserver/api/brand-assets/download?url=https%3A%2F%2Fcdn.accuris.com%2Flogo.svg"
+    assert body["colors"] == {
+        "headerBackground": "#0F172A",
+        "iconColor": "#2563EB",
+        "highlightColor": "#22C55E",
+    }
+
+
 def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch):
     captured = {}
 
