@@ -258,7 +258,10 @@
           <input id="autoBrand" type="text" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="e.g. Stonly" />
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium">Prompt instructions <span class="text-red-600">*</span></label>
+          <div class="flex items-center justify-between gap-3">
+            <label for="autoPrompt" class="block text-sm font-medium">Prompt instructions <span class="text-red-600">*</span></label>
+            <p id="autoPromptCount" class="text-xs text-slate-500 tabular-nums">0 / 120,000</p>
+          </div>
           <textarea id="autoPrompt" rows="6" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Describe the product, audience, and topics to cover."></textarea>
           <div class="mt-2 flex items-center justify-between gap-2">
             <p class="text-xs text-slate-500">Used for automated KB, guide, and organiser generation.</p>

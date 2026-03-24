@@ -161,6 +161,43 @@ def test_ai_organiser_generate_uses_selected_model(client, monkeypatch):
     }
 
 
+def test_ai_kb_generate_accepts_prompt_longer_than_40k(client, monkeypatch):
+    captured = {}
+
+    def fake_generate(prompt, *, ai_model):
+        captured["prompt_len"] = len(prompt)
+        captured["ai_model"] = ai_model
+        return "- name: Support"
+
+    monkeypatch.setattr(main, "generate_kb_yaml_with_ai", fake_generate)
+    prompt = "A" * 50000
+
+    r = client.post("/api/ai-kb/generate", json={
+        "prompt": prompt,
+        "aiModel": "gpt51",
+    })
+
+    assert r.status_code == 200
+    assert r.json()["yaml"] == "- name: Support"
+    assert captured == {
+        "prompt_len": 50000,
+        "ai_model": "gpt51",
+    }
+
+
+def test_ai_kb_generate_rejects_prompt_above_max(client, monkeypatch):
+    monkeypatch.setattr(main, "generate_kb_yaml_with_ai", lambda *args, **kwargs: "- name: Support")
+    prompt = "A" * (main.AI_PROMPT_MAX_CHARS + 1)
+
+    r = client.post("/api/ai-kb/generate", json={
+        "prompt": prompt,
+        "aiModel": "gpt51",
+    })
+
+    assert r.status_code == 422
+    assert f"max {main.AI_PROMPT_MAX_CHARS} characters" in json.dumps(r.json())
+
+
 def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch):
     captured = {}
 

@@ -15,11 +15,23 @@
   const MARKDOWN_STRUCTURE_KEY = 'expert_markdown_structure_yaml';
   const MARKDOWN_MODEL_KEY = 'expert_markdown_ai_model';
   const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || 'gemini';
+  const AUTO_PROMPT_MAX_CHARS = 120000;
   const autoAiModelButton = el('expertAiModelButton');
   const markdownAiModelButton = el('markdownAiModelButton');
   let autoAiModelSelector = null;
   let markdownAiModelSelector = null;
   let markdownFileState = { name: '', content: '', size: 0 };
+
+  function formatCount(value){
+    return Number(value || 0).toLocaleString('en-US');
+  }
+
+  function updateAutoPromptCount(){
+    const field = el('autoPrompt');
+    const count = el('autoPromptCount');
+    if (!field || !count) return;
+    count.textContent = `${formatCount(field.value.length)} / ${formatCount(AUTO_PROMPT_MAX_CHARS)}`;
+  }
 
   function getBASE(){
     try { return (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, ''); } catch { return ''; }
@@ -1750,8 +1762,17 @@
           try {
             localStorage.setItem(key, field.value || '');
           } catch {}
+          if (id === 'autoPrompt') updateAutoPromptCount();
         });
       });
+    } catch {}
+
+    try {
+      const autoPromptField = el('autoPrompt');
+      if (autoPromptField) {
+        autoPromptField.maxLength = AUTO_PROMPT_MAX_CHARS;
+      }
+      updateAutoPromptCount();
     } catch {}
 
     try {

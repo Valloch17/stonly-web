@@ -101,6 +101,7 @@ GPT_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_MAX_OUTPUT_TOKENS", "15000"))
 GPT_PREVIEW_MAX_OUTPUT_TOKENS = int(os.getenv("GPT_PREVIEW_MAX_OUTPUT_TOKENS", "10000"))
 GPT_REASONING_EFFORT = os.getenv("GPT_REASONING_EFFORT", "none").strip().lower() or "none"
 IMPORTER_ADMIN_TOKEN = (os.getenv("IMPORTER_ADMIN_TOKEN") or ADMIN_TOKEN or "").strip()
+AI_PROMPT_MAX_CHARS = int(os.getenv("AI_PROMPT_MAX_CHARS", "120000"))
 MARKDOWN_MAX_BYTES = int(os.getenv("MARKDOWN_MAX_BYTES", str(10 * 1024 * 1024)))
 MARKDOWN_CONTEXT_MAX_CHARS = int(os.getenv("MARKDOWN_CONTEXT_MAX_CHARS", "120000"))
 MARKDOWN_BATCH_MAX_OUTPUT_TOKENS = int(os.getenv("MARKDOWN_BATCH_MAX_OUTPUT_TOKENS", "8000"))
@@ -126,6 +127,13 @@ def _get_azure_deployment_for_model(model: AIModel) -> str:
     if model == AI_MODEL_GPT52:
         return (GPT_AZURE_DEPLOYMENT_GPT52 or "").strip()
     return ""
+
+
+def _validate_ai_prompt_text(value: Optional[str]) -> str:
+    text = (value or "").strip()
+    if len(text) > AI_PROMPT_MAX_CHARS:
+        raise ValueError(f"prompt is too long (max {AI_PROMPT_MAX_CHARS} characters)")
+    return text
 
 # Session / cookie configuration (account login)
 SESSION_COOKIE_NAME = "st_session"
@@ -1024,10 +1032,7 @@ class AIGuidePayload(BaseModel):
     @field_validator("prompt")
     @classmethod
     def prompt_required(cls, v: str):
-        text = (v or "").strip()
-        if len(text) > 40000:
-            raise ValueError("prompt is too long (max 40000 characters)")
-        return text
+        return _validate_ai_prompt_text(v)
 
     @field_validator("base")
     @classmethod
@@ -1056,10 +1061,7 @@ class AIPromptPayload(BaseModel):
     @field_validator("prompt")
     @classmethod
     def prompt_required(cls, v: str):
-        text = (v or "").strip()
-        if len(text) > 40000:
-            raise ValueError("prompt is too long (max 40000 characters)")
-        return text
+        return _validate_ai_prompt_text(v)
 
     @field_validator("aiModel")
     @classmethod
