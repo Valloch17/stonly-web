@@ -1171,9 +1171,11 @@
           const el = document.getElementById(id);
           if (!el) return;
           if (typeof el.value === 'string' && v && !el.value) el.value = v;
-          el.addEventListener('input', () => {
+          const persist = () => {
             try { localStorage.setItem(key, (el.value || '').trim()); } catch {}
-          });
+          };
+          el.addEventListener('input', persist);
+          el.addEventListener('change', persist);
         });
       } catch (_) { /* ignore */ }
     });
@@ -1190,6 +1192,7 @@
   function normalizeTeamOrigin(origin) {
     return String(origin || 'EU').trim().toUpperCase() === 'US' ? 'US' : 'EU';
   }
+  window.normalizeTeamOrigin = normalizeTeamOrigin;
 
   function readStoredApiBase(origin) {
     const key = normalizeTeamOrigin(origin) === 'US' ? US_API_BASE_KEY : EU_API_BASE_KEY;
@@ -1521,6 +1524,12 @@
     const select = document.getElementById('teamSelect');
     const meta = document.getElementById('teamMeta');
     const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
+    const getNormalizedOrigin = function getNormalizedOrigin(origin) {
+      try {
+        if (typeof window.normalizeTeamOrigin === 'function') return window.normalizeTeamOrigin(origin);
+      } catch {}
+      return String(origin || 'EU').trim().toUpperCase() === 'US' ? 'US' : 'EU';
+    };
     let teams = [];
     let lastValidTeamId = '';
     let lastSelectedTeamId = '';
@@ -1605,6 +1614,7 @@
         if (!item || item.dataset.disabled === '1') return;
         const value = item.dataset.value || '';
         select.value = value;
+        select.dispatchEvent(new Event('input', { bubbles: true }));
         select.dispatchEvent(new Event('change', { bubbles: true }));
         setOpen(false);
         button.focus();
@@ -1693,7 +1703,7 @@
       overlay.querySelector('#teamModalId').value = team?.teamId ?? '';
       overlay.querySelector('#teamModalName').value = team?.name ?? '';
       overlay.querySelector('#teamModalRoot').value = team?.rootFolder ?? '';
-      const origin = normalizeTeamOrigin(team?.origin);
+      const origin = getNormalizedOrigin(team?.origin);
       overlay.querySelectorAll('input[name="teamModalOrigin"]').forEach((input) => {
         input.checked = input.value === origin;
       });
@@ -1743,7 +1753,7 @@
       const name = overlay.querySelector('#teamModalName').value.trim();
       const rootFolderRaw = overlay.querySelector('#teamModalRoot').value;
       const token = overlay.querySelector('#teamModalToken').value.trim();
-      const origin = normalizeTeamOrigin(overlay.querySelector('input[name="teamModalOrigin"]:checked')?.value);
+      const origin = getNormalizedOrigin(overlay.querySelector('input[name="teamModalOrigin"]:checked')?.value);
       const rootFolder = parseInt(rootFolderRaw, 10);
       if (!name) {
         if (error) error.textContent = 'Team name is required.';
@@ -1818,23 +1828,27 @@
         return;
       }
       const name = team.name ? `${team.name} · ` : '';
-      const origin = team.origin ? ` · ${normalizeTeamOrigin(team.origin)}` : '';
+      const origin = team.origin ? ` · ${getNormalizedOrigin(team.origin)}` : '';
       const root = team.rootFolder ? ` · Root folder ${team.rootFolder}` : '';
       meta.textContent = `${name}Team ID ${team.teamId}${origin}${root}`;
     }
 
     function applyRootFolder(team, opts) {
-      if (typeof window.__syncFolderSelects === 'function') {
-        window.__syncFolderSelects(team, opts);
-        return;
-      }
-      if (!team || !team.rootFolder) return;
-      ['folderId', 'parentId'].forEach((id) => {
-        const el = document.getElementById(id);
-        if (el && !String(el.value || '').trim()) {
-          el.value = String(team.rootFolder);
+      try {
+        if (typeof window.__syncFolderSelects === 'function') {
+          window.__syncFolderSelects(team, opts);
+          return;
         }
-      });
+        if (!team || !team.rootFolder) return;
+        ['folderId', 'parentId'].forEach((id) => {
+          const el = document.getElementById(id);
+          if (el && !String(el.value || '').trim()) {
+            el.value = String(team.rootFolder);
+          }
+        });
+      } catch (error) {
+        console.error('Failed to sync team root folder selection', error);
+      }
     }
 
     function updateSelection() {
@@ -1861,16 +1875,24 @@
         try { localStorage.setItem('st_selected_team', selectedId); } catch {}
       }
       lastSelectedTeamId = selectedId || '';
-      setMeta(team);
-      const teamChanged = !!(previousTeamId && previousTeamId !== selectedId);
-      applyRootFolder(team, { teamChanged });
-      syncCustomLabel();
-      syncCustomSelection();
+      try {
+        setMeta(team);
+        const teamChanged = !!(previousTeamId && previousTeamId !== selectedId);
+        applyRootFolder(team, { teamChanged });
+      } catch (error) {
+        console.error('Failed to update team selection state', error);
+      }
+      try {
+        syncCustomLabel();
+        syncCustomSelection();
+      } catch (error) {
+        console.error('Failed to refresh custom team selector UI', error);
+      }
     }
 
     function teamLabel(team) {
       if (!team) return 'Select a team';
-      const origin = normalizeTeamOrigin(team.origin);
+      const origin = getNormalizedOrigin(team.origin);
       return team.name ? `${team.name} (${team.teamId} · ${origin})` : `Team ${team.teamId} · ${origin}`;
     }
 
@@ -1997,19 +2019,53 @@
       }
       updateSelection();
       pendingSelectId = '';
-      renderCustomOptions();
+      if (customPanel) renderCustomOptions();
+    }
+
+    async function fetchTeamsPayload(url) {
+      const res = await fetch(url, { credentials: 'include' });
+      if (res.status === 401) {
+        window.location.replace('/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search));
+        return { redirected: true, teams: [] };
+      }
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        const detail = data?.detail || data?.message || `HTTP ${res.status}`;
+        throw new Error(typeof detail === 'string' ? detail : JSON.stringify(detail));
+      }
+      return { redirected: false, teams: Array.isArray(data?.teams) ? data.teams : [] };
     }
 
     async function loadTeams(preferredTeamId) {
       try {
-        const res = await fetch(base + '/api/teams', { credentials: 'include' });
-        if (res.status === 401) {
-          window.location.replace('/login.html?next=' + encodeURIComponent(window.location.pathname + window.location.search));
-          return;
+        const candidates = [];
+        const primary = (base || '').replace(/\/+$/, '') + '/api/teams';
+        if (primary && !candidates.includes(primary)) candidates.push(primary);
+        if (!candidates.includes('/api/teams')) candidates.push('/api/teams');
+        const originFallback = ((window.location?.origin || '').replace(/\/+$/, '')) + '/api/teams';
+        if (window.location?.origin && !candidates.includes(originFallback)) candidates.push(originFallback);
+
+        let teamsPayload = [];
+        let loaded = false;
+        let lastError = null;
+        for (const url of candidates) {
+          try {
+            const result = await fetchTeamsPayload(url);
+            if (result.redirected) return;
+            teamsPayload = result.teams;
+            loaded = true;
+            break;
+          } catch (error) {
+            lastError = error;
+            console.error('Failed to fetch teams from', url, error);
+          }
         }
-        const data = await res.json().catch(() => null);
-        renderTeams(data?.teams || [], preferredTeamId);
+        if (!loaded) throw (lastError || new Error('Failed to load teams'));
+
+        renderTeams(teamsPayload, preferredTeamId);
+        if (meta && !teams.length) meta.textContent = 'No team selected.';
       } catch (e) {
+        console.error('Failed to load teams.', e);
         if (meta) meta.textContent = 'Failed to load teams.';
       }
     }
@@ -2038,6 +2094,7 @@
     };
     window.__reloadTeamSelect = loadTeams;
 
+    select.addEventListener('input', updateSelection);
     select.addEventListener('change', updateSelection);
 
     loadTeams();
