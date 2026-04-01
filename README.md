@@ -45,11 +45,11 @@ Combines KB Builder and Guide Builder into one workflow for full, end-to-end bui
 
 Teams are saved to your account so you can reuse them without re-entering tokens.
 
-- Team fields: Team name, Team ID, Team token, optional Root folder.
+- Team fields: Team name, Team ID, Team token, Team origin (EU or US), optional Root folder.
 - Team token is required when creating or editing a team.
 - The Team selector is always available; use "+ Create team" in the dropdown.
 - Manage teams in Team Settings to create, edit, or delete entries.
-- API base URL is an advanced global setting (not per team). Most users should leave it unchanged.
+- EU and US API base URLs are advanced account settings. Most users should leave them unchanged.
 
 ## Typical workflow
 

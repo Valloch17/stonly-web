@@ -142,7 +142,15 @@ SESSION_COOKIE_SECURE = os.getenv("SESSION_COOKIE_SECURE", "1") != "0"
 SESSION_COOKIE_SAMESITE = os.getenv("SESSION_COOKIE_SAMESITE", "none")
 
 # ---- DB / Auth config ----
-DEFAULT_STONLY_BASE = "https://public.stonly.com/api/v3"
+TEAM_ORIGIN_EU = "EU"
+TEAM_ORIGIN_US = "US"
+DEFAULT_EU_STONLY_BASE = "https://public.stonly.com/api/v3"
+DEFAULT_US_STONLY_BASE = "https://public.us.stonly.com/api/v3"
+DEFAULT_STONLY_BASES = {
+    TEAM_ORIGIN_EU: DEFAULT_EU_STONLY_BASE,
+    TEAM_ORIGIN_US: DEFAULT_US_STONLY_BASE,
+}
+DEFAULT_STONLY_BASE = DEFAULT_EU_STONLY_BASE
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     if ALLOW_LOCAL_TESTING_MODE:
@@ -197,6 +205,8 @@ class User(Base):
     email = Column(String(255), unique=True, nullable=False)
     password_hash = Column(String(255), nullable=False)
     api_base = Column(String(512), nullable=True)
+    eu_api_base = Column(String(512), nullable=True)
+    us_api_base = Column(String(512), nullable=True)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
 
 
@@ -208,6 +218,7 @@ class Team(Base):
     token_encrypted = Column(Text, nullable=False)
     name = Column(String(255), nullable=True)
     root_folder = Column(Integer, nullable=True)
+    origin = Column(String(8), nullable=False, default=TEAM_ORIGIN_EU)
     created_at = Column(DateTime, default=_utcnow, nullable=False)
     updated_at = Column(DateTime, default=_utcnow, nullable=False)
     __table_args__ = (
@@ -225,20 +236,69 @@ class UserSession(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
-    _ensure_user_schema()
+    _ensure_schema()
 
 
-def _ensure_user_schema() -> None:
+def _normalize_team_origin(value: Optional[str]) -> str:
+    raw = (value or TEAM_ORIGIN_EU).strip().upper()
+    if raw == TEAM_ORIGIN_US:
+        return TEAM_ORIGIN_US
+    return TEAM_ORIGIN_EU
+
+
+def _ensure_schema() -> None:
     try:
         inspector = inspect(engine)
-        if "users" not in inspector.get_table_names():
-            return
-        columns = {col["name"] for col in inspector.get_columns("users")}
-        if "api_base" not in columns:
+        table_names = set(inspector.get_table_names())
+        if "users" in table_names:
+            user_columns = {col["name"] for col in inspector.get_columns("users")}
+            if "api_base" not in user_columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN api_base TEXT"))
+            if "eu_api_base" not in user_columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN eu_api_base TEXT"))
+            if "us_api_base" not in user_columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE users ADD COLUMN us_api_base TEXT"))
             with engine.begin() as conn:
-                conn.execute(text("ALTER TABLE users ADD COLUMN api_base TEXT"))
+                conn.execute(text("UPDATE users SET eu_api_base = api_base WHERE eu_api_base IS NULL AND api_base IS NOT NULL"))
+        if "teams" in table_names:
+            team_columns = {col["name"] for col in inspector.get_columns("teams")}
+            if "origin" not in team_columns:
+                with engine.begin() as conn:
+                    conn.execute(text("ALTER TABLE teams ADD COLUMN origin TEXT"))
+            with engine.begin() as conn:
+                conn.execute(text("UPDATE teams SET origin = 'EU' WHERE origin IS NULL OR TRIM(origin) = ''"))
     except Exception:
-        logger.exception("Failed to ensure users schema")
+        logger.exception("Failed to ensure database schema")
+
+
+def _user_effective_api_bases(user: Optional[User]) -> Dict[str, str]:
+    eu_base = ""
+    us_base = ""
+    if user is not None:
+        eu_base = (getattr(user, "eu_api_base", None) or getattr(user, "api_base", None) or "").strip()
+        us_base = (getattr(user, "us_api_base", None) or "").strip()
+    return {
+        TEAM_ORIGIN_EU: eu_base or DEFAULT_STONLY_BASES[TEAM_ORIGIN_EU],
+        TEAM_ORIGIN_US: us_base or DEFAULT_STONLY_BASES[TEAM_ORIGIN_US],
+    }
+
+
+def _resolve_user_api_base(user: Optional[User], origin: Optional[str]) -> str:
+    normalized_origin = _normalize_team_origin(origin)
+    return _user_effective_api_bases(user)[normalized_origin]
+
+
+def _validate_team_access(*, base: str, user_label: str, team_id: int, team_token: str) -> None:
+    st = Stonly(
+        base=base,
+        user=user_label or "Validator",
+        password=team_token,
+        team_id=team_id,
+    )
+    st.validate_credentials()
 
 
 # IMPORTANT : ne pas exiger STONLY_USER/PASS/TEAM_ID ici.
@@ -540,12 +600,8 @@ def get_stonly_client_for_team(
 ) -> Tuple["Stonly", Team]:
     team = get_team_for_user(db, user_id, team_id)
     token = _decrypt_team_token(team.token_encrypted)
-    base_value = (base or "").strip()
-    if not base_value:
-        user = db.query(User).filter(User.id == user_id).first()
-        base_value = (user.api_base or "").strip() if user else ""
-    if not base_value:
-        base_value = DEFAULT_STONLY_BASE
+    user = db.query(User).filter(User.id == user_id).first()
+    base_value = _resolve_user_api_base(user, getattr(team, "origin", None))
     st = Stonly(
         base=base_value,
         user=(user_label or "Undefined"),
@@ -574,6 +630,30 @@ class Stonly:
                 params={"teamId": self.team_id},
                 json=payload,
             )
+
+    def validate_credentials(self) -> bool:
+        # Use a read-only authenticated lookup where 404 still proves auth succeeded.
+        probe_email = f"stonly-builder-validation-{uuid.uuid4().hex}@invalid.local"
+        url = f"{self.base}/user/byEmail"
+        params = {"teamId": self.team_id, "email": probe_email}
+        r = self.s.request("GET", url, params=params, timeout=15)
+        logger.info("REQ GET %s params=%s status=%s json=%s", r.url, params, r.status_code, None)
+        if r.status_code in (200, 404):
+            if r.headers.get("content-type", "").startswith("application/json"):
+                try:
+                    data = r.json()
+                except Exception:
+                    data = {"status": r.status_code}
+                logger.debug("RESP GET %s -> %s", r.url, shorten_payload_for_log(data))
+            else:
+                logger.debug("RESP GET %s -> %s", r.url, r.text[:500])
+            return True
+        try:
+            detail = r.json()
+        except Exception:
+            detail = {"text": r.text[:2000]}
+        logger.error("UPSTREAM ERROR GET %s -> %s", r.url, detail)
+        raise HTTPException(r.status_code, detail={"upstream": detail, "url": str(r.url)})
 
     def list_guides_in_folder(
         self,
@@ -1392,9 +1472,10 @@ class ResetPasswordPayload(BaseModel):
 
 
 class UserSettingsPayload(BaseModel):
-    apiBase: Optional[str] = None
+    euApiBase: Optional[str] = None
+    usApiBase: Optional[str] = None
 
-    @field_validator("apiBase", mode="before")
+    @field_validator("euApiBase", "usApiBase", mode="before")
     @classmethod
     def api_base_optional(cls, v):
         if v is None:
@@ -1408,6 +1489,7 @@ class TeamCreatePayload(BaseModel):
     teamToken: str
     name: str
     rootFolder: Optional[int] = None
+    origin: str = TEAM_ORIGIN_EU
 
     @field_validator("teamId")
     @classmethod
@@ -1439,12 +1521,18 @@ class TeamCreatePayload(BaseModel):
             return None
         return int(v)
 
+    @field_validator("origin", mode="before")
+    @classmethod
+    def origin_default(cls, v):
+        return _normalize_team_origin(v)
+
 
 class TeamUpdatePayload(BaseModel):
     teamId: Optional[int] = None
     teamToken: Optional[str] = None
     name: Optional[str] = None
     rootFolder: Optional[int] = None
+    origin: Optional[str] = None
 
     @field_validator("teamId")
     @classmethod
@@ -1468,6 +1556,13 @@ class TeamUpdatePayload(BaseModel):
             return None
         text = str(v).strip()
         return text or None
+
+    @field_validator("origin", mode="before")
+    @classmethod
+    def origin_optional(cls, v):
+        if v is None:
+            return None
+        return _normalize_team_origin(v)
 
     @field_validator("rootFolder", mode="before")
     @classmethod
@@ -4772,7 +4867,12 @@ def api_auth_status(request: Request):
 def api_get_settings(request: Request):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)
-    return {"ok": True, "apiBase": user.api_base}
+    effective = _user_effective_api_bases(user)
+    return {
+        "ok": True,
+        "euApiBase": effective[TEAM_ORIGIN_EU],
+        "usApiBase": effective[TEAM_ORIGIN_US],
+    }
 
 
 @app.put("/api/settings", tags=["Settings"], summary="Update account settings")
@@ -4780,11 +4880,18 @@ def api_update_settings(payload: UserSettingsPayload, request: Request):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)
         fields_set = getattr(payload, "model_fields_set", set())
-        if "apiBase" in fields_set:
-            user.api_base = payload.apiBase
+        if "euApiBase" in fields_set:
+            user.eu_api_base = payload.euApiBase
+        if "usApiBase" in fields_set:
+            user.us_api_base = payload.usApiBase
         db.commit()
         db.refresh(user)
-    return {"ok": True, "apiBase": user.api_base}
+    effective = _user_effective_api_bases(user)
+    return {
+        "ok": True,
+        "euApiBase": effective[TEAM_ORIGIN_EU],
+        "usApiBase": effective[TEAM_ORIGIN_US],
+    }
 
 
 @app.get("/api/teams", tags=["Teams"], summary="List teams for current user")
@@ -4798,6 +4905,7 @@ def api_list_teams(request: Request):
                 "teamId": t.team_id,
                 "name": t.name,
                 "rootFolder": t.root_folder,
+                "origin": _normalize_team_origin(getattr(t, "origin", None)),
                 "createdAt": t.created_at.isoformat() if t.created_at else None,
             }
             for t in teams
@@ -4809,12 +4917,35 @@ def api_list_teams(request: Request):
 def api_create_team(payload: TeamCreatePayload, request: Request):
     with SessionLocal() as db:
         user = get_user_from_request(db, request)
+        origin = _normalize_team_origin(payload.origin)
+        base = _resolve_user_api_base(user, origin)
+        logger.info("TEAM validation start team=%s origin=%s base=%s", payload.teamId, origin, base)
+        try:
+            _validate_team_access(
+                base=base,
+                user_label="Validator",
+                team_id=payload.teamId,
+                team_token=payload.teamToken,
+            )
+        except HTTPException as exc:
+            logger.warning(
+                "TEAM validation failed team=%s origin=%s base=%s status=%s detail=%s",
+                payload.teamId,
+                origin,
+                base,
+                exc.status_code,
+                getattr(exc, "detail", None),
+            )
+            if exc.status_code in (401, 403):
+                raise HTTPException(400, detail=f"Team validation failed for {origin} origin. Check the team ID, token, and selected region.")
+            raise
         team = Team(
             user_id=user.id,
             team_id=payload.teamId,
             token_encrypted=_encrypt_team_token(payload.teamToken),
             name=payload.name,
             root_folder=payload.rootFolder,
+            origin=origin,
             created_at=_utcnow(),
             updated_at=_utcnow(),
         )
@@ -4832,6 +4963,7 @@ def api_create_team(payload: TeamCreatePayload, request: Request):
             "teamId": team.team_id,
             "name": team.name,
             "rootFolder": team.root_folder,
+            "origin": _normalize_team_origin(getattr(team, "origin", None)),
         },
     }
 
@@ -4844,23 +4976,63 @@ def api_update_team(team_id: int, payload: TeamUpdatePayload, request: Request):
         if not team:
             raise HTTPException(404, detail="Team not found")
         fields_set = getattr(payload, "model_fields_set", set())
-        if "teamId" in fields_set:
-            team.team_id = payload.teamId
+        next_team_id = payload.teamId if "teamId" in fields_set else team.team_id
+        next_origin = _normalize_team_origin(payload.origin if "origin" in fields_set else getattr(team, "origin", None))
+        next_token = None
         if "teamToken" in fields_set:
             if not payload.teamToken:
                 raise HTTPException(400, detail="teamToken cannot be empty")
-            team.token_encrypted = _encrypt_team_token(payload.teamToken)
+            next_token = payload.teamToken
+        if next_token is not None or "teamId" in fields_set or "origin" in fields_set:
+            token_for_validation = next_token if next_token is not None else _decrypt_team_token(team.token_encrypted)
+            base = _resolve_user_api_base(user, next_origin)
+            logger.info("TEAM validation start team=%s origin=%s base=%s", next_team_id, next_origin, base)
+            try:
+                _validate_team_access(
+                    base=base,
+                    user_label="Validator",
+                    team_id=next_team_id,
+                    team_token=token_for_validation,
+                )
+            except HTTPException as exc:
+                logger.warning(
+                    "TEAM validation failed team=%s origin=%s base=%s status=%s detail=%s",
+                    next_team_id,
+                    next_origin,
+                    base,
+                    exc.status_code,
+                    getattr(exc, "detail", None),
+                )
+                if exc.status_code in (401, 403):
+                    raise HTTPException(400, detail=f"Team validation failed for {next_origin} origin. Check the team ID, token, and selected region.")
+                raise
+        if "teamId" in fields_set:
+            team.team_id = payload.teamId
+        if next_token is not None:
+            team.token_encrypted = _encrypt_team_token(next_token)
         if "name" in fields_set:
             team.name = payload.name
         if "rootFolder" in fields_set:
             team.root_folder = payload.rootFolder
+        if "origin" in fields_set:
+            team.origin = next_origin
         team.updated_at = _utcnow()
         try:
             db.commit()
         except IntegrityError:
             db.rollback()
             raise HTTPException(409, detail="Team already exists")
-    return {"ok": True}
+        db.refresh(team)
+    return {
+        "ok": True,
+        "team": {
+            "id": team.id,
+            "teamId": team.team_id,
+            "name": team.name,
+            "rootFolder": team.root_folder,
+            "origin": _normalize_team_origin(getattr(team, "origin", None)),
+        },
+    }
 
 
 @app.delete("/api/teams/{team_id}", tags=["Teams"], summary="Delete a team")

@@ -4,6 +4,7 @@ import pathlib
 import types
 import pytest
 import uuid
+from fastapi import HTTPException
 
 # --- 1) Set required env BEFORE importing main.py ---
 os.environ.setdefault("APP_ADMIN_TOKEN", "secret")
@@ -74,6 +75,11 @@ class FakeStonly:
             {"id": new_id, "name": name, "parentId": int(parent_id)}
         )
         return new_id
+
+    def validate_credentials(self):
+        if self.password in {"invalid-token", "bad-token"}:
+            raise HTTPException(401, detail="Unauthorized")
+        return True
 
 # --- 4) Patch main.Stonly with FakeStonly for all tests ---
 @pytest.fixture(autouse=True)

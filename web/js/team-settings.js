@@ -6,7 +6,8 @@ const BASE = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
 const table = document.getElementById('teamTable');
 const statusNode = document.getElementById('teamSettingsStatus');
 const newBtn = document.getElementById('teamNewBtn');
-const apiBaseInput = document.getElementById('apiBaseInput');
+const euApiBaseInput = document.getElementById('euApiBaseInput');
+const usApiBaseInput = document.getElementById('usApiBaseInput');
 const apiBaseSave = document.getElementById('apiBaseSave');
 const apiBaseStatus = document.getElementById('apiBaseStatus');
 
@@ -35,7 +36,7 @@ function renderTeams(list) {
   if (!table) return;
   table.innerHTML = '';
   if (!teams.length) {
-    table.innerHTML = '<tr><td colspan="5" class="px-3 py-3 text-center text-slate-500 italic">Team list is empty, please create one.</td></tr>';
+    table.innerHTML = '<tr><td colspan="6" class="px-3 py-3 text-center text-slate-500 italic">Team list is empty, please create one.</td></tr>';
     return;
   }
   teams.forEach((team) => {
@@ -44,6 +45,7 @@ function renderTeams(list) {
     tr.innerHTML = `
       <td class="px-3 py-2 border-b">${team.name || '-'}</td>
       <td class="px-3 py-2 border-b font-mono text-xs">${team.teamId}</td>
+      <td class="px-3 py-2 border-b">${team.origin || 'EU'}</td>
       <td class="px-3 py-2 border-b">${team.rootFolder ?? '-'}</td>
       <td class="px-3 py-2 border-b text-xs text-slate-500">${created}</td>
       <td class="px-3 py-2 border-b">
@@ -83,19 +85,20 @@ async function deleteTeam(teamId) {
 }
 
 async function loadApiBase() {
-  if (!apiBaseInput) return;
+  if (!euApiBaseInput || !usApiBaseInput) return;
   setApiStatus('Loading API settings...');
   try {
     const res = await fetch(BASE + '/api/settings', { credentials: 'include' });
     if (!res.ok) throw new Error('Failed to load API settings');
     const data = await res.json();
-    const apiBase = (data?.apiBase || '').trim();
-    apiBaseInput.value = apiBase;
-    window.__apiBase = apiBase;
-    try {
-      if (apiBase) localStorage.setItem('st_api_base', apiBase);
-      else localStorage.removeItem('st_api_base');
-    } catch {}
+    const euApiBase = (data?.euApiBase || '').trim();
+    const usApiBase = (data?.usApiBase || '').trim();
+    euApiBaseInput.value = euApiBase;
+    usApiBaseInput.value = usApiBase;
+    window.__euApiBase = euApiBase;
+    window.__usApiBase = usApiBase;
+    try { localStorage.setItem('st_eu_api_base', euApiBase); } catch {}
+    try { localStorage.setItem('st_us_api_base', usApiBase); } catch {}
     setApiStatus('');
   } catch (e) {
     setApiStatus(e?.message || 'Failed to load API settings', 'error');
@@ -103,25 +106,30 @@ async function loadApiBase() {
 }
 
 async function saveApiBase() {
-  if (!apiBaseInput) return;
-  const apiBase = (apiBaseInput.value || '').trim();
+  if (!euApiBaseInput || !usApiBaseInput) return;
+  const euApiBase = (euApiBaseInput.value || '').trim();
+  const usApiBase = (usApiBaseInput.value || '').trim();
   setApiStatus('Saving...');
   try {
     const res = await fetch(BASE + '/api/settings', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ apiBase: apiBase || null }),
+      body: JSON.stringify({
+        euApiBase: euApiBase || null,
+        usApiBase: usApiBase || null,
+      }),
       credentials: 'include',
     });
     if (!res.ok) throw new Error('Failed to save API settings');
     const data = await res.json().catch(() => ({}));
-    const saved = (data?.apiBase || '').trim();
-    apiBaseInput.value = saved;
-    window.__apiBase = saved;
-    try {
-      if (saved) localStorage.setItem('st_api_base', saved);
-      else localStorage.removeItem('st_api_base');
-    } catch {}
+    const savedEu = (data?.euApiBase || '').trim();
+    const savedUs = (data?.usApiBase || '').trim();
+    euApiBaseInput.value = savedEu;
+    usApiBaseInput.value = savedUs;
+    window.__euApiBase = savedEu;
+    window.__usApiBase = savedUs;
+    try { localStorage.setItem('st_eu_api_base', savedEu); } catch {}
+    try { localStorage.setItem('st_us_api_base', savedUs); } catch {}
     setApiStatus('API settings saved.', 'success');
   } catch (e) {
     setApiStatus(e?.message || 'Failed to save API settings', 'error');

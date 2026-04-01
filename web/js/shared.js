@@ -1179,24 +1179,58 @@
     });
   });
 
-  // 4) Shared API base settings (account-level)
-  const API_BASE_KEY = 'st_api_base';
-  const DEFAULT_API_BASE = 'https://public.stonly.com/api/v3';
+  // 4) Shared API base settings (account-level, per region)
+  const EU_API_BASE_KEY = 'st_eu_api_base';
+  const US_API_BASE_KEY = 'st_us_api_base';
+  const DEFAULT_API_BASES = {
+    EU: 'https://public.stonly.com/api/v3',
+    US: 'https://public.us.stonly.com/api/v3',
+  };
 
-  window.getApiBase = function getApiBase() {
+  function normalizeTeamOrigin(origin) {
+    return String(origin || 'EU').trim().toUpperCase() === 'US' ? 'US' : 'EU';
+  }
+
+  function readStoredApiBase(origin) {
+    const key = normalizeTeamOrigin(origin) === 'US' ? US_API_BASE_KEY : EU_API_BASE_KEY;
     try {
-      const saved = localStorage.getItem(API_BASE_KEY);
-      if (saved) return saved;
+      const saved = localStorage.getItem(key);
+      return saved ? saved.trim() : '';
+    } catch {
+      return '';
+    }
+  }
+
+  function writeStoredApiBase(origin, value) {
+    const key = normalizeTeamOrigin(origin) === 'US' ? US_API_BASE_KEY : EU_API_BASE_KEY;
+    try {
+      if (value) localStorage.setItem(key, value);
+      else localStorage.removeItem(key);
     } catch {}
-    const base = (window.__apiBase || '').trim();
-    return base || DEFAULT_API_BASE;
+  }
+
+  window.getApiBaseForOrigin = function getApiBaseForOrigin(origin) {
+    const normalizedOrigin = normalizeTeamOrigin(origin);
+    const stored = readStoredApiBase(normalizedOrigin);
+    if (stored) return stored;
+    const runtime = normalizedOrigin === 'US'
+      ? String(window.__usApiBase || '').trim()
+      : String(window.__euApiBase || '').trim();
+    return runtime || DEFAULT_API_BASES[normalizedOrigin];
+  };
+
+  window.getSelectedTeamOrigin = function getSelectedTeamOrigin() {
+    const team = typeof window.getSelectedTeam === 'function' ? window.getSelectedTeam() : window.__selectedTeam;
+    return normalizeTeamOrigin(team?.origin);
+  };
+
+  window.getApiBase = function getApiBase(origin) {
+    return window.getApiBaseForOrigin(origin || window.getSelectedTeamOrigin());
   };
 
   onReady(function initApiBaseSetting() {
-    try {
-      const saved = localStorage.getItem(API_BASE_KEY);
-      if (saved) window.__apiBase = saved;
-    } catch {}
+    window.__euApiBase = readStoredApiBase('EU') || window.__euApiBase || '';
+    window.__usApiBase = readStoredApiBase('US') || window.__usApiBase || '';
 
     const base = (window.BASE || window.DEFAULT_BACKEND || '').replace(/\/+$/, '');
     if (!base) return;
@@ -1212,12 +1246,12 @@
         })
         .then((data) => {
           if (!data) return;
-          const apiBase = (data.apiBase || '').trim();
-          window.__apiBase = apiBase;
-          try {
-            if (apiBase) localStorage.setItem(API_BASE_KEY, apiBase);
-            else localStorage.removeItem(API_BASE_KEY);
-          } catch {}
+          const euApiBase = String(data.euApiBase || '').trim() || DEFAULT_API_BASES.EU;
+          const usApiBase = String(data.usApiBase || '').trim() || DEFAULT_API_BASES.US;
+          window.__euApiBase = euApiBase;
+          window.__usApiBase = usApiBase;
+          writeStoredApiBase('EU', euApiBase);
+          writeStoredApiBase('US', usApiBase);
         })
         .catch(() => {});
     };
@@ -1617,6 +1651,19 @@
                 <input id="teamModalRoot" type="number" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Optional root folder ID" />
               </div>
             </div>
+            <div>
+              <span class="block text-sm font-medium">Team origin <span class="text-red-600">*</span></span>
+              <div class="mt-1 inline-flex items-center gap-4 rounded-lg border px-3 py-2 text-sm">
+                <label class="inline-flex items-center gap-2">
+                  <input type="radio" name="teamModalOrigin" value="EU" checked />
+                  <span>EU</span>
+                </label>
+                <label class="inline-flex items-center gap-2">
+                  <input type="radio" name="teamModalOrigin" value="US" />
+                  <span>US</span>
+                </label>
+              </div>
+            </div>
             <p id="teamModalError" class="text-sm text-red-600 min-h-[1.25rem]"></p>
             <div class="modal-actions">
               <button id="teamModalCancel" type="button" class="px-3 py-2 rounded-lg border text-sm">Cancel</button>
@@ -1646,6 +1693,10 @@
       overlay.querySelector('#teamModalId').value = team?.teamId ?? '';
       overlay.querySelector('#teamModalName').value = team?.name ?? '';
       overlay.querySelector('#teamModalRoot').value = team?.rootFolder ?? '';
+      const origin = normalizeTeamOrigin(team?.origin);
+      overlay.querySelectorAll('input[name="teamModalOrigin"]').forEach((input) => {
+        input.checked = input.value === origin;
+      });
       const tokenInput = overlay.querySelector('#teamModalToken');
       if (tokenInput) tokenInput.value = '';
       if (error) error.textContent = '';
@@ -1692,6 +1743,7 @@
       const name = overlay.querySelector('#teamModalName').value.trim();
       const rootFolderRaw = overlay.querySelector('#teamModalRoot').value;
       const token = overlay.querySelector('#teamModalToken').value.trim();
+      const origin = normalizeTeamOrigin(overlay.querySelector('input[name="teamModalOrigin"]:checked')?.value);
       const rootFolder = parseInt(rootFolderRaw, 10);
       if (!name) {
         if (error) error.textContent = 'Team name is required.';
@@ -1702,7 +1754,7 @@
         return;
       }
 
-      const payload = { teamId, name };
+      const payload = { teamId, name, origin };
       if (Number.isFinite(rootFolder)) payload.rootFolder = rootFolder;
       if (modalState.mode === 'create') {
         if (!token) {
@@ -1733,7 +1785,12 @@
           });
         }
         if (!res.ok) {
-          const msg = res.status === 409 ? 'Team already exists.' : 'Failed to save team.';
+          let msg = res.status === 409 ? 'Team already exists.' : 'Failed to save team.';
+          try {
+            const body = await res.json();
+            const detail = body?.detail;
+            if (typeof detail === 'string' && detail.trim()) msg = detail.trim();
+          } catch {}
           if (error) error.textContent = msg;
           return;
         }
@@ -1761,8 +1818,9 @@
         return;
       }
       const name = team.name ? `${team.name} · ` : '';
+      const origin = team.origin ? ` · ${normalizeTeamOrigin(team.origin)}` : '';
       const root = team.rootFolder ? ` · Root folder ${team.rootFolder}` : '';
-      meta.textContent = `${name}Team ID ${team.teamId}${root}`;
+      meta.textContent = `${name}Team ID ${team.teamId}${origin}${root}`;
     }
 
     function applyRootFolder(team, opts) {
@@ -1812,7 +1870,8 @@
 
     function teamLabel(team) {
       if (!team) return 'Select a team';
-      return team.name ? `${team.name} (${team.teamId})` : `Team ${team.teamId}`;
+      const origin = normalizeTeamOrigin(team.origin);
+      return team.name ? `${team.name} (${team.teamId} · ${origin})` : `Team ${team.teamId} · ${origin}`;
     }
 
     function syncCustomLabel() {

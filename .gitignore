@@ -9,3 +9,5 @@ server/.env
 server/stonly.db
 *.swp
 .vscode/*
+*.pyc
+.codex

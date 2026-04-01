@@ -51,6 +51,127 @@ def test_dump_structure_with_parent(client, creds):
     assert "Support" in names
 
 
+def test_settings_defaults_and_save_region_bases(client):
+    r = client.get("/api/settings")
+    assert r.status_code == 200
+    assert r.json() == {
+        "ok": True,
+        "euApiBase": "https://public.stonly.com/api/v3",
+        "usApiBase": "https://public.us.stonly.com/api/v3",
+    }
+
+    r = client.put("/api/settings", json={
+        "euApiBase": "https://eu.example.test/api/v4",
+        "usApiBase": "https://us.example.test/api/v4",
+    })
+    assert r.status_code == 200
+    assert r.json() == {
+        "ok": True,
+        "euApiBase": "https://eu.example.test/api/v4",
+        "usApiBase": "https://us.example.test/api/v4",
+    }
+
+
+def test_create_team_uses_selected_origin_base_and_persists_origin(client, monkeypatch):
+    captured = {}
+
+    r = client.put("/api/settings", json={
+        "euApiBase": "https://eu.example.test/api/v4",
+        "usApiBase": "https://us.example.test/api/v4",
+    })
+    assert r.status_code == 200
+
+    def fake_validate(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr(main, "_validate_team_access", fake_validate)
+
+    r = client.post("/api/teams", json={
+        "teamId": 48307,
+        "teamToken": "us-token",
+        "name": "US Team",
+        "origin": "US",
+    })
+    assert r.status_code == 200
+    body = r.json()
+    assert body["team"]["origin"] == "US"
+    assert captured == {
+        "base": "https://us.example.test/api/v4",
+        "user_label": "Validator",
+        "team_id": 48307,
+        "team_token": "us-token",
+    }
+
+    r = client.get("/api/teams")
+    assert r.status_code == 200
+    teams = {team["teamId"]: team for team in r.json()["teams"]}
+    assert teams[48307]["origin"] == "US"
+    assert teams[39539]["origin"] == "EU"
+
+
+def test_create_team_rejects_invalid_token_for_selected_origin(client):
+    r = client.post("/api/teams", json={
+        "teamId": 50001,
+        "teamToken": "invalid-token",
+        "name": "Broken Team",
+        "origin": "US",
+    })
+    assert r.status_code == 400
+    assert "selected region" in r.json()["detail"]
+
+
+def test_build_guide_uses_team_origin_base_not_payload_base(client, monkeypatch):
+    captured = {}
+
+    r = client.put("/api/settings", json={
+        "usApiBase": "https://us.example.test/api/v4",
+    })
+    assert r.status_code == 200
+
+    monkeypatch.setattr(main, "_validate_team_access", lambda **kwargs: None)
+    r = client.post("/api/teams", json={
+        "teamId": 48308,
+        "teamToken": "us-token",
+        "name": "US Build Team",
+        "origin": "US",
+    })
+    assert r.status_code == 200
+
+    def fake_build_one_guide(*, st, team_id, folder_id, definition, dry_run, publish):
+        captured["base"] = st.base
+        captured["team_id"] = team_id
+        captured["folder_id"] = folder_id
+        return {
+            "guideId": "g-1",
+            "firstStepId": "s-1",
+            "summary": {"stepCount": 1},
+            "steps": [],
+        }
+
+    monkeypatch.setattr(main, "_build_one_guide", fake_build_one_guide)
+
+    r = client.post("/api/guides/build", json={
+        "creds": {
+            "user": "tester@example.com",
+            "teamId": 48308,
+            "base": "https://wrong.example.test/api/v9",
+        },
+        "folderId": 2000,
+        "yaml": """guide:
+  contentTitle: Test guide
+  contentType: GUIDE
+  language: en-US
+  firstStep:
+    title: Start
+    content: "<p>Hello</p>"
+""",
+    })
+    assert r.status_code == 200
+    assert captured["base"] == "https://us.example.test/api/v4"
+    assert captured["team_id"] == 48308
+    assert captured["folder_id"] == 2000
+
+
 def test_apply_dry_run_no_creation_and_mapping_present(client, creds):
     # Dry-run must not create but should resolve existing ids into mapping
     root = [
