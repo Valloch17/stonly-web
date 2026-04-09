@@ -232,7 +232,7 @@
         <div class="mode-toggle" role="group" aria-label="Expert mode toggle">
           <button id="expertModeManual" type="button" class="is-active" aria-pressed="true">Manual</button>
           <button id="expertModeAuto" type="button" aria-pressed="false">Automated</button>
-          <button id="expertModeMarkdown" type="button" aria-pressed="false">Markdown</button>
+          <button id="expertModeMarkdown" type="button" aria-pressed="false">File import</button>
         </div>
       </div>
     </section>
@@ -294,8 +294,8 @@
     <section id="expertMarkdownSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-4 hidden">
       <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
-          <h2 class="text-lg font-semibold">Markdown import</h2>
-          <p class="text-sm text-slate-500">Upload a Markdown file, review structure YAML, then build/publish with batched content generation.</p>
+          <h2 class="text-lg font-semibold">File import</h2>
+          <p class="text-sm text-slate-500">Upload a Markdown or HTML file, review structure YAML, then build/publish with file-type-aware batched content generation.</p>
         </div>
         <div class="flex items-center gap-3">
           <div id="markdownSpinner" class="hidden items-center gap-2 text-sm text-slate-500">
@@ -307,9 +307,9 @@
 
       <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
         <div class="md:col-span-4">
-          <label class="block text-sm font-medium">Markdown file <span class="text-red-600">*</span></label>
-          <input id="markdownFile" type="file" accept=".md,text/markdown" class="mt-1 w-full border rounded-lg p-2 text-sm" />
-          <p id="markdownFileMeta" class="text-xs text-slate-500 mt-1">Max size: 10MB</p>
+          <label class="block text-sm font-medium">Source file <span class="text-red-600">*</span></label>
+          <input id="markdownFile" type="file" accept=".md,.markdown,.html,.htm,text/markdown,text/html,application/xhtml+xml" class="mt-1 w-full border rounded-lg p-2 text-sm" />
+          <p id="markdownFileMeta" class="text-xs text-slate-500 mt-1">Accepted: Markdown or HTML. Max size: 10MB</p>
         </div>
         <div>
           <label class="block text-sm font-medium">Guide output mode</label>
@@ -369,7 +369,7 @@
 
       <div class="space-y-2">
         <div class="flex items-center justify-between">
-          <h3 class="text-sm font-medium">Markdown output</h3>
+          <h3 class="text-sm font-medium">Import output</h3>
           <button id="copyMarkdownOut" class="px-3 py-1.5 rounded-md border text-sm" type="button">Copy</button>
         </div>
         <pre id="markdownOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>

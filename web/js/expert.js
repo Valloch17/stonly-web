@@ -14,13 +14,15 @@
   const MARKDOWN_CALL_INTERVAL_KEY = 'expert_markdown_call_interval_seconds';
   const MARKDOWN_STRUCTURE_KEY = 'expert_markdown_structure_yaml';
   const MARKDOWN_MODEL_KEY = 'expert_markdown_ai_model';
+  const FILE_KIND_MARKDOWN = 'markdown';
+  const FILE_KIND_HTML = 'html';
   const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || 'gemini';
   const AUTO_PROMPT_MAX_CHARS = 120000;
   const autoAiModelButton = el('expertAiModelButton');
   const markdownAiModelButton = el('markdownAiModelButton');
   let autoAiModelSelector = null;
   let markdownAiModelSelector = null;
-  let markdownFileState = { name: '', content: '', size: 0 };
+  let markdownFileState = { name: '', content: '', size: 0, kind: '' };
 
   function formatCount(value){
     return Number(value || 0).toLocaleString('en-US');
@@ -94,6 +96,35 @@
 
   function getSelectedMarkdownAiModel() {
     return markdownAiModelSelector ? markdownAiModelSelector.getValue() : DEFAULT_AI_MODEL;
+  }
+
+  function getImportFileKindFromName(fileName){
+    const name = String(fileName || '').trim().toLowerCase();
+    if (name.endsWith('.html') || name.endsWith('.htm')) return FILE_KIND_HTML;
+    return FILE_KIND_MARKDOWN;
+  }
+
+  function getImportFileKindLabel(kind){
+    return kind === FILE_KIND_HTML ? 'HTML' : 'Markdown';
+  }
+
+  function getImportStructureEndpoint(kind){
+    return kind === FILE_KIND_HTML
+      ? '/api/importer/html-to-guide/structure'
+      : '/api/importer/markdown-to-guide/structure';
+  }
+
+  function getImportBuildStartEndpoint(kind){
+    return kind === FILE_KIND_HTML
+      ? '/api/importer/html-to-guide/build/start'
+      : '/api/importer/markdown-to-guide/build/start';
+  }
+
+  function getImportBuildStatusEndpoint(kind, jobId){
+    const safeId = encodeURIComponent(jobId || '');
+    return kind === FILE_KIND_HTML
+      ? `/api/importer/html-to-guide/build/status/${safeId}`
+      : `/api/importer/markdown-to-guide/build/status/${safeId}`;
   }
 
   function setOut(id, value){
@@ -900,16 +931,16 @@
     const meta = el('markdownFileMeta');
     if (!meta) return;
     if (!markdownFileState.content) {
-      meta.textContent = 'Max size: 10MB';
+      meta.textContent = 'Accepted: Markdown or HTML. Max size: 10MB';
       return;
     }
-    meta.textContent = `${markdownFileState.name || 'Untitled'} · ${formatBytes(markdownFileState.size)}`;
+    meta.textContent = `${markdownFileState.name || 'Untitled'} · ${getImportFileKindLabel(markdownFileState.kind)} · ${formatBytes(markdownFileState.size)}`;
   }
 
   async function onMarkdownFileChange(event){
     const input = event?.target;
     const file = input && input.files ? input.files[0] : null;
-    markdownFileState = { name: '', content: '', size: 0 };
+    markdownFileState = { name: '', content: '', size: 0, kind: '' };
     updateMarkdownFileMeta();
     if (!file) return;
     if (file.size > 10 * 1024 * 1024) {
@@ -919,11 +950,12 @@
     }
     try {
       const text = await file.text();
-      markdownFileState = { name: file.name || '', content: text || '', size: file.size || 0 };
+      const kind = getImportFileKindFromName(file.name || '');
+      markdownFileState = { name: file.name || '', content: text || '', size: file.size || 0, kind };
       updateMarkdownFileMeta();
-      setMarkdownStatus('Markdown file loaded.', 'info');
+      setMarkdownStatus(`${getImportFileKindLabel(kind)} file loaded.`, 'info');
     } catch (e) {
-      setMarkdownStatus(e?.message || 'Failed to read markdown file.', 'error');
+      setMarkdownStatus(e?.message || 'Failed to read file.', 'error');
       if (input) input.value = '';
     }
   }
@@ -1340,10 +1372,12 @@
     const err = el('markdownStructureYamlError');
     if (err) err.textContent = '';
     if (!markdownFileState.content) {
-      setMarkdownStatus('Please upload a Markdown file first.', 'error');
+      setMarkdownStatus('Please upload a file first.', 'error');
       return;
     }
 
+    const kind = markdownFileState.kind || getImportFileKindFromName(markdownFileState.name);
+    const kindLabel = getImportFileKindLabel(kind);
     const outputMode = (el('markdownOutputMode')?.value || 'single').trim() || 'single';
     const language = (el('lang')?.value || 'en-US').trim() || 'en-US';
     const documentName = markdownDocumentNameFromFile(markdownFileState.name);
@@ -1353,17 +1387,18 @@
     setMarkdownStatus('Generating structure...', 'info');
     setMarkdownOut('Running...');
     try {
-      const data = await apiFetch('/api/importer/markdown-to-guide/structure', {
+      const body = {
+        documentName,
+        outputMode,
+        aiModel: getSelectedMarkdownAiModel(),
+        contentType: 'GUIDE',
+        language,
+      };
+      body[kind === FILE_KIND_HTML ? 'html' : 'markdown'] = markdownFileState.content;
+      const data = await apiFetch(getImportStructureEndpoint(kind), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          markdown: markdownFileState.content,
-          documentName,
-          outputMode,
-          aiModel: getSelectedMarkdownAiModel(),
-          contentType: 'GUIDE',
-          language,
-        }),
+        body: JSON.stringify(body),
       });
       const yamlText = normalizeAiYaml(data?.yaml || '');
       if (!yamlText) throw new Error('Structure generation returned empty YAML.');
@@ -1374,7 +1409,7 @@
       }
       setMarkdownOut(data);
       setMarkdownStatus(
-        `Structure ready (${data?.guideCount || 0} guide(s), ${data?.stepCount || 0} steps). Review/edit YAML before build.`,
+        `${kindLabel} structure ready (${data?.guideCount || 0} guide(s), ${data?.stepCount || 0} steps). Review/edit YAML before build.`,
         'success'
       );
     } catch (e) {
@@ -1396,7 +1431,7 @@
       return;
     }
     if (!markdownFileState.content) {
-      setMarkdownStatus('Please upload a Markdown file first.', 'error');
+      setMarkdownStatus('Please upload a file first.', 'error');
       return;
     }
 
@@ -1421,6 +1456,8 @@
     }
 
     const c = collectCommon();
+    const kind = markdownFileState.kind || getImportFileKindFromName(markdownFileState.name);
+    const kindLabel = getImportFileKindLabel(kind);
     const publish = !!(el('markdownPublish') && el('markdownPublish').checked);
     const batchRaw = Number(el('markdownBatchSize')?.value || 10);
     const batchSize = Number.isFinite(batchRaw) ? Math.min(50, Math.max(1, Math.floor(batchRaw))) : 10;
@@ -1437,34 +1474,35 @@
     setMarkdownSpinner(true, 'Building content in batches...');
     setMarkdownStatus('Generating step content and building guide(s)...', 'info');
     clearMarkdownOut();
-    appendMarkdownLog('Starting markdown build job...');
+    appendMarkdownLog(`Starting ${kindLabel.toLowerCase()} build job...`);
     try {
-      const startResp = await apiFetch('/api/importer/markdown-to-guide/build/start', {
+      const body = {
+        creds: { user: c.user, teamId: c.teamId, base: c.base },
+        folderId: c.parentId,
+        structureYaml: parsed.yamlText,
+        aiModel: getSelectedMarkdownAiModel(),
+        publish,
+        batchSize,
+        maxConcurrentBatches,
+        minCallIntervalSeconds,
+        maxRetriesPerBatch: 3,
+        defaults: { language: c.language },
+        documentName,
+      };
+      body[kind === FILE_KIND_HTML ? 'html' : 'markdown'] = markdownFileState.content;
+      const startResp = await apiFetch(getImportBuildStartEndpoint(kind), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          creds: { user: c.user, teamId: c.teamId, base: c.base },
-          folderId: c.parentId,
-          markdown: markdownFileState.content,
-          structureYaml: parsed.yamlText,
-          aiModel: getSelectedMarkdownAiModel(),
-          publish,
-          batchSize,
-          maxConcurrentBatches,
-          minCallIntervalSeconds,
-          maxRetriesPerBatch: 3,
-          defaults: { language: c.language },
-          documentName,
-        }),
+        body: JSON.stringify(body),
       });
       const jobId = startResp?.jobId;
-      if (!jobId) throw new Error('Missing markdown build job id.');
+      if (!jobId) throw new Error(`Missing ${kindLabel.toLowerCase()} build job id.`);
       appendMarkdownLog(`Job started: ${jobId}`);
 
       let lastSeq = 0;
       let completed = false;
       while (!completed) {
-        const statusResp = await apiFetch(`/api/importer/markdown-to-guide/build/status/${encodeURIComponent(jobId)}`, {
+        const statusResp = await apiFetch(getImportBuildStatusEndpoint(kind, jobId), {
           method: 'GET',
         });
         const events = Array.isArray(statusResp?.events) ? statusResp.events : [];
@@ -1497,7 +1535,7 @@
           break;
         }
         if (status === 'failed') {
-          const err = statusResp?.error?.detail || statusResp?.error || 'Markdown build failed.';
+          const err = statusResp?.error?.detail || statusResp?.error || `${kindLabel} build failed.`;
           appendMarkdownLog('Build failed.');
           appendMarkdownLog(null, err);
           const msg = typeof err === 'string' ? err : JSON.stringify(err);
@@ -1508,7 +1546,7 @@
         await sleep(1200);
       }
     } catch (e) {
-      const msg = e?.message || 'Markdown build failed.';
+      const msg = e?.message || `${kindLabel} build failed.`;
       appendMarkdownLog(`Error: ${msg}`);
       setMarkdownStatus(msg, 'error');
     } finally {

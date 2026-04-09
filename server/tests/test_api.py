@@ -499,6 +499,51 @@ def test_importer_html_to_guide_requires_team_token_for_admin_auth(monkeypatch):
     assert r.json()["detail"] == "teamToken is required when using importer admin auth"
 
 
+def test_html_structure_uses_selected_model_and_returns_placeholders(client, monkeypatch):
+    captured = {}
+
+    def fake_generate_html_structure_yaml_with_ai(**kwargs):
+        captured.update(kwargs)
+        return (
+            """guide:
+  contentTitle: Verification guide
+  contentType: GUIDE
+  language: en-US
+  firstStep:
+    title: Choose caller type
+    content: "<p>will be replaced</p>"
+    choices:
+      - label: Continue
+        step:
+          title: Verify details
+          content: "<p>also replaced</p>"
+""",
+            False,
+        )
+
+    monkeypatch.setattr(main, "generate_html_structure_yaml_with_ai", fake_generate_html_structure_yaml_with_ai)
+
+    r = client.post(
+        "/api/importer/html-to-guide/structure",
+        json={
+            "html": "<html><body><h1>Verification</h1><p>Choose a caller type.</p></body></html>",
+            "documentName": "Verification",
+            "outputMode": "single",
+            "aiModel": "gpt51",
+            "language": "en-US",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["modelUsed"] == "gpt51"
+    assert body["guideCount"] == 1
+    assert body["stepCount"] == 2
+    assert "<p>[TO_FILL_FROM_HTML]</p>" in body["yaml"]
+    assert captured["ai_model"] == "gpt51"
+    assert captured["output_mode"] == "single"
+
+
 def test_markdown_structure_uses_selected_model_and_returns_placeholders(client, monkeypatch):
     captured = {}
 
@@ -542,6 +587,81 @@ def test_markdown_structure_uses_selected_model_and_returns_placeholders(client,
     assert "<p>[TO_FILL_FROM_MARKDOWN]</p>" in body["yaml"]
     assert captured["ai_model"] == "gpt52"
     assert captured["output_mode"] == "single"
+
+
+def test_html_build_retries_failed_batch_and_builds(client, monkeypatch):
+    attempts = {}
+    captured = {}
+
+    def fake_generate_html_batch_content_yaml_with_ai(**kwargs):
+        batch_index = kwargs["batch_index"]
+        attempts[batch_index] = attempts.get(batch_index, 0) + 1
+        if batch_index == 1 and attempts[batch_index] == 1:
+            raise ValueError("bad yaml")
+        rows = {
+            "steps": [
+                {"stepId": step["stepId"], "content": f"<p>HTML body for {step['stepId']}</p>"}
+                for step in kwargs["batch_steps"]
+            ]
+        }
+        return main.yaml.safe_dump(rows, sort_keys=False), False
+
+    def fake_api_build(payload, *, user_id=None, stonly_client=None):
+        captured["yaml"] = payload.yaml
+        captured["publish"] = payload.publish
+        captured["teamId"] = payload.creds.teamId
+        captured["folderId"] = payload.folderId
+        captured["user_id"] = user_id
+        return {"ok": True, "guideId": "html-built"}
+
+    monkeypatch.setattr(main, "generate_html_batch_content_yaml_with_ai", fake_generate_html_batch_content_yaml_with_ai)
+    monkeypatch.setattr(main, "api_build_guide", fake_api_build)
+
+    structure_yaml = """guide:
+  contentTitle: Caller verification
+  contentType: GUIDE
+  language: en-US
+  firstStep:
+    title: Start
+    content: "<p>[TO_FILL_FROM_HTML]</p>"
+    choices:
+      - label: Path A
+        step:
+          title: Applicant path
+          content: "<p>[TO_FILL_FROM_HTML]</p>"
+      - label: Path B
+        step:
+          title: Merchant path
+          content: "<p>[TO_FILL_FROM_HTML]</p>"
+"""
+    r = client.post(
+        "/api/importer/html-to-guide/build",
+        json={
+            "creds": {"user": "tester@example.com", "teamId": 39539, "base": "https://public.stonly.com/api/v3"},
+            "folderId": 2000,
+            "html": "<html><body><h1>Caller verification</h1><p>Details for each caller type.</p></body></html>",
+            "structureYaml": structure_yaml,
+            "aiModel": "gpt52",
+            "publish": True,
+            "batchSize": 2,
+            "maxRetriesPerBatch": 3,
+            "defaults": {"language": "en-US"},
+            "documentName": "Verification.html",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["batchCount"] == 2
+    assert body["modelUsed"] == "gpt52"
+    assert body["progress"][0]["batch"] == 1
+    assert body["progress"][0]["attempts"] == 2
+    assert body["progress"][1]["batch"] == 2
+    assert body["progress"][1]["attempts"] == 1
+    assert "HTML body for g1-s001" in captured["yaml"]
+    assert "HTML body for g1-s002" in captured["yaml"]
+    assert "HTML body for g1-s003" in captured["yaml"]
+    assert captured["publish"] is True
 
 
 def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):

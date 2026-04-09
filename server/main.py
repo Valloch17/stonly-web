@@ -108,6 +108,7 @@ MARKDOWN_BATCH_MAX_OUTPUT_TOKENS = int(os.getenv("MARKDOWN_BATCH_MAX_OUTPUT_TOKE
 MARKDOWN_STRUCTURE_MAX_OUTPUT_TOKENS = int(os.getenv("MARKDOWN_STRUCTURE_MAX_OUTPUT_TOKENS", "12000"))
 MARKDOWN_BATCH_MAX_CONCURRENCY = int(os.getenv("MARKDOWN_BATCH_MAX_CONCURRENCY", "3"))
 MARKDOWN_BATCH_MIN_CALL_INTERVAL_SECONDS = float(os.getenv("MARKDOWN_BATCH_MIN_CALL_INTERVAL_SECONDS", "1"))
+HTML_FILE_IMPORT_MAX_BYTES = int(os.getenv("HTML_FILE_IMPORT_MAX_BYTES", str(10 * 1024 * 1024)))
 
 
 def _normalize_ai_model(value: Optional[str]) -> AIModel:
@@ -196,6 +197,9 @@ def _as_utc(value: datetime) -> datetime:
 MARKDOWN_JOB_TTL_SECONDS = int(os.getenv("MARKDOWN_JOB_TTL_SECONDS", "3600"))
 _MARKDOWN_JOBS_LOCK = threading.Lock()
 _MARKDOWN_JOBS: dict[str, dict[str, Any]] = {}
+HTML_JOB_TTL_SECONDS = int(os.getenv("HTML_JOB_TTL_SECONDS", str(MARKDOWN_JOB_TTL_SECONDS)))
+_HTML_JOBS_LOCK = threading.Lock()
+_HTML_JOBS: dict[str, dict[str, Any]] = {}
 
 
 # ---- DB models ----
@@ -1234,6 +1238,16 @@ class HTMLImportPayload(BaseModel):
         return self.html
 
 
+def _validate_html_file_import_input(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        raise ValueError("html is required")
+    size_bytes = len(text.encode("utf-8"))
+    if size_bytes > HTML_FILE_IMPORT_MAX_BYTES:
+        raise ValueError(f"html is too large (max {HTML_FILE_IMPORT_MAX_BYTES} bytes)")
+    return text
+
+
 def _validate_markdown_text_input(value: Any) -> str:
     text = str(value or "").strip()
     if not text:
@@ -1256,6 +1270,46 @@ class MarkdownStructurePayload(BaseModel):
     @classmethod
     def markdown_required(cls, v):
         return _validate_markdown_text_input(v)
+
+    @field_validator("aiModel")
+    @classmethod
+    def ai_model_supported(cls, v: str):
+        return _normalize_ai_model(v)
+
+    @field_validator("documentName", mode="before")
+    @classmethod
+    def trim_document_name(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("documentName")
+    @classmethod
+    def document_name_max(cls, v: Optional[str]):
+        if v and len(v) > 500:
+            raise ValueError("documentName is too long (max 500 characters)")
+        return v
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def normalize_language(cls, v):
+        text = str(v or "en-US").strip()
+        return text or "en-US"
+
+
+class HTMLStructurePayload(BaseModel):
+    html: str
+    aiModel: str = AI_MODEL_DEFAULT
+    documentName: Optional[str] = None
+    outputMode: Literal["single", "multiple"] = "single"
+    contentType: Literal["GUIDE", "ARTICLE", "GUIDED_TOUR"] = "GUIDE"
+    language: str = "en-US"
+
+    @field_validator("html", mode="before")
+    @classmethod
+    def html_required(cls, v):
+        return _validate_html_file_import_input(v)
 
     @field_validator("aiModel")
     @classmethod
@@ -1309,6 +1363,61 @@ class MarkdownBuildPayload(BaseModel):
     @classmethod
     def markdown_required(cls, v):
         return _validate_markdown_text_input(v)
+
+    @field_validator("structureYaml", mode="before")
+    @classmethod
+    def structure_yaml_required(cls, v):
+        text = str(v or "").strip()
+        if not text:
+            raise ValueError("structureYaml is required")
+        return text
+
+    @field_validator("aiModel")
+    @classmethod
+    def ai_model_supported(cls, v: str):
+        return _normalize_ai_model(v)
+
+    @field_validator("documentName", mode="before")
+    @classmethod
+    def trim_document_name(cls, v):
+        if v is None:
+            return None
+        text = str(v).strip()
+        return text or None
+
+    @field_validator("documentName")
+    @classmethod
+    def document_name_max(cls, v: Optional[str]):
+        if v and len(v) > 500:
+            raise ValueError("documentName is too long (max 500 characters)")
+        return v
+
+
+class HTMLBuildPayload(BaseModel):
+    creds: Creds
+    folderId: int
+    html: str
+    structureYaml: str
+    aiModel: str = AI_MODEL_DEFAULT
+    publish: bool = True
+    batchSize: int = Field(default=10, ge=1, le=50)
+    maxRetriesPerBatch: int = Field(default=3, ge=1, le=5)
+    maxConcurrentBatches: int = Field(default=MARKDOWN_BATCH_MAX_CONCURRENCY, ge=1, le=10)
+    minCallIntervalSeconds: float = Field(default=MARKDOWN_BATCH_MIN_CALL_INTERVAL_SECONDS, ge=0.0, le=30.0)
+    defaults: GuideDefaults = GuideDefaults()
+    documentName: Optional[str] = None
+
+    @field_validator("folderId")
+    @classmethod
+    def folder_id_required(cls, v):
+        if v is None:
+            raise ValueError("folderId is required")
+        return int(v)
+
+    @field_validator("html", mode="before")
+    @classmethod
+    def html_required(cls, v):
+        return _validate_html_file_import_input(v)
 
     @field_validator("structureYaml", mode="before")
     @classmethod
@@ -2133,6 +2242,33 @@ CONVERSION RULES:
 - If the HTML is mostly informational and not a decision tree, still return one valid guide structure with a single first step rather than forcing fake branching.
 """
 
+HTML_STRUCTURE_SYSTEM_PROMPT = """You design Stonly guide STRUCTURES from HTML documentation.
+OUTPUT ONLY VALID STONLY GUIDE YAML. No Markdown fences, no prose, no code blocks.
+
+GOAL:
+- Build the decision-tree and step flow only.
+- Do not write real step body content at this stage.
+- This HTML workflow is GUIDE-first unless ARTICLE or GUIDED_TOUR is explicitly requested.
+
+OUTPUT CONTRACT:
+- Allowed outputs: one YAML guide or multiple YAML documents.
+- Every guide must include: contentTitle, contentType, language, firstStep.
+- firstStep must be a full step object (title + content).
+- Every step must have title + content; use placeholder content only:
+  <p>[TO_FILL_FROM_HTML]</p>
+- Keep branching logic under choices[] with `step` or `ref`.
+- Use `key` and `ref` when branches rejoin naturally.
+- Never include media in this stage.
+
+HTML STRUCTURE QUALITY:
+- Treat the HTML source as ground truth, but ignore export noise such as spacer paragraphs, internal jump-link tables, duplicated table-of-contents blocks, empty cells, and Word/MSO formatting clutter.
+- Internal anchor navigation can hint at major flows or caller types. Do not reproduce the navigation itself as content.
+- When the HTML contains comparison or matrix tables, keep related rows together. Do not create one step per cell.
+- Build logical, source-backed branches only when the document clearly presents alternate roles, statuses, or paths.
+- If the HTML is mostly informational, keep the structure compact.
+- Avoid proxy/placeholder branch titles when the source suggests a concrete path name.
+"""
+
 MARKDOWN_STRUCTURE_SYSTEM_PROMPT = """You design Stonly guide STRUCTURES from Markdown documentation.
 OUTPUT ONLY VALID STONLY GUIDE YAML. No Markdown fences, no prose, no code blocks.
 
@@ -2191,6 +2327,36 @@ RULES:
 - Content must be HTML suitable for Stonly (<p>, <ul>/<ol>, <table>, <aside class="tip|warning">, <code>).
 - Do not repeat the exact step title as the first heading/paragraph in `content`.
 - Keep content grounded in source Markdown. If the source is missing details, write concise neutral guidance without inventing specifics.
+- Do not output YAML keys inside content (forbidden in content text: choices:, step:, ref:, key:, label:).
+- Never use <hr>, <hr/>, or <hr />.
+"""
+
+HTML_BATCH_CONTENT_SYSTEM_PROMPT = """You fill Stonly step content from HTML source text.
+OUTPUT ONLY YAML. No Markdown fences, no prose.
+
+TASK:
+- You receive:
+  1) The global guide structure summary.
+  2) A list of target step IDs + titles.
+  3) Relevant HTML-derived source excerpts.
+- Generate HTML content for those target steps only.
+
+OUTPUT FORMAT (exact keys):
+steps:
+  - stepId: g1-s001
+    content: |
+      <p>...</p>
+
+RULES:
+- Include every requested stepId exactly once.
+- Do not include extra stepIds.
+- Do not change structure, titles, labels, keys, or refs.
+- Content must be clean Stonly HTML (<p>, <ul>/<ol>, <table>, <aside class="tip|warning">, <code>).
+- Convert layout-heavy source HTML into concise semantic HTML. Do not copy inline styles or MSO markup.
+- Do not repeat the exact step title as the first heading/paragraph in `content`.
+- Ignore jump-link navigation, duplicated table-of-contents content, empty spacer blocks, and export-only boilerplate.
+- Preserve important warnings, allowed/not-allowed distinctions, role-specific requirements, and tables when they are source-backed.
+- Do not invent policies or product facts not present in the source.
 - Do not output YAML keys inside content (forbidden in content text: choices:, step:, ref:, key:, label:).
 - Never use <hr>, <hr/>, or <hr />.
 """
@@ -3136,6 +3302,478 @@ def generate_html_import_yaml_with_ai(
         top_p=0.9,
         max_output_tokens=12000,
     )
+
+
+class _HTMLTextBlockParser(HTMLParser):
+    _CAPTURE_TAGS = {"title", "h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "th", "td", "caption"}
+    _SKIP_TAGS = {"script", "style", "noscript"}
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocks: list[dict[str, Any]] = []
+        self._current_tag: Optional[str] = None
+        self._current_parts: list[str] = []
+        self._skip_depth = 0
+
+    def _flush(self) -> None:
+        if not self._current_tag:
+            return
+        text = html.unescape("".join(self._current_parts or []))
+        text = text.replace("\u00A0", " ")
+        text = re.sub(r"\s+", " ", text).strip()
+        if text:
+            self.blocks.append({"tag": self._current_tag, "text": text})
+        self._current_tag = None
+        self._current_parts = []
+
+    def handle_starttag(self, tag: str, attrs):
+        name = (tag or "").lower()
+        if name in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        if name in self._CAPTURE_TAGS:
+            self._flush()
+            self._current_tag = name
+            self._current_parts = []
+            return
+        if name == "br" and self._current_tag:
+            self._current_parts.append("\n")
+
+    def handle_endtag(self, tag: str):
+        name = (tag or "").lower()
+        if name in self._SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if self._skip_depth:
+            return
+        if self._current_tag == name:
+            self._flush()
+
+    def handle_data(self, data: str):
+        if self._skip_depth or not self._current_tag or not data:
+            return
+        self._current_parts.append(data)
+
+    def close(self) -> None:
+        super().close()
+        self._flush()
+
+
+def _sanitize_html_source_for_ai(source_html: str) -> str:
+    s = str(source_html or "")
+    s = s.replace("\r\n", "\n").replace("\r", "\n").replace("\u00A0", " ")
+    body_match = re.search(r"<body[^>]*>(?P<body>.*)</body>", s, re.I | re.S)
+    if body_match:
+        s = body_match.group("body")
+    s = re.sub(r"<!--.*?-->", "", s, flags=re.S)
+    s = re.sub(r"<\?(?:xml|mso).*?\?>", "", s, flags=re.I | re.S)
+    s = re.sub(r"<\s*(script|style|noscript|iframe)\b[^>]*>.*?<\s*/\s*\1\s*>", "", s, flags=re.I | re.S)
+    s = re.sub(r"</?(?:span|font|o:p)\b[^>]*>", "", s, flags=re.I)
+    s = re.sub(
+        r"""\s(?:class|style|lang|dir|width|height|align|valign|cellpadding|cellspacing|border|bgcolor|color|face|role|target|rel|tabindex|aria-[\w:-]+|data-[\w:-]+|id|name)=("[^"]*"|'[^']*'|[^\s>]+)""",
+        "",
+        s,
+        flags=re.I,
+    )
+    s = re.sub(r"<a\b[^>]*href=(\"#.*?\"|'#.*?'|#\S+)[^>]*>(.*?)</a>", r"\2", s, flags=re.I | re.S)
+    s = re.sub(r"<a\b[^>]*>\s*</a>", "", s, flags=re.I | re.S)
+    for _ in range(3):
+        s = re.sub(r"<(p|div|li|td|th|tr|table)[^>]*>\s*</\1>", "", s, flags=re.I | re.S)
+    s = re.sub(r">\s+<", "><", s)
+    s = re.sub(r"\n{2,}", "\n", s)
+    return s.strip()
+
+
+def _extract_html_text_blocks(source_html: str) -> list[dict[str, Any]]:
+    parser = _HTMLTextBlockParser()
+    try:
+        parser.feed(source_html or "")
+        parser.close()
+    except Exception:
+        text = _strip_html_tags_simple(source_html or "")
+        text = re.sub(r"\s+", " ", text).strip()
+        return [{"tag": "p", "text": text}] if text else []
+    return parser.blocks
+
+
+def _split_html_sections(source_html: str) -> list[dict[str, Any]]:
+    cleaned = _sanitize_html_source_for_ai(source_html)
+    blocks = _extract_html_text_blocks(cleaned)
+    if not blocks:
+        text = re.sub(r"\s+", " ", _strip_html_tags_simple(cleaned)).strip()
+        return [{"heading": "Document", "level": 1, "body": text}]
+
+    heading_tags = {"title": 1, "h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+    explicit_headings = [b for b in blocks if b.get("tag") in heading_tags]
+    sections: list[dict[str, Any]] = []
+
+    if explicit_headings:
+        current_heading = "Document"
+        current_level = 1
+        current_lines: list[str] = []
+        for block in blocks:
+            tag = str(block.get("tag") or "").lower()
+            text = str(block.get("text") or "").strip()
+            if not text:
+                continue
+            if tag in heading_tags:
+                if current_lines:
+                    sections.append(
+                        {
+                            "heading": current_heading,
+                            "level": current_level,
+                            "body": "\n".join(current_lines).strip(),
+                        }
+                    )
+                current_heading = text
+                current_level = heading_tags[tag]
+                current_lines = []
+                continue
+            current_lines.append(text)
+        if current_lines or current_heading:
+            sections.append(
+                {
+                    "heading": current_heading,
+                    "level": current_level,
+                    "body": "\n".join(current_lines).strip(),
+                }
+            )
+    else:
+        chunk_size = 10
+        title = _extract_html_title(source_html) or "Document"
+        for idx in range(0, len(blocks), chunk_size):
+            chunk = blocks[idx:idx + chunk_size]
+            body = "\n".join(str(block.get("text") or "").strip() for block in chunk if str(block.get("text") or "").strip())
+            if not body:
+                continue
+            sections.append(
+                {
+                    "heading": title if idx == 0 else f"{title} part {idx // chunk_size + 1}",
+                    "level": 1 if idx == 0 else 2,
+                    "body": body.strip(),
+                }
+            )
+
+    return sections or [{"heading": "Document", "level": 1, "body": re.sub(r"\s+", " ", _strip_html_tags_simple(cleaned)).strip()}]
+
+
+def _estimate_html_structure_budget(source_html: str, output_mode: str) -> dict[str, int]:
+    cleaned = _sanitize_html_source_for_ai(source_html)
+    visible_text = re.sub(r"\s+", " ", _strip_html_tags_simple(cleaned)).strip()
+    char_count = len(visible_text)
+    word_count = len(re.findall(r"\S+", visible_text))
+    sections = _split_html_sections(cleaned)
+    section_count = max(1, len(sections))
+    table_count = len(re.findall(r"<table\b", cleaned, flags=re.I))
+
+    if word_count <= 180 or char_count <= 1000:
+        min_steps, max_steps = 1, 3
+    elif word_count <= 350 or char_count <= 1800:
+        min_steps, max_steps = 2, 5
+    elif word_count <= 700 or char_count <= 3600:
+        min_steps, max_steps = 3, 8
+    elif word_count <= 1400 or char_count <= 7000:
+        min_steps, max_steps = 4, 12
+    elif word_count <= 2600 or char_count <= 13000:
+        min_steps, max_steps = 6, 18
+    elif word_count <= 5000 or char_count <= 26000:
+        min_steps, max_steps = 8, 28
+    elif word_count <= 9000 or char_count <= 48000:
+        min_steps, max_steps = 12, 42
+    else:
+        min_steps, max_steps = 16, 60
+
+    if section_count <= 3:
+        max_steps = min(max_steps, max(4, section_count * 4))
+    elif section_count <= 8:
+        max_steps = min(max_steps, max(8, section_count * 5))
+    if table_count >= 3 and word_count <= 5000:
+        max_steps = min(max_steps, max(8, section_count * 4))
+    if output_mode == "multiple":
+        max_steps = int(max_steps + max(1, max_steps // 5))
+
+    min_steps = max(1, min(min_steps, max_steps))
+    return {
+        "charCount": int(char_count),
+        "wordCount": int(word_count),
+        "sectionCount": int(section_count),
+        "tableCount": int(table_count),
+        "minSteps": int(min_steps),
+        "maxSteps": int(max_steps),
+    }
+
+
+def _render_html_section(section: dict[str, Any], *, max_body_chars: int = 12000) -> str:
+    heading = str(section.get("heading") or "Section").strip() or "Section"
+    try:
+        level = int(section.get("level") or 1)
+    except Exception:
+        level = 1
+    level = max(1, min(level, 6))
+    body = str(section.get("body") or "").strip()
+    if len(body) > max_body_chars:
+        body = body[:max_body_chars].rstrip() + "\n\n...[truncated]..."
+    heading_line = f"{'#' * level} {heading}"
+    if body:
+        return f"{heading_line}\n{body}"
+    return heading_line
+
+
+def _build_html_outline_excerpt(source_html: str, *, max_chars: int = MARKDOWN_CONTEXT_MAX_CHARS) -> tuple[str, bool]:
+    cleaned = _sanitize_html_source_for_ai(source_html)
+    if len(cleaned) <= max_chars:
+        return cleaned, False
+
+    sections = _split_html_sections(cleaned)
+    parts = [
+        "The original HTML document is large. This is a condensed outline extracted from cleaned HTML."
+    ]
+    used = len(parts[0])
+    included = 0
+    for section in sections:
+        block = _render_html_section(section, max_body_chars=2600)
+        if used + len(block) + 2 > max_chars:
+            break
+        parts.append(block)
+        used += len(block) + 2
+        included += 1
+    remaining = max(0, len(sections) - included)
+    if remaining:
+        parts.append(f"...[omitted {remaining} additional section(s)]...")
+    return "\n\n".join(parts).strip(), True
+
+
+def _build_html_context_for_steps(
+    source_html: str,
+    batch_steps: list[dict[str, Any]],
+    *,
+    max_chars: int = MARKDOWN_CONTEXT_MAX_CHARS,
+) -> tuple[str, bool]:
+    cleaned = _sanitize_html_source_for_ai(source_html)
+    if len(cleaned) <= max_chars:
+        return cleaned, False
+
+    sections = _split_html_sections(cleaned)
+    if not sections:
+        return cleaned[:max_chars], True
+
+    query_bits: list[str] = []
+    for step in batch_steps:
+        for key in ("guideTitle", "title", "incomingChoiceLabel", "path"):
+            val = step.get(key)
+            if val:
+                query_bits.append(str(val))
+    keywords = _tokenize_keywords(" ".join(query_bits))
+
+    scored: list[tuple[int, int, dict[str, Any]]] = []
+    for idx, section in enumerate(sections):
+        haystack = f"{section.get('heading', '')}\n{section.get('body', '')}"
+        sec_tokens = _tokenize_keywords(haystack)
+        score = len(sec_tokens & keywords)
+        scored.append((score, idx, section))
+
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    selected: list[tuple[int, str]] = []
+    used = 0
+    per_section_limit = max(1200, min(9000, max_chars // 4))
+
+    for score, idx, section in scored:
+        if used >= int(max_chars * 0.9):
+            break
+        if selected and score <= 0 and len(selected) >= 4:
+            break
+        block = _render_html_section(section, max_body_chars=per_section_limit)
+        if used + len(block) + 2 > max_chars:
+            continue
+        selected.append((idx, block))
+        used += len(block) + 2
+
+    if not selected:
+        running = []
+        used = 0
+        for idx, section in enumerate(sections):
+            block = _render_html_section(section, max_body_chars=per_section_limit)
+            if used + len(block) + 2 > max_chars:
+                break
+            running.append((idx, block))
+            used += len(block) + 2
+        selected = running
+
+    selected.sort(key=lambda item: item[0])
+    parts = ["Context extracted from a large HTML source. Use it as ground truth for targeted steps."]
+    parts.extend(block for _, block in selected)
+    omitted = max(0, len(sections) - len(selected))
+    if omitted:
+        parts.append(f"...[omitted {omitted} section(s)]...")
+    return "\n\n".join(parts).strip(), True
+
+
+def _build_html_structure_prompt(
+    *,
+    html_excerpt: str,
+    document_name: Optional[str],
+    output_mode: str,
+    content_type: str,
+    language: str,
+    source_truncated: bool,
+    step_budget: dict[str, int],
+    strict_budget: bool,
+    enforce_branch_completeness: bool,
+) -> str:
+    mode_line = (
+        "Return exactly one guide."
+        if output_mode == "single"
+        else "Return one or more guides when splitting is clearly useful."
+    )
+    sections = [
+        f"Requested output mode: {output_mode}",
+        mode_line,
+        f"Default contentType: {content_type}",
+        f"Default language: {language}",
+        "Primary expectation for this workflow: output GUIDE documents unless explicitly requested otherwise.",
+        (
+            f"HTML size signals: about {step_budget.get('wordCount', 0)} visible words, "
+            f"{step_budget.get('sectionCount', 0)} section(s), {step_budget.get('tableCount', 0)} table(s), "
+            f"{step_budget.get('charCount', 0)} visible chars."
+        ),
+        (
+            f"Target TOTAL step budget across all guides: {step_budget.get('minSteps', 1)} to "
+            f"{step_budget.get('maxSteps', 6)}."
+        ),
+        "Keep matrix-style tables and comparison content grouped; do not fragment them into tiny steps.",
+        "Use internal anchor tables only as clues about distinct flows, not as content to reproduce.",
+        "Every step content must be exactly: <p>[TO_FILL_FROM_HTML]</p>",
+    ]
+    if document_name:
+        sections.append(f"Document name: {document_name}")
+    if source_truncated:
+        sections.append("The HTML source was condensed for context-size reasons. Use the extracted outline as ground truth.")
+    if strict_budget:
+        sections.append(f"Hard constraint: do not exceed {step_budget.get('maxSteps', 6)} total steps in your output.")
+    else:
+        sections.append("The target step budget is guidance, not a strict cap.")
+    if enforce_branch_completeness:
+        sections.append("Priority for this retry: make branch paths concrete and reduce generic branch placeholders.")
+    sections.append(
+        "YAML structure examples:\n" + MARKDOWN_STRUCTURE_FEW_SHOT_EXAMPLE.replace("[TO_FILL_FROM_MARKDOWN]", "[TO_FILL_FROM_HTML]").strip()
+    )
+    sections.append("Source HTML:\n" + html_excerpt)
+    return "\n\n".join(sections)
+
+
+def _build_html_batch_prompt(
+    *,
+    structure_outline_yaml: str,
+    batch_steps: list[dict[str, Any]],
+    html_context: str,
+    document_name: Optional[str],
+    batch_index: int,
+    batch_count: int,
+    context_truncated: bool,
+) -> str:
+    targets = []
+    for step in batch_steps:
+        targets.append(
+            {
+                "stepId": step["stepId"],
+                "guideTitle": step["guideTitle"],
+                "title": step["title"],
+                "path": step["path"],
+                "incomingChoiceLabel": step.get("incomingChoiceLabel"),
+                "breadcrumbs": step.get("breadcrumbs") or [],
+            }
+        )
+    targets_yaml = yaml.safe_dump({"steps": targets}, sort_keys=False).strip()
+    sections = [
+        f"Batch {batch_index}/{batch_count}",
+        "Fill content for the target step IDs below.",
+    ]
+    if document_name:
+        sections.append(f"Document name: {document_name}")
+    if context_truncated:
+        sections.append("The HTML source was partially condensed for context-size limits.")
+    sections.extend(
+        [
+            "Batch output examples:\n" + MARKDOWN_BATCH_FEW_SHOT_EXAMPLE.strip(),
+            "Guide style examples:\n" + MARKDOWN_BATCH_GUIDE_STYLE_EXAMPLE.strip(),
+            "Global structure summary:\n" + structure_outline_yaml,
+            "Target steps for this batch:\n" + targets_yaml,
+            "Relevant HTML source:\n" + html_context,
+        ]
+    )
+    return "\n\n".join(sections)
+
+
+def generate_html_structure_yaml_with_ai(
+    *,
+    source_html: str,
+    ai_model: str,
+    document_name: Optional[str],
+    output_mode: str,
+    content_type: str,
+    language: str,
+    step_budget: dict[str, int],
+    strict_budget: bool = False,
+    enforce_branch_completeness: bool = False,
+) -> tuple[str, bool]:
+    excerpt, was_truncated = _build_html_outline_excerpt(source_html, max_chars=MARKDOWN_CONTEXT_MAX_CHARS)
+    prompt = _build_html_structure_prompt(
+        html_excerpt=excerpt,
+        document_name=document_name,
+        output_mode=output_mode,
+        content_type=content_type,
+        language=language,
+        source_truncated=was_truncated,
+        step_budget=step_budget,
+        strict_budget=strict_budget,
+        enforce_branch_completeness=enforce_branch_completeness,
+    )
+    text = generate_ai_text(
+        [prompt],
+        ai_model=ai_model,
+        system_prompt=HTML_STRUCTURE_SYSTEM_PROMPT,
+        temperature=0.2,
+        top_p=0.9,
+        max_output_tokens=min(MARKDOWN_STRUCTURE_MAX_OUTPUT_TOKENS, GPT_MAX_OUTPUT_TOKENS),
+    )
+    return text, was_truncated
+
+
+def generate_html_batch_content_yaml_with_ai(
+    *,
+    source_html: str,
+    ai_model: str,
+    structure_outline_yaml: str,
+    batch_steps: list[dict[str, Any]],
+    document_name: Optional[str],
+    batch_index: int,
+    batch_count: int,
+) -> tuple[str, bool]:
+    context, was_truncated = _build_html_context_for_steps(
+        source_html,
+        batch_steps,
+        max_chars=MARKDOWN_CONTEXT_MAX_CHARS,
+    )
+    prompt = _build_html_batch_prompt(
+        structure_outline_yaml=structure_outline_yaml,
+        batch_steps=batch_steps,
+        html_context=context,
+        document_name=document_name,
+        batch_index=batch_index,
+        batch_count=batch_count,
+        context_truncated=was_truncated,
+    )
+    text = generate_ai_text(
+        [prompt],
+        ai_model=ai_model,
+        system_prompt=HTML_BATCH_CONTENT_SYSTEM_PROMPT,
+        temperature=0.25,
+        top_p=0.9,
+        max_output_tokens=min(MARKDOWN_BATCH_MAX_OUTPUT_TOKENS, GPT_MAX_OUTPUT_TOKENS),
+    )
+    return text, was_truncated
 
 
 def _split_markdown_sections(markdown_text: str) -> list[dict[str, Any]]:
@@ -5680,6 +6318,132 @@ def api_importer_html_to_guide(payload: HTMLImportPayload, request: Request):
 
 
 @app.post(
+    "/api/importer/html-to-guide/structure",
+    tags=["Builder"],
+    summary="Generate Stonly guide structure YAML from HTML",
+)
+def api_importer_html_to_guide_structure(payload: HTMLStructurePayload, request: Request):
+    with SessionLocal() as db:
+        _user = get_user_from_request(db, request)
+
+    request_id = str(uuid.uuid4())
+    selected_model = _normalize_ai_model(payload.aiModel)
+    logger.info(
+        "REQUEST %s :: /api/importer/html-to-guide/structure model=%s mode=%s bytes=%s",
+        request_id,
+        selected_model,
+        payload.outputMode,
+        len(payload.html.encode("utf-8")),
+    )
+    step_budget = _estimate_html_structure_budget(payload.html, payload.outputMode)
+    strict_budget_enabled = int(step_budget.get("wordCount", 0)) <= 2400
+    source_excerpted = False
+    items: list[dict] = []
+    yaml_text = ""
+    structure_attempts = 0
+
+    for attempt in (1, 2):
+        structure_attempts = attempt
+        raw_yaml, source_excerpted = generate_html_structure_yaml_with_ai(
+            source_html=payload.html,
+            ai_model=selected_model,
+            document_name=payload.documentName,
+            output_mode=payload.outputMode,
+            content_type=payload.contentType,
+            language=payload.language,
+            step_budget=step_budget,
+            strict_budget=(attempt > 1 and strict_budget_enabled),
+            enforce_branch_completeness=(attempt > 1),
+        )
+        yaml_text = normalize_ai_yaml(raw_yaml)
+
+        try:
+            items = parse_guides_multi(
+                yaml_text,
+                GuideDefaults(
+                    contentTitle=payload.documentName,
+                    contentType=payload.contentType,
+                    language=payload.language,
+                ),
+            )
+        except HTTPException as e:
+            detail = getattr(e, "detail", str(e))
+            if isinstance(detail, dict):
+                detail = {**detail, "modelText": yaml_text, "modelUsed": selected_model}
+            else:
+                detail = {"error": detail, "modelText": yaml_text, "modelUsed": selected_model}
+            raise HTTPException(getattr(e, "status_code", 400), detail=detail)
+
+        if payload.outputMode == "single" and len(items) != 1:
+            raise HTTPException(
+                502,
+                detail={
+                    "error": "Expected exactly one guide for outputMode=single",
+                    "guideCount": len(items),
+                    "modelText": yaml_text,
+                    "modelUsed": selected_model,
+                },
+            )
+
+        for item in items:
+            definition: GuideDefinition = item["definition"]
+            definition = sanitize_titles_and_labels(definition)
+            definition = clamp_positions(definition)
+            definition = dedupe_duplicate_ref_choices(definition)
+            _set_structure_placeholders(definition, placeholder="<p>[TO_FILL_FROM_HTML]</p>")
+            item["definition"] = definition
+
+        step_catalog = _collect_markdown_step_catalog(items)
+        max_steps = int(step_budget.get("maxSteps", 999999))
+        missing_refs_all: set[str] = set()
+        placeholder_titles_all: set[str] = set()
+        for item in items:
+            definition = item["definition"]
+            missing_refs_all.update(find_missing_ref_keys(definition))
+            placeholder_titles_all.update(find_placeholder_step_titles(definition))
+
+        over_budget = len(step_catalog) > max_steps and strict_budget_enabled
+        has_branch_issues = bool(missing_refs_all or placeholder_titles_all)
+        if (not over_budget and not has_branch_issues) or attempt >= 2:
+            for item in items:
+                definition = item["definition"]
+                definition = resolve_missing_refs(definition)
+                definition = dedupe_duplicate_ref_choices(definition)
+                _set_structure_placeholders(definition, placeholder="<p>[TO_FILL_FROM_HTML]</p>")
+                item["definition"] = definition
+            yaml_text = serialize_items_to_yaml(items)
+            break
+
+        retry_reasons = []
+        if over_budget:
+            retry_reasons.append(f"over-budget steps={len(step_catalog)} max={max_steps}")
+        if missing_refs_all:
+            retry_reasons.append(f"dangling-refs={sorted(missing_refs_all)}")
+        if placeholder_titles_all:
+            retry_reasons.append(f"placeholder-titles={sorted(placeholder_titles_all)}")
+        logger.info(
+            "REQUEST %s :: html structure retry required (%s)",
+            request_id,
+            "; ".join(retry_reasons),
+        )
+
+    step_catalog = _collect_markdown_step_catalog(items)
+
+    return {
+        "ok": True,
+        "yaml": yaml_text,
+        "modelUsed": selected_model,
+        "guideCount": len(items),
+        "stepCount": len(step_catalog),
+        "stepBudget": step_budget,
+        "strictBudgetEnabled": strict_budget_enabled,
+        "structureAttempts": structure_attempts,
+        "outputMode": payload.outputMode,
+        "sourceExcerpted": source_excerpted,
+    }
+
+
+@app.post(
     "/api/importer/markdown-to-guide/structure",
     tags=["Builder"],
     summary="Generate Stonly guide structure YAML from Markdown",
@@ -6120,6 +6884,320 @@ def _run_markdown_to_guide_build(
     }
 
 
+def _run_html_to_guide_build(
+    payload: HTMLBuildPayload,
+    *,
+    user_id: int,
+    request_id: str,
+    progress_callback: Optional[Callable[[dict[str, Any]], None]] = None,
+) -> dict[str, Any]:
+    selected_model = _normalize_ai_model(payload.aiModel)
+    logger.info(
+        "REQUEST %s :: /api/importer/html-to-guide/build model=%s team=%s folder=%s publish=%s batchSize=%s retries=%s concurrency=%s callInterval=%s bytes=%s",
+        request_id,
+        selected_model,
+        payload.creds.teamId,
+        payload.folderId,
+        payload.publish,
+        payload.batchSize,
+        payload.maxRetriesPerBatch,
+        payload.maxConcurrentBatches,
+        payload.minCallIntervalSeconds,
+        len(payload.html.encode("utf-8")),
+    )
+
+    def emit(event_type: str, message: str, **extra: Any):
+        if not progress_callback:
+            return
+        payload_event = {"type": event_type, "message": message}
+        payload_event.update(extra)
+        try:
+            progress_callback(payload_event)
+        except Exception:
+            logger.exception("REQUEST %s :: html progress callback failed", request_id)
+
+    emit("started", "Preparing HTML build request.")
+
+    try:
+        items = parse_guides_multi(payload.structureYaml, payload.defaults)
+    except HTTPException as e:
+        detail = getattr(e, "detail", str(e))
+        if isinstance(detail, dict):
+            detail = {**detail, "modelUsed": selected_model}
+        else:
+            detail = {"error": detail, "modelUsed": selected_model}
+        raise HTTPException(getattr(e, "status_code", 400), detail=detail)
+
+    for item in items:
+        definition: GuideDefinition = item["definition"]
+        definition = sanitize_titles_and_labels(definition)
+        definition = clamp_positions(definition)
+        definition = resolve_missing_refs(definition)
+        definition = dedupe_duplicate_ref_choices(definition)
+        item["definition"] = definition
+
+    structure_outline_yaml = _build_structure_outline_yaml(items)
+    step_catalog = _collect_markdown_step_catalog(items)
+    if not step_catalog:
+        raise HTTPException(400, detail={"error": "No steps found in structureYaml"})
+
+    batch_size = int(payload.batchSize)
+    batches = [step_catalog[i:i + batch_size] for i in range(0, len(step_catalog), batch_size)]
+    progress: list[dict[str, Any]] = []
+    progress_lock = threading.Lock()
+    rate_limit_lock = threading.Lock()
+    next_allowed_call_ts = {"value": time.monotonic()}
+    max_concurrency = max(1, min(int(payload.maxConcurrentBatches), len(batches)))
+    min_call_interval = max(0.0, float(payload.minCallIntervalSeconds))
+    max_retries = int(payload.maxRetriesPerBatch)
+    step_lookup = {step["stepId"]: step for step in step_catalog}
+
+    emit(
+        "batches_ready",
+        f"Prepared {len(batches)} batch(es) for {len(step_catalog)} step(s).",
+        totalBatches=len(batches),
+        stepCount=len(step_catalog),
+        maxConcurrency=max_concurrency,
+        minCallIntervalSeconds=min_call_interval,
+    )
+
+    def append_progress(entry: dict[str, Any]):
+        with progress_lock:
+            progress.append(entry)
+
+    class HTMLBatchFailure(Exception):
+        def __init__(
+            self,
+            *,
+            batch_idx: int,
+            total_batches: int,
+            attempt: int,
+            last_error: str,
+            steps: list[str],
+        ):
+            super().__init__(last_error)
+            self.batch_idx = batch_idx
+            self.total_batches = total_batches
+            self.attempt = attempt
+            self.last_error = last_error
+            self.steps = steps
+
+    def generate_one_batch(batch_idx: int, batch_steps: list[dict[str, Any]]) -> dict[str, Any]:
+        expected_ids = {step["stepId"] for step in batch_steps}
+        expected_sorted = sorted(expected_ids)
+        context_excerpted = False
+        last_error = "Unknown error"
+
+        for attempt in range(1, max_retries + 1):
+            emit(
+                "batch_attempt",
+                f"Batch {batch_idx}/{len(batches)} attempt {attempt}/{max_retries}",
+                batch=batch_idx,
+                totalBatches=len(batches),
+                attempt=attempt,
+                maxRetries=max_retries,
+                steps=expected_sorted,
+            )
+            try:
+                wait_seconds = 0.0
+                if min_call_interval > 0:
+                    with rate_limit_lock:
+                        now = time.monotonic()
+                        wait_seconds = max(0.0, next_allowed_call_ts["value"] - now)
+                        if wait_seconds > 0:
+                            time.sleep(wait_seconds)
+                        call_start = time.monotonic()
+                        next_allowed_call_ts["value"] = call_start + min_call_interval
+                if wait_seconds > 0:
+                    emit(
+                        "batch_rate_limit_wait",
+                        f"Batch {batch_idx}/{len(batches)} waited {wait_seconds:.1f}s before API call.",
+                        batch=batch_idx,
+                        totalBatches=len(batches),
+                        waitedSeconds=round(wait_seconds, 3),
+                    )
+
+                raw_batch_yaml, context_excerpted = generate_html_batch_content_yaml_with_ai(
+                    source_html=payload.html,
+                    ai_model=selected_model,
+                    structure_outline_yaml=structure_outline_yaml,
+                    batch_steps=batch_steps,
+                    document_name=payload.documentName,
+                    batch_index=batch_idx,
+                    batch_count=len(batches),
+                )
+                content_by_step = _parse_markdown_step_content_yaml(raw_batch_yaml, expected_ids)
+                append_progress(
+                    {
+                        "batch": batch_idx,
+                        "totalBatches": len(batches),
+                        "attempts": attempt,
+                        "steps": expected_sorted,
+                        "contextExcerpted": context_excerpted,
+                        "status": "ok",
+                    }
+                )
+                emit(
+                    "batch_ok",
+                    f"Batch {batch_idx}/{len(batches)} completed on attempt {attempt}.",
+                    batch=batch_idx,
+                    totalBatches=len(batches),
+                    attempts=attempt,
+                    steps=expected_sorted,
+                )
+                return {
+                    "batch": batch_idx,
+                    "steps": expected_sorted,
+                    "contentByStep": content_by_step,
+                }
+            except Exception as exc:
+                last_error = str(exc)
+                logger.warning(
+                    "REQUEST %s :: html batch failed batch=%s/%s attempt=%s error=%s",
+                    request_id,
+                    batch_idx,
+                    len(batches),
+                    attempt,
+                    last_error,
+                )
+                if attempt < max_retries:
+                    append_progress(
+                        {
+                            "batch": batch_idx,
+                            "totalBatches": len(batches),
+                            "attempts": attempt,
+                            "steps": expected_sorted,
+                            "contextExcerpted": context_excerpted,
+                            "status": "retry",
+                            "error": last_error,
+                        }
+                    )
+                    emit(
+                        "batch_retry",
+                        f"Batch {batch_idx}/{len(batches)} failed on attempt {attempt}; retrying.",
+                        batch=batch_idx,
+                        totalBatches=len(batches),
+                        attempts=attempt,
+                        error=last_error,
+                    )
+                    continue
+
+                append_progress(
+                    {
+                        "batch": batch_idx,
+                        "totalBatches": len(batches),
+                        "attempts": attempt,
+                        "steps": expected_sorted,
+                        "contextExcerpted": context_excerpted,
+                        "status": "failed",
+                        "error": last_error,
+                    }
+                )
+                emit(
+                    "batch_failed",
+                    f"Batch {batch_idx}/{len(batches)} failed after {attempt} attempt(s).",
+                    batch=batch_idx,
+                    totalBatches=len(batches),
+                    attempts=attempt,
+                    error=last_error,
+                )
+                raise HTMLBatchFailure(
+                    batch_idx=batch_idx,
+                    total_batches=len(batches),
+                    attempt=attempt,
+                    last_error=last_error,
+                    steps=expected_sorted,
+                )
+
+    batch_results: dict[int, dict[str, Any]] = {}
+    future_to_batch: dict[Future, int] = {}
+    executor = ThreadPoolExecutor(max_workers=max_concurrency, thread_name_prefix="html-batch")
+    try:
+        for idx, batch_steps in enumerate(batches, start=1):
+            fut = executor.submit(generate_one_batch, idx, batch_steps)
+            future_to_batch[fut] = idx
+
+        for fut in as_completed(future_to_batch):
+            try:
+                res = fut.result()
+            except HTMLBatchFailure as batch_exc:
+                for pending in future_to_batch:
+                    if not pending.done():
+                        pending.cancel()
+                raise HTTPException(
+                    502,
+                    detail={
+                        "error": "Failed to generate content for an HTML batch",
+                        "batch": batch_exc.batch_idx,
+                        "totalBatches": batch_exc.total_batches,
+                        "steps": batch_exc.steps,
+                        "attempts": batch_exc.attempt,
+                        "lastError": batch_exc.last_error,
+                        "progress": progress,
+                        "modelUsed": selected_model,
+                    },
+                )
+            except Exception as exc:
+                for pending in future_to_batch:
+                    if not pending.done():
+                        pending.cancel()
+                raise HTTPException(
+                    502,
+                    detail={
+                        "error": "Unexpected HTML batch worker failure",
+                        "message": str(exc),
+                        "progress": progress,
+                        "modelUsed": selected_model,
+                    },
+                )
+            batch_results[int(res["batch"])] = res
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
+    for batch_idx in sorted(batch_results.keys()):
+        content_by_step = batch_results[batch_idx]["contentByStep"]
+        for step_id, generated in content_by_step.items():
+            step_info = step_lookup.get(step_id)
+            if not step_info:
+                continue
+            step_ref: GuideStep = step_info["stepRef"]
+            cleaned = _remove_duplicate_leading_title_from_content(generated, step_ref.title)
+            step_ref.content = normalize_html_content(cleaned)
+
+    final_yaml = serialize_items_to_yaml(items)
+    emit("build_start", "All batches done. Building guides in Stonly.")
+
+    build_payload = GuideBuildPayload(
+        creds=payload.creds,
+        folderId=payload.folderId,
+        yaml=final_yaml,
+        dryRun=False,
+        defaults=payload.defaults,
+        publish=payload.publish,
+    )
+    try:
+        build_result = api_build_guide(build_payload, user_id=user_id)
+    except HTTPException as e:
+        detail = getattr(e, "detail", str(e))
+        if isinstance(detail, dict):
+            detail = {**detail, "progress": progress, "yaml": final_yaml, "modelUsed": selected_model}
+        else:
+            detail = {"error": detail, "progress": progress, "yaml": final_yaml, "modelUsed": selected_model}
+        raise HTTPException(getattr(e, "status_code", 500), detail=detail)
+
+    emit("completed", "HTML build completed successfully.")
+    return {
+        "ok": True,
+        "yaml": final_yaml,
+        "build": build_result,
+        "progress": progress,
+        "guideCount": len(items),
+        "stepCount": len(step_catalog),
+        "batchCount": len(batches),
+        "modelUsed": selected_model,
+    }
+
+
 def _markdown_job_prune_locked(now_epoch: float):
     if MARKDOWN_JOB_TTL_SECONDS <= 0:
         return
@@ -6291,6 +7369,179 @@ def api_importer_markdown_to_guide_build_status(job_id: str, request: Request):
         if not job or int(job.get("userId") or -1) != int(user.id):
             raise HTTPException(404, detail="Markdown build job not found")
         return {"ok": True, **_markdown_job_snapshot(job)}
+
+
+def _html_job_prune_locked(now_epoch: float):
+    if HTML_JOB_TTL_SECONDS <= 0:
+        return
+    to_delete: list[str] = []
+    for job_id, job in _HTML_JOBS.items():
+        updated = float(job.get("updatedEpoch") or now_epoch)
+        if now_epoch - updated > HTML_JOB_TTL_SECONDS:
+            to_delete.append(job_id)
+    for job_id in to_delete:
+        _HTML_JOBS.pop(job_id, None)
+
+
+def _html_job_emit_locked(job: dict[str, Any], *, event_type: str, message: str, **extra: Any):
+    now_iso = _utcnow().isoformat()
+    job["eventSeq"] = int(job.get("eventSeq") or 0) + 1
+    evt = {
+        "seq": job["eventSeq"],
+        "timestamp": now_iso,
+        "type": event_type,
+        "message": message,
+    }
+    if extra:
+        evt.update(extra)
+    events = job.setdefault("events", [])
+    events.append(evt)
+    if len(events) > 500:
+        del events[:-500]
+    job["lastEvent"] = evt
+    job["updatedAt"] = now_iso
+    job["updatedEpoch"] = time.time()
+
+
+def _create_html_job(user_id: int) -> str:
+    now_iso = _utcnow().isoformat()
+    now_epoch = time.time()
+    job_id = str(uuid.uuid4())
+    with _HTML_JOBS_LOCK:
+        _html_job_prune_locked(now_epoch)
+        job = {
+            "jobId": job_id,
+            "userId": int(user_id),
+            "status": "queued",
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+            "createdEpoch": now_epoch,
+            "updatedEpoch": now_epoch,
+            "eventSeq": 0,
+            "events": [],
+            "lastEvent": None,
+            "result": None,
+            "error": None,
+        }
+        _HTML_JOBS[job_id] = job
+        _html_job_emit_locked(job, event_type="queued", message="HTML build job queued.")
+    return job_id
+
+
+def _html_job_snapshot(job: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "jobId": job.get("jobId"),
+        "status": job.get("status"),
+        "createdAt": job.get("createdAt"),
+        "updatedAt": job.get("updatedAt"),
+        "lastEvent": job.get("lastEvent"),
+        "events": list(job.get("events") or []),
+        "result": job.get("result"),
+        "error": job.get("error"),
+    }
+
+
+@app.post(
+    "/api/importer/html-to-guide/build",
+    tags=["Builder"],
+    summary="Fill HTML guide content in batches and build/publish in Stonly",
+)
+def api_importer_html_to_guide_build(payload: HTMLBuildPayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+    request_id = str(uuid.uuid4())
+    return _run_html_to_guide_build(payload, user_id=user.id, request_id=request_id)
+
+
+@app.post(
+    "/api/importer/html-to-guide/build/start",
+    tags=["Builder"],
+    summary="Start async HTML guide build job",
+)
+def api_importer_html_to_guide_build_start(payload: HTMLBuildPayload, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        user_id = int(user.id)
+
+    job_id = _create_html_job(user_id)
+    request_id = f"job-{job_id}"
+    payload_copy = HTMLBuildPayload.model_validate(payload.model_dump())
+
+    def progress_cb(event: dict[str, Any]):
+        with _HTML_JOBS_LOCK:
+            job = _HTML_JOBS.get(job_id)
+            if not job:
+                return
+            _html_job_emit_locked(
+                job,
+                event_type=str(event.get("type") or "progress"),
+                message=str(event.get("message") or "Progress update"),
+                **{k: v for k, v in event.items() if k not in {"type", "message"}},
+            )
+
+    def runner():
+        with _HTML_JOBS_LOCK:
+            job = _HTML_JOBS.get(job_id)
+            if not job:
+                return
+            job["status"] = "running"
+            _html_job_emit_locked(job, event_type="running", message="HTML build started.")
+
+        try:
+            result = _run_html_to_guide_build(
+                payload_copy,
+                user_id=user_id,
+                request_id=request_id,
+                progress_callback=progress_cb,
+            )
+            with _HTML_JOBS_LOCK:
+                job = _HTML_JOBS.get(job_id)
+                if job:
+                    job["status"] = "succeeded"
+                    job["result"] = result
+                    _html_job_emit_locked(job, event_type="succeeded", message="HTML build job completed.")
+        except HTTPException as exc:
+            detail = getattr(exc, "detail", str(exc))
+            error = {
+                "statusCode": getattr(exc, "status_code", 500),
+                "detail": detail,
+            }
+            with _HTML_JOBS_LOCK:
+                job = _HTML_JOBS.get(job_id)
+                if job:
+                    job["status"] = "failed"
+                    job["error"] = error
+                    _html_job_emit_locked(job, event_type="failed", message="HTML build job failed.", error=error)
+        except Exception as exc:
+            logger.exception("REQUEST %s :: async html build crashed", request_id)
+            error = {"statusCode": 500, "detail": str(exc)}
+            with _HTML_JOBS_LOCK:
+                job = _HTML_JOBS.get(job_id)
+                if job:
+                    job["status"] = "failed"
+                    job["error"] = error
+                    _html_job_emit_locked(job, event_type="failed", message="HTML build job crashed.", error=error)
+
+    t = threading.Thread(target=runner, daemon=True, name=f"html-build-{job_id[:8]}")
+    t.start()
+    return {"ok": True, "jobId": job_id, "status": "queued"}
+
+
+@app.get(
+    "/api/importer/html-to-guide/build/status/{job_id}",
+    tags=["Builder"],
+    summary="Get async HTML guide build job status",
+)
+def api_importer_html_to_guide_build_status(job_id: str, request: Request):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+
+    with _HTML_JOBS_LOCK:
+        _html_job_prune_locked(time.time())
+        job = _HTML_JOBS.get(job_id)
+        if not job or int(job.get("userId") or -1) != int(user.id):
+            raise HTTPException(404, detail="HTML build job not found")
+        return {"ok": True, **_html_job_snapshot(job)}
 
 
 @app.post(
