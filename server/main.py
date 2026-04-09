@@ -3669,6 +3669,13 @@ def _brand_request_headers(url: Optional[str] = None, accept: Optional[str] = No
     return headers
 
 
+def _brand_asset_fallback_urls(base_url: str) -> list[str]:
+    return [
+        urljoin(base_url, "/apple-touch-icon.png"),
+        urljoin(base_url, "/favicon.ico"),
+    ]
+
+
 def _sanitize_inline_svg(svg_text: str) -> str:
     if not svg_text:
         return svg_text
@@ -6370,6 +6377,15 @@ def _scrape_brand_assets(url: str) -> dict[str, Any]:
                 resp = resp_retry
         except Exception:
             pass
+    if resp.status_code == 403:
+        base_url = resp.url or normalized
+        return {
+            "ok": True,
+            "url": base_url,
+            "logos": _brand_asset_fallback_urls(base_url),
+            "siteColors": [],
+            "warning": "Website blocked automated scraping with HTTP 403; returned fallback icon URLs.",
+        }
     if not resp.ok:
         raise HTTPException(502, detail={"error": "Upstream returned error", "status": resp.status_code})
     content_type = (resp.headers.get("content-type") or "").lower()
@@ -6403,11 +6419,7 @@ def _scrape_brand_assets(url: str) -> dict[str, Any]:
     counts = collections.Counter(colors)
     site_colors = _pick_distinct_colors(counts, limit=3)
     if not logos:
-        fallback = [
-            urljoin(base_url, "/apple-touch-icon.png"),
-            urljoin(base_url, "/favicon.ico"),
-        ]
-        logos = [u for u in fallback if u][:3]
+        logos = _brand_asset_fallback_urls(base_url)[:3]
 
     return {"ok": True, "url": base_url, "logos": logos, "siteColors": site_colors}
 

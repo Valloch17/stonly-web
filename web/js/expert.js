@@ -355,9 +355,10 @@
     const status = el('brandAssetsStatus');
     if (!status) return;
     status.textContent = message || '';
-    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600');
+    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600', 'text-amber-600');
     if (tone === 'error') status.classList.add('text-red-600');
     else if (tone === 'success') status.classList.add('text-green-600');
+    else if (tone === 'warning') status.classList.add('text-amber-600');
     else status.classList.add('text-slate-500');
   }
 
@@ -1552,6 +1553,7 @@
         body: JSON.stringify({ url }),
       });
       const logos = Array.isArray(logoResp?.logos) ? logoResp.logos.slice(0, 3) : [];
+      const scrapeWarning = (logoResp?.warning || '').trim();
       renderLogoCards(logos);
       renderColorCards(logoResp?.siteColors, { containerId: 'brandColorsSite', emptyMessage: 'No website colors found.' });
 
@@ -1562,7 +1564,7 @@
         body: JSON.stringify({ brandName, url }),
       });
       renderColorCards(colorsResp?.colors || null, { containerId: 'brandColorsAi', emptyMessage: 'No AI colors generated.' });
-      setBrandAssetsStatus('Brand assets ready.', 'success');
+      setBrandAssetsStatus(scrapeWarning || 'Brand assets ready.', scrapeWarning ? 'warning' : 'success');
     } catch (e) {
       const msg = e?.message || 'Failed to load brand assets.';
       setBrandAssetsStatus(msg, 'error');

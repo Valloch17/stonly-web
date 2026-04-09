@@ -363,6 +363,45 @@ def test_brand_assets_resolve_accepts_admin_token_without_session(monkeypatch):
     }
 
 
+def test_brand_assets_scrape_returns_fallback_logos_on_upstream_403(client, monkeypatch):
+    calls = []
+
+    class FakeResponse:
+        def __init__(self, url):
+            self.status_code = 403
+            self.url = url
+            self.ok = False
+            self.headers = {"content-type": "text/html; charset=UTF-8"}
+            self.text = ""
+
+    def fake_get(url, headers=None, timeout=None, allow_redirects=None):
+        calls.append({
+            "url": url,
+            "headers": headers,
+            "timeout": timeout,
+            "allow_redirects": allow_redirects,
+        })
+        return FakeResponse("https://ever.ag/")
+
+    monkeypatch.setattr(main.requests, "get", fake_get)
+
+    r = client.post("/api/brand-assets/scrape", json={
+        "url": "https://ever.ag",
+    })
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["url"] == "https://ever.ag/"
+    assert body["logos"] == [
+        "https://ever.ag/apple-touch-icon.png",
+        "https://ever.ag/favicon.ico",
+    ]
+    assert body["siteColors"] == []
+    assert "HTTP 403" in body["warning"]
+    assert len(calls) == 2
+
+
 def test_importer_html_to_guide_accepts_admin_token_without_session(monkeypatch):
     captured = {}
 
