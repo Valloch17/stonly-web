@@ -495,6 +495,9 @@
       btn.addEventListener("click", () => {
         input.value = entry.code;
         lastValid = entry.code;
+        valueOnOpen = entry.code;
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        input.dispatchEvent(new Event("change", { bubbles: true }));
         closePanel();
       });
       panel.appendChild(btn);
@@ -513,6 +516,8 @@
     }
 
     let ignoreBlur = false;
+    let valueOnOpen = lastValid;
+    const initialPlaceholder = input.getAttribute("placeholder") || "";
 
     function reorderOptions(order) {
       const frag = document.createDocumentFragment();
@@ -583,11 +588,23 @@
 
     function openPanel() {
       panel.classList.remove("hidden");
+      input.setAttribute("aria-expanded", "true");
       filterOptions(input.value);
+    }
+
+    function beginSearch() {
+      if (!panel.classList.contains("hidden")) return;
+      valueOnOpen = lastValid;
+      input.setAttribute("placeholder", valueOnOpen || initialPlaceholder);
+      input.value = "";
+      input.setAttribute("aria-expanded", "true");
+      openPanel();
+      filterOptions("");
     }
 
     function closePanel() {
       panel.classList.add("hidden");
+      input.setAttribute("aria-expanded", "false");
     }
 
     function normalizeOrRevert() {
@@ -595,9 +612,13 @@
       if (resolved) {
         input.value = resolved;
         lastValid = resolved;
+      } else if (!String(input.value || "").trim() && valueOnOpen) {
+        input.value = valueOnOpen;
+        lastValid = valueOnOpen;
       } else {
         input.value = lastValid;
       }
+      input.setAttribute("placeholder", initialPlaceholder);
     }
 
     input.setAttribute("autocomplete", "off");
@@ -605,10 +626,8 @@
     input.setAttribute("role", "combobox");
     input.setAttribute("aria-expanded", "false");
 
-    input.addEventListener("focus", () => {
-      input.setAttribute("aria-expanded", "true");
-      openPanel();
-    });
+    input.addEventListener("focus", beginSearch);
+    input.addEventListener("click", beginSearch);
     input.addEventListener("input", () => {
       if (panel.classList.contains("hidden")) openPanel();
       filterOptions(input.value);
@@ -636,6 +655,8 @@
     document.addEventListener("click", (event) => {
       if (!wrapper.contains(event.target)) {
         closePanel();
+        input.setAttribute("aria-expanded", "false");
+        normalizeOrRevert();
       }
     });
   }
@@ -1537,6 +1558,8 @@
     let customButton = null;
     let customPanel = null;
     let customLabel = null;
+    let customSearchInput = null;
+    let customEmpty = null;
 
     function ensureCustomTeamSelect() {
       if (!select) return;
@@ -1588,6 +1611,13 @@
       function setOpen(isOpen) {
         panel.classList.toggle('hidden', !isOpen);
         button.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+        if (isOpen) {
+          if (customSearchInput) {
+            customSearchInput.value = '';
+            filterCustomOptions('');
+            setTimeout(() => customSearchInput?.focus?.(), 0);
+          }
+        }
       }
 
       button.addEventListener('click', (e) => {
@@ -1598,8 +1628,6 @@
         if (e.key === 'ArrowDown' || e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           setOpen(true);
-          const first = panel.querySelector('.team-select-option:not([data-disabled="1"])');
-          first?.focus?.();
         }
       });
       panel.addEventListener('keydown', (e) => {
@@ -1912,9 +1940,38 @@
       });
     }
 
+    function filterCustomOptions(query) {
+      if (!customPanel) return;
+      const normalized = String(query || '').trim().toLowerCase();
+      let matches = 0;
+      customPanel.querySelectorAll('[data-team-option="1"]').forEach((item) => {
+        const haystack = String(item.dataset.search || item.textContent || '').toLowerCase();
+        const isMatch = !normalized || haystack.includes(normalized);
+        item.classList.toggle('hidden', !isMatch);
+        if (isMatch) matches += 1;
+      });
+      if (customEmpty) {
+        customEmpty.classList.toggle('hidden', !teams.length || matches > 0);
+      }
+    }
+
     function renderCustomOptions() {
       if (!customPanel) return;
       customPanel.innerHTML = '';
+      customSearchInput = null;
+      customEmpty = null;
+
+      const searchWrap = document.createElement('div');
+      searchWrap.className = 'team-select-search-wrap';
+      customSearchInput = document.createElement('input');
+      customSearchInput.type = 'search';
+      customSearchInput.className = 'team-select-search';
+      customSearchInput.placeholder = 'Search teams';
+      customSearchInput.setAttribute('aria-label', 'Search teams');
+      customSearchInput.setAttribute('autocomplete', 'off');
+      customSearchInput.addEventListener('input', () => filterCustomOptions(customSearchInput.value));
+      searchWrap.appendChild(customSearchInput);
+      customPanel.appendChild(searchWrap);
 
       if (teams.length) {
         teams.forEach((team) => {
@@ -1922,10 +1979,17 @@
           item.type = 'button';
           item.className = 'team-select-option';
           item.dataset.value = String(team.teamId);
+          item.dataset.teamOption = '1';
+          item.dataset.search = `${team.name || ''} ${team.teamId || ''} ${getNormalizedOrigin(team.origin)}`;
           item.textContent = teamLabel(team);
           customPanel.appendChild(item);
         });
       }
+
+      customEmpty = document.createElement('div');
+      customEmpty.className = 'team-select-empty hidden';
+      customEmpty.textContent = 'No matching teams.';
+      customPanel.appendChild(customEmpty);
 
       const separator = document.createElement('div');
       separator.className = 'team-select-separator';

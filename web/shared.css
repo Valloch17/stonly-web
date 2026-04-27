@@ -795,6 +795,26 @@ html[data-theme="dark"] .guide-preview-step.border-l {
   overflow: auto;
 }
 
+.team-select-search-wrap {
+  position: sticky;
+  top: -0.5rem;
+  z-index: 1;
+  margin: -0.5rem -0.5rem 0.25rem;
+  padding: 0.5rem;
+  background: var(--card);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 80%, transparent 20%);
+}
+
+.team-select-search {
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
 .team-select-option {
   width: 100%;
   text-align: left;
