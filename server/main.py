@@ -587,6 +587,43 @@ def require_session_or_importer_admin(
     return "session"
 
 
+def resolve_stonly_client(
+    creds: "Creds",
+    request: Request,
+    *,
+    admin_token: Optional[str] = None,
+) -> tuple["Stonly", str]:
+    """Resolve a Stonly client for a builder request, supporting both auth modes.
+
+    - Headless importer admin auth: when a valid X-Admin-Token (or body adminToken) is
+      provided, build the client directly from creds.teamId + creds.teamToken,
+      bypassing the user session. Mirrors /api/importer/html-to-guide.
+    - Session auth: fall back to the logged-in user's stored team token.
+
+    Returns (stonly_client, auth_mode) where auth_mode is "admin_token" or "session".
+    """
+    if has_valid_importer_admin_token(request, admin_token):
+        if not creds.teamToken:
+            raise HTTPException(400, detail="creds.teamToken is required when using importer admin auth")
+        st = Stonly(
+            base=(creds.base or DEFAULT_STONLY_BASE),
+            user=creds.user or "Importer",
+            password=creds.teamToken,
+            team_id=creds.teamId,
+        )
+        return st, "admin_token"
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, _team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=creds.teamId,
+            base=creds.base,
+            user_label=creds.user,
+        )
+    return st, "session"
+
+
 def get_team_for_user(db, user_id: int, team_id: int) -> Team:
     team = db.query(Team).filter(Team.user_id == user_id, Team.team_id == team_id).first()
     if not team:
@@ -961,6 +998,7 @@ class Creds(BaseModel):
     teamId: int
     base: Optional[str] = None
     password: Optional[str] = None  # deprecated: only used in local/testing
+    teamToken: Optional[str] = None  # Stonly team token; required for headless importer admin auth
 
     @field_validator("user", mode="before")
     @classmethod
@@ -1095,6 +1133,15 @@ class ApplyPayload(BaseModel):
     dryRun: bool = False
     root: List[UINode]
     settings: Optional[Settings] = None
+    adminToken: Optional[str] = None  # optional alternative to X-Admin-Token header (importer auth)
+
+class KBBuildPayload(BaseModel):
+    creds: Creds
+    yaml: str
+    parentId: Optional[int] = None
+    dryRun: bool = False
+    settings: Optional[Settings] = None
+    adminToken: Optional[str] = None  # optional alternative to X-Admin-Token header (importer auth)
 
 class VerifyPayload(BaseModel):
     creds: Creds
@@ -1108,6 +1155,7 @@ class GuideBuildPayload(BaseModel):
     dryRun: bool = False
     defaults: GuideDefaults = GuideDefaults()
     publish: bool = False
+    adminToken: Optional[str] = None  # optional alternative to X-Admin-Token header (importer auth)
 
 
 class AIGuidePayload(BaseModel):
@@ -5692,24 +5740,22 @@ def api_delete_team(team_id: int, request: Request):
     return {"ok": True}
 
 
-@app.post("/api/apply", tags=["Builder"], summary="Apply folder structure")
-def api_apply(payload: ApplyPayload, request: Request):
-    with SessionLocal() as db:
-        user = get_user_from_request(db, request)
-        st, _team = get_stonly_client_for_team(
-            db,
-            user_id=user.id,
-            team_id=payload.creds.teamId,
-            base=payload.creds.base,
-            user_label=payload.creds.user,
-        )
-    mapping: Dict[str, int] = {}
+def apply_folder_structure(
+    st: "Stonly",
+    root: List[UINode],
+    parent_id: Optional[int],
+    dry_run: bool,
+    settings: Optional[Settings],
+) -> Dict[str, Any]:
+    """Create the folder tree described by `root` under `parent_id`.
+
+    Shared by /api/apply (JSON tree) and /api/kb/build (YAML). Returns a mapping of
+    folder path -> created folder id (or "(dry-run)" when dryRun is set).
+    """
+    mapping: Dict[str, Any] = {}
 
     # valeurs globales
-    s = getattr(payload, "settings", None) or Settings()
-
-
-    def path_join(p, n): return f"{p}/{n}" if p else f"/{n}"
+    s = settings or Settings()
 
     def list_index(pid: Optional[int]) -> Dict[str, dict]:
         items = st.list_children(pid)
@@ -5734,7 +5780,7 @@ def api_apply(payload: ApplyPayload, request: Request):
             if n.name in idx:
                 fid = idx[n.name]["id"]
             else:
-                if payload.dryRun:
+                if dry_run:
                     fid = -1
                 else:
                     try:
@@ -5764,9 +5810,46 @@ def api_apply(payload: ApplyPayload, request: Request):
             if n.children:
                 dfs(n.children, next_pid, fp)
 
+    dfs(root, parent_id, "")
+    return mapping
 
-    dfs(payload.root, payload.parentId, "")
-    return {"ok": True, "mapping": mapping}
+
+@app.post("/api/apply", tags=["Builder"], summary="Apply folder structure")
+def api_apply(payload: ApplyPayload, request: Request):
+    st, auth_mode = resolve_stonly_client(payload.creds, request, admin_token=payload.adminToken)
+    mapping = apply_folder_structure(st, payload.root, payload.parentId, payload.dryRun, payload.settings)
+    return {"ok": True, "mapping": mapping, "authMode": auth_mode}
+
+
+@app.post("/api/kb/build", tags=["Builder"], summary="Build KB folder structure from YAML")
+def api_kb_build(payload: KBBuildPayload, request: Request):
+    """Headless-friendly KB builder: parse `root:` YAML into folders.
+
+    Accepts the same KB YAML produced by /api/ai-kb/generate (top-level `root:` list of
+    {name, description, children}). Supports importer admin auth (X-Admin-Token +
+    creds.teamToken) or a normal session.
+    """
+    st, auth_mode = resolve_stonly_client(payload.creds, request, admin_token=payload.adminToken)
+    request_id = str(uuid.uuid4())
+    try:
+        data = yaml.safe_load(payload.yaml)
+    except Exception as e:
+        raise HTTPException(400, detail={"error": "Invalid YAML", "msg": str(e)})
+    if not isinstance(data, dict) or "root" not in data:
+        raise HTTPException(400, detail="KB YAML must have a top-level 'root:' list")
+    raw_root = data.get("root") or []
+    if not isinstance(raw_root, list):
+        raise HTTPException(400, detail="'root' must be a list of folder nodes")
+    try:
+        root = [UINode.model_validate(n) for n in raw_root]
+    except Exception as e:
+        raise HTTPException(400, detail={"error": "Invalid KB structure", "msg": str(e)})
+    logger.info(
+        "REQUEST %s :: /api/kb/build team=%s parent=%s nodes=%s dryRun=%s authMode=%s",
+        request_id, payload.creds.teamId, payload.parentId, len(root), payload.dryRun, auth_mode,
+    )
+    mapping = apply_folder_structure(st, root, payload.parentId, payload.dryRun, payload.settings)
+    return {"ok": True, "mapping": mapping, "authMode": auth_mode}
 
 @app.post("/api/verify", tags=["Builder"], summary="Verify folder structure")
 def api_verify(payload: VerifyPayload, request: Request):
@@ -6054,9 +6137,9 @@ def api_publish_drafts(payload: PublishDraftsPayload, request: Request):
 
 @app.post("/api/guides/build", tags=["Builder"], summary="Build guides from YAML")
 def api_build_guide_http(payload: GuideBuildPayload, request: Request):
-    with SessionLocal() as db:
-        user = get_user_from_request(db, request)
-    return api_build_guide(payload, user_id=user.id)
+    # Supports importer admin auth (X-Admin-Token + creds.teamToken) or a normal session.
+    st, _auth_mode = resolve_stonly_client(payload.creds, request, admin_token=payload.adminToken)
+    return api_build_guide(payload, stonly_client=st)
 
 
 @app.post(
