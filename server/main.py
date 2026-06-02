@@ -948,6 +948,17 @@ class Stonly:
         Crée un dossier. Supporte parentFolderId, publicAccess, language, description.
         Essaie d'abord le payload 'canonique', puis fallback si besoin.
         """
+        # Stonly's public API returns a generic 403 Forbidden (not a 400) when you POST
+        # /folder without a parent, i.e. trying to create at the team root. Surface a
+        # clear, actionable error instead of the opaque upstream 403.
+        if parent_id is None:
+            raise HTTPException(400, detail={
+                "error": "parentFolderId required",
+                "message": ("Stonly's public API cannot create folders at the team root "
+                            "(it responds 403 Forbidden). Provide a parent folder id to nest under."),
+                "name": name,
+            })
+
         def _make_body(var_name_for_parent: str):
             body = {"name": name}
             if parent_id is not None:
@@ -5831,6 +5842,12 @@ def api_kb_build(payload: KBBuildPayload, request: Request):
     """
     st, auth_mode = resolve_stonly_client(payload.creds, request, admin_token=payload.adminToken)
     request_id = str(uuid.uuid4())
+    if payload.parentId is None:
+        raise HTTPException(400, detail={
+            "error": "parentId required",
+            "message": ("Stonly's public API cannot create folders at the team root. "
+                        "Pass parentId = the destination folder id to nest the KB structure under."),
+        })
     try:
         data = yaml.safe_load(payload.yaml)
     except Exception as e:

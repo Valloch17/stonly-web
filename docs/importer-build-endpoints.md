@@ -74,7 +74,9 @@ same name are reused (idempotent); missing ones are created.
 
 - `creds.teamId` number (required) + `creds.teamToken` (required for admin auth)
 - `yaml` string (required): KB YAML with a top-level `root:` list
-- `parentId` number (optional): folder to nest the tree under (root level if omitted)
+- `parentId` number (**required**): destination folder id to nest the tree under.
+  Stonly's public API cannot create folders at the team root — it returns `403 Forbidden`
+  when `parentFolderId` is omitted — so a parent is mandatory.
 - `dryRun` boolean (optional): compute the mapping without creating folders
 - `settings.publicAccess` (0/1) and `settings.language` (optional)
 - `adminToken` string (optional): alternative to the header
@@ -87,6 +89,7 @@ curl -X POST https://ai-builder-api.stonly.com/api/kb/build \
   -H "X-Admin-Token: $IMPORTER_ADMIN_TOKEN" \
   -d '{
     "creds": { "teamId": 39539, "teamToken": "stonly-team-token" },
+    "parentId": 381916,
     "yaml": "root:\n  - name: Acme Knowledge Base\n    children:\n      - name: FAQs\n        children: []\n      - name: Tutorials\n        children: []"
   }'
 ```
