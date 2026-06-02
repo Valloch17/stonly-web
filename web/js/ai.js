@@ -58,7 +58,7 @@ if (typeof window.requireAdmin === "function") {
 
   function getSelectedModelLabel() {
     if (aiModelSelector) return aiModelSelector.getLabel();
-    return typeof window.getAiModelLabel === "function" ? window.getAiModelLabel(DEFAULT_AI_MODEL) : "Gemini 3 Pro";
+    return typeof window.getAiModelLabel === "function" ? window.getAiModelLabel(DEFAULT_AI_MODEL) : "Gemini 3.1 Pro";
   }
 
   function setSelectedAiModel(value, { persist = true } = {}) {

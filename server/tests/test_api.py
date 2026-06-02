@@ -72,6 +72,15 @@ def test_settings_defaults_and_save_region_bases(client):
     }
 
 
+def test_gemini_model_name_defaults_to_current_replacement():
+    assert main.GEMINI_MODEL_NAME_DEFAULT == "gemini-3.1-pro-preview"
+    assert main._normalize_gemini_model_name(None) == "gemini-3.1-pro-preview"
+    assert main._normalize_gemini_model_name("gemini-3-pro-preview") == "gemini-3.1-pro-preview"
+    assert main._normalize_gemini_model_name("gemini-3-pro") == "gemini-3.1-pro-preview"
+    assert main._normalize_gemini_model_name("gemini-3.5-flash") == "gemini-3.5-flash"
+    assert main._normalize_ai_model("gemini-3.1-pro-preview") == main.AI_MODEL_GEMINI
+
+
 def test_create_team_uses_selected_origin_base_and_persists_origin(client, monkeypatch):
     captured = {}
 

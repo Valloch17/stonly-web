@@ -141,7 +141,7 @@
 
   const DEFAULT_AI_MODEL = "gpt51";
   const AI_MODEL_META = Object.freeze({
-    gemini: { label: "Gemini 3 Pro" },
+    gemini: { label: "Gemini 3.1 Pro" },
     gpt51: { label: "GPT 5.1" },
     gpt52: { label: "GPT 5.2" },
   });
@@ -150,7 +150,7 @@
   window.AI_MODEL_META = AI_MODEL_META;
   window.normalizeAiModel = function normalizeAiModel(value) {
     const raw = String(value || "").trim().toLowerCase();
-    if (!raw || raw === "gemini" || raw === "gemini-3-pro" || raw === "gemini-3-pro-preview") return "gemini";
+    if (!raw || raw === "gemini" || raw === "gemini-3.1-pro-preview" || raw === "gemini-3-pro" || raw === "gemini-3-pro-preview") return "gemini";
     if (raw === "gpt51" || raw === "gpt5.1" || raw === "gpt-5.1") return "gpt51";
     if (raw === "gpt" || raw === "gpt52" || raw === "gpt5.2" || raw === "gpt-5.2") return "gpt52";
     return DEFAULT_AI_MODEL;

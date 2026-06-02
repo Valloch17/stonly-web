@@ -92,7 +92,21 @@ AI_MODEL_GEMINI: AIModel = "gemini"
 AI_MODEL_GPT51: AIModel = "gpt51"
 AI_MODEL_GPT52: AIModel = "gpt52"
 AI_MODEL_DEFAULT: AIModel = AI_MODEL_GEMINI
-GEMINI_MODEL_NAME = os.getenv("GEMINI_MODEL_NAME", "gemini-3-pro-preview")
+GEMINI_MODEL_NAME_DEFAULT = "gemini-3.1-pro-preview"
+DEPRECATED_GEMINI_MODEL_ALIASES = {
+    "gemini-3-pro",
+    "gemini-3-pro-preview",
+}
+
+
+def _normalize_gemini_model_name(value: Optional[str]) -> str:
+    raw = (value or "").strip().lower()
+    if not raw or raw in DEPRECATED_GEMINI_MODEL_ALIASES:
+        return GEMINI_MODEL_NAME_DEFAULT
+    return raw
+
+
+GEMINI_MODEL_NAME = _normalize_gemini_model_name(os.getenv("GEMINI_MODEL_NAME"))
 GPT_AZURE_ENDPOINT = os.getenv("GPT_AZURE_ENDPOINT", "https://eastus2-internal.cognitiveservices.azure.com/")
 GPT_AZURE_DEPLOYMENT_GPT52 = os.getenv("GPT_AZURE_DEPLOYMENT_GPT52", "AiBuilder-Gpt52-20251211")
 GPT_AZURE_DEPLOYMENT_GPT51 = os.getenv("GPT_AZURE_DEPLOYMENT_GPT51", "AiBuilder-Gpt51-20251113")
@@ -113,7 +127,7 @@ HTML_FILE_IMPORT_MAX_BYTES = int(os.getenv("HTML_FILE_IMPORT_MAX_BYTES", str(10 
 
 def _normalize_ai_model(value: Optional[str]) -> AIModel:
     raw = (value or "").strip().lower()
-    if raw in {"", "gemini", "gemini-3-pro", "gemini-3-pro-preview"}:
+    if raw in {"", "gemini", "gemini-3.1-pro-preview", "gemini-3-pro", "gemini-3-pro-preview"}:
         return AI_MODEL_GEMINI
     if raw in {"gpt51", "gpt-5.1", "gpt5.1"}:
         return AI_MODEL_GPT51
