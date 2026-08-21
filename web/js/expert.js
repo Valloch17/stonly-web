@@ -14,6 +14,9 @@
   const MARKDOWN_CALL_INTERVAL_KEY = 'expert_markdown_call_interval_seconds';
   const MARKDOWN_STRUCTURE_KEY = 'expert_markdown_structure_yaml';
   const MARKDOWN_MODEL_KEY = 'expert_markdown_ai_model';
+  const EXPORT_REFS_KEY = 'expert_export_refs';
+  const EXPORT_FORMAT_KEY = 'expert_export_format';
+  const EXPORT_VERSION_KEY = 'expert_export_version';
   const FILE_KIND_MARKDOWN = 'markdown';
   const FILE_KIND_HTML = 'html';
   const DEFAULT_AI_MODEL = window.DEFAULT_AI_MODEL || 'gemini';
@@ -23,6 +26,7 @@
   let autoAiModelSelector = null;
   let markdownAiModelSelector = null;
   let markdownFileState = { name: '', content: '', size: 0, kind: '' };
+  let guideExportLastResult = null;
 
   function formatCount(value){
     return Number(value || 0).toLocaleString('en-US');
@@ -321,21 +325,139 @@
     throw errors[0] || new Error('Invalid YAML');
   }
 
+  // ---- Guide export ----
+  function setGuideExportStatus(message, tone){
+    const status = el('guideExportStatus');
+    if (!status) return;
+    status.textContent = message || '';
+    status.classList.remove('text-slate-500', 'text-red-600', 'text-green-600', 'text-amber-600');
+    if (tone === 'error') status.classList.add('text-red-600');
+    else if (tone === 'success') status.classList.add('text-green-600');
+    else if (tone === 'warning') status.classList.add('text-amber-600');
+    else status.classList.add('text-slate-500');
+  }
+
+  function setGuideExportSpinner(active, message){
+    const spinner = el('guideExportSpinner');
+    const text = el('guideExportSpinnerText');
+    if (!spinner) return;
+    spinner.classList.toggle('hidden', !active);
+    spinner.classList.toggle('flex', !!active);
+    if (text && message) text.textContent = message;
+  }
+
+  const GUIDE_EXPORT_FORMAT_HINTS = {
+    yaml: 'Guide Builder YAML with HTML step content: paste it back in Guide YAML to rebuild the guide.',
+    markdown: 'Markdown document with Markdown step content, a flow overview, and step metadata.',
+    json: 'JSON document with Markdown step content, step ids, and transitions.',
+  };
+
+  function updateGuideExportFormatHint(){
+    const hint = el('guideExportFormatHint');
+    if (!hint) return;
+    const format = el('guideExportFormat')?.value || 'yaml';
+    hint.textContent = GUIDE_EXPORT_FORMAT_HINTS[format] || '';
+  }
+
+  function collectGuideExportRefs(){
+    return String(el('guideExportRefs')?.value || '')
+      .split(/[\r\n,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+  }
+
+  async function onGuideExport(){
+    const button = el('guideExportBtn');
+    const out = el('guideExportOut');
+    const { teamId, base, user } = collectCommon();
+    const refs = collectGuideExportRefs();
+
+    if (!teamId) { setGuideExportStatus('Select a team first.', 'error'); return; }
+    if (!refs.length) { setGuideExportStatus('Paste a guide URL or ID first.', 'error'); return; }
+
+    const body = {
+      creds: { user, teamId, base },
+      guides: refs,
+      format: el('guideExportFormat')?.value || 'yaml',
+      version: el('guideExportVersion')?.value || 'last_published_version',
+      language: (el('guideExportLanguage')?.value || '').trim() || null,
+    };
+
+    if (button) button.disabled = true;
+    setGuideExportSpinner(true, refs.length > 1 ? `Exporting ${refs.length} guides...` : 'Exporting...');
+    setGuideExportStatus('Calling the Stonly guide export API...');
+    try {
+      const res = await apiFetch('/api/guides/export', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const content = typeof res?.content === 'string' ? res.content : JSON.stringify(res, null, 2);
+      if (out) out.textContent = content;
+      guideExportLastResult = res;
+
+      const guides = Array.isArray(res?.guides) ? res.guides : [];
+      const steps = guides.reduce((sum, g) => sum + Number(g.stepCount || 0), 0);
+      const titles = guides.map((g) => g.title).filter(Boolean).slice(0, 3).join(', ');
+      const parts = [`Exported ${guides.length} guide${guides.length === 1 ? '' : 's'} (${steps} steps)`];
+      if (titles) parts.push(titles);
+      const failed = Array.isArray(res?.failures) ? res.failures : [];
+      if (failed.length) parts.push(`${failed.length} failed: ${failed.map((f) => `${f.guideId} (${f.error})`).join(', ')}`);
+      const warnings = Array.isArray(res?.warnings) ? res.warnings : [];
+      if (warnings.length) parts.push(warnings.join(' '));
+      setGuideExportStatus(parts.join(' · '), failed.length || warnings.length ? 'warning' : 'success');
+    } catch (e) {
+      guideExportLastResult = null;
+      if (out) out.textContent = '';
+      setGuideExportStatus(`Export failed: ${e?.message || e}`, 'error');
+    } finally {
+      setGuideExportSpinner(false);
+      if (button) button.disabled = false;
+    }
+  }
+
+  function onGuideExportDownload(){
+    const content = el('guideExportOut')?.textContent || '';
+    if (!content.trim()) { setGuideExportStatus('Nothing to download yet.', 'error'); return; }
+    const format = el('guideExportFormat')?.value || 'yaml';
+    const fallbackExt = format === 'markdown' ? 'md' : (format === 'json' ? 'json' : 'yaml');
+    const filename = guideExportLastResult?.filename || `stonly-guide-export.${fallbackExt}`;
+    const mime = format === 'json' ? 'application/json' : 'text/plain';
+    try {
+      const blob = new Blob([content], { type: `${mime};charset=utf-8` });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setGuideExportStatus(`Downloaded ${filename}.`, 'success');
+    } catch (e) {
+      setGuideExportStatus(`Download failed: ${e?.message || e}`, 'error');
+    }
+  }
+
   function setExpertMode(mode){
     const manualBtn = el('expertModeManual');
     const autoBtn = el('expertModeAuto');
     const markdownBtn = el('expertModeMarkdown');
+    const exportBtn = el('expertModeExport');
     const manualSection = el('expertManualSections');
     const autoSection = el('expertAutomatedSection');
     const markdownSection = el('expertMarkdownSection');
+    const exportSection = el('expertGuideExportSection');
     const brandSection = el('brandAssetsSection');
     const useAuto = mode === 'automated';
     const useMarkdown = mode === 'markdown';
-    const useManual = !useAuto && !useMarkdown;
+    const useExport = mode === 'export';
+    const useManual = !useAuto && !useMarkdown && !useExport;
 
     if (manualSection) manualSection.classList.toggle('hidden', !useManual);
     if (autoSection) autoSection.classList.toggle('hidden', !useAuto);
     if (markdownSection) markdownSection.classList.toggle('hidden', !useMarkdown);
+    if (exportSection) exportSection.classList.toggle('hidden', !useExport);
     if (brandSection) brandSection.classList.toggle('hidden', !useAuto);
 
     if (manualBtn) {
@@ -350,9 +472,17 @@
       markdownBtn.classList.toggle('is-active', useMarkdown);
       markdownBtn.setAttribute('aria-pressed', useMarkdown.toString());
     }
+    if (exportBtn) {
+      exportBtn.classList.toggle('is-active', useExport);
+      exportBtn.setAttribute('aria-pressed', useExport.toString());
+    }
 
     try {
-      localStorage.setItem(MODE_STORAGE_KEY, useAuto ? 'automated' : (useMarkdown ? 'markdown' : 'manual'));
+      let stored = 'manual';
+      if (useAuto) stored = 'automated';
+      else if (useMarkdown) stored = 'markdown';
+      else if (useExport) stored = 'export';
+      localStorage.setItem(MODE_STORAGE_KEY, stored);
     } catch {}
   }
 
@@ -1741,6 +1871,10 @@
     el('expertModeManual')?.addEventListener('click', () => setExpertMode('manual'));
     el('expertModeAuto')?.addEventListener('click', () => setExpertMode('automated'));
     el('expertModeMarkdown')?.addEventListener('click', () => setExpertMode('markdown'));
+    el('expertModeExport')?.addEventListener('click', () => setExpertMode('export'));
+    el('guideExportBtn')?.addEventListener('click', onGuideExport);
+    el('guideExportFormat')?.addEventListener('change', updateGuideExportFormatHint);
+    el('guideExportDownload')?.addEventListener('click', onGuideExportDownload);
 
     // Copy buttons
     try {
@@ -1749,12 +1883,13 @@
         window.attachCopyButton({ buttonId: 'copyGuideOut', sourceId: 'guideOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'autoCopyOut', sourceId: 'autoOut', disableWhenEmpty: true });
         window.attachCopyButton({ buttonId: 'copyMarkdownOut', sourceId: 'markdownOut', disableWhenEmpty: true });
+        window.attachCopyButton({ buttonId: 'guideExportCopy', sourceId: 'guideExportOut', disableWhenEmpty: true });
       }
     } catch {}
 
     try {
       const storedMode = (localStorage.getItem(MODE_STORAGE_KEY) || 'manual').toLowerCase();
-      if (storedMode === 'automated' || storedMode === 'markdown') setExpertMode(storedMode);
+      if (['automated', 'markdown', 'export'].includes(storedMode)) setExpertMode(storedMode);
       else setExpertMode('manual');
     } catch {
       setExpertMode('manual');
@@ -1782,6 +1917,28 @@
           } catch {}
         });
       });
+    } catch {}
+
+    try {
+      const exportFields = [
+        { id: 'guideExportRefs', key: EXPORT_REFS_KEY },
+        { id: 'guideExportFormat', key: EXPORT_FORMAT_KEY },
+        { id: 'guideExportVersion', key: EXPORT_VERSION_KEY },
+      ];
+      exportFields.forEach(({ id, key }) => {
+        const field = el(id);
+        if (!field) return;
+        try {
+          const stored = localStorage.getItem(key);
+          if (typeof stored === 'string' && stored.length) field.value = stored;
+        } catch {}
+        const persist = () => {
+          try { localStorage.setItem(key, field.value || ''); } catch {}
+        };
+        field.addEventListener('input', persist);
+        field.addEventListener('change', persist);
+      });
+      updateGuideExportFormatHint();
     } catch {}
 
     try {

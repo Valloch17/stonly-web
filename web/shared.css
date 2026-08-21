@@ -282,6 +282,48 @@ input[data-folder-select="1"]::-webkit-inner-spin-button {
   color: #dc2626;
 }
 
+/* Guide picker: same shell as the folder picker, with a two-line option layout */
+.guide-select input[data-guide-select="1"],
+.guide-select textarea[data-guide-select="1"] {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  margin: 0 !important;
+  min-width: 0;
+  resize: vertical;
+  font-size: 0.875rem;
+  color: var(--text);
+  font-family: inherit;
+}
+
+.guide-select .folder-select-input {
+  align-items: stretch;
+}
+
+.guide-select-panel {
+  max-height: 320px;
+}
+
+.guide-select-option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.guide-select-option-title {
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.guide-select-option-meta {
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
 /* Global button polish (excluding the floating theme toggle) */
 button:not(.theme-toggle) {
   transition:

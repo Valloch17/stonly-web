@@ -10,7 +10,7 @@ import os, time, html, ipaddress, base64, hashlib, hmac, secrets
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed, Future
 from datetime import datetime, timedelta, timezone
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urlencode, urljoin, parse_qs
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -717,6 +717,7 @@ class Stonly:
         recursive: bool = False,
         guide_status: Optional[str] = None,
         limit: int = 100,
+        max_items: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         """
         List guides inside a folder (optionally recursive) using GET /folder/guide.
@@ -746,10 +747,50 @@ class Stonly:
                 has_next = len(items) >= limit
 
             acc.extend(items)
+            if max_items is not None and len(acc) >= max_items:
+                del acc[max_items:]
+                break
             if not has_next or len(items) < limit:
                 break
             page += 1
         return acc
+
+    def export_guide(
+        self,
+        content_id: str,
+        *,
+        language: Optional[str] = None,
+        version: Optional[str] = None,
+        purpose: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """
+        Export a guide through GET /guide/export.
+
+        Stonly answers with a bare step list for purpose=EXPORT and with
+        {"steps": [...], "guideModules": [...]} for purpose=BPA, so both shapes are
+        normalized to the dict form here.
+        """
+        params: Dict[str, Any] = {"contentId": str(content_id)}
+        if language:
+            params["language"] = language
+        if version:
+            params["version"] = version
+        if purpose:
+            params["purpose"] = purpose
+
+        data = self._req("GET", "/guide/export", params=params)
+        if isinstance(data, list):
+            return {"steps": data, "guideModules": []}
+        if isinstance(data, dict) and isinstance(data.get("steps"), list):
+            modules = data.get("guideModules")
+            return {
+                "steps": data["steps"],
+                "guideModules": modules if isinstance(modules, list) else [],
+            }
+        raise HTTPException(502, detail={
+            "error": "Unexpected payload from guide export",
+            "payload_type": type(data).__name__,
+        })
 
     def get_structure_flat(self, parent_id: Optional[int]):
         """
@@ -1151,6 +1192,154 @@ class PublishDraftsPayload(BaseModel):
     folderId: int
     includeSubfolders: bool = True
     limit: int = Field(default=100, ge=1, le=100)
+
+# ---- Guide export: reference parsing ----
+_GUIDE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
+_GUIDE_LANG_SEGMENT_RE = re.compile(r"^[a-z]{2}(-[A-Za-z]{2,4})?$")
+_GUIDE_REFERENCE_SPLIT_RE = re.compile(r"[\s,;]+")
+
+
+def _extract_guide_id(raw: Any) -> Optional[str]:
+    """
+    Resolve a guide id from a raw id, an editor URL or a public KB URL.
+
+    Supported inputs:
+      - U9RM3Ewtgo
+      - https://app.stonly.com/app/guide/U9RM3Ewtgo/editor/4999083
+      - https://app.stonly.com/app/guide/U9RM3Ewtgo
+      - https://stonly.com/kb/guide/en/some-slug-6h5WT6zwzA/Steps/85968
+      - any URL carrying ?guideId= / ?contentId=
+    """
+    value = str(raw or "").strip().strip('"\'')
+    if not value:
+        return None
+
+    if "/" not in value and "?" not in value:
+        return value if _GUIDE_ID_RE.match(value) else None
+
+    parsed = urlparse(value if "://" in value else f"https://{value}")
+    query = parse_qs(parsed.query or "")
+    for key in ("guideId", "contentId", "guide", "id"):
+        for candidate in query.get(key) or []:
+            candidate = str(candidate).strip()
+            if _GUIDE_ID_RE.match(candidate):
+                return candidate
+
+    segments = [seg for seg in (parsed.path or "").split("/") if seg]
+    for idx, segment in enumerate(segments):
+        if segment.lower() not in ("guide", "guides"):
+            continue
+        nxt = segments[idx + 1] if idx + 1 < len(segments) else ""
+        if not nxt:
+            continue
+        # Public KB URLs insert the language before a "<slug>-<guideId>" segment.
+        if _GUIDE_LANG_SEGMENT_RE.match(nxt) and idx + 2 < len(segments):
+            tail = segments[idx + 2].rsplit("-", 1)[-1]
+            if _GUIDE_ID_RE.match(tail):
+                return tail
+        if _GUIDE_ID_RE.match(nxt):
+            return nxt
+
+    # Last resort: a trailing segment that looks like an id.
+    for segment in reversed(segments):
+        if _GUIDE_ID_RE.match(segment) and segment.lower() not in ("editor", "steps", "app", "kb", "guide"):
+            return segment
+    return None
+
+
+def _collect_guide_references(single: Any, many: Any) -> List[str]:
+    """Flatten guide/guides inputs (newline, comma or space separated) into a list."""
+    raw_items: List[Any] = []
+    if single:
+        raw_items.append(single)
+    if isinstance(many, (list, tuple)):
+        raw_items.extend(many)
+    elif many:
+        raw_items.append(many)
+
+    refs: List[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        text_value = str(item or "").strip()
+        if not text_value:
+            continue
+        parts = [text_value] if ("://" in text_value and not re.search(r"[\s,;]", text_value)) \
+            else [p for p in _GUIDE_REFERENCE_SPLIT_RE.split(text_value) if p]
+        for part in parts:
+            if part not in seen:
+                seen.add(part)
+                refs.append(part)
+    return refs
+
+
+GUIDE_EXPORT_FORMATS = ("yaml", "markdown", "json")
+GUIDE_EXPORT_VERSIONS = ("last_published_version", "last_saved_version", "last_saved")
+GUIDE_EXPORT_PURPOSES = ("EXPORT", "BPA")
+GUIDE_EXPORT_MAX_GUIDES = 25
+GUIDE_PICKER_MAX_ITEMS = 2000
+
+
+class GuideExportPayload(BaseModel):
+    creds: Creds
+    # Accepts a guide id, an editor URL, or a public KB URL. `guides` allows batches.
+    guide: Optional[str] = None
+    guides: Optional[List[str]] = None
+    language: Optional[str] = None
+    version: str = "last_published_version"
+    # BPA also returns input/form/automation modules, which the YAML export turns into
+    # "rebuild this" notes and the Markdown/JSON views expose as-is.
+    purpose: str = "BPA"
+    # yaml -> Guide Builder YAML with HTML step content (re-importable)
+    # markdown/json -> documentation view with Markdown step content
+    format: str = "yaml"
+    includeModules: bool = True
+    folderId: Optional[int] = None
+    resolveTitles: bool = True
+    adminToken: Optional[str] = None  # optional alternative to X-Admin-Token header (importer auth)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def language_optional(cls, v):
+        s = str(v).strip() if v is not None else ""
+        return s or None
+
+    @field_validator("version", mode="before")
+    @classmethod
+    def version_supported(cls, v):
+        s = (str(v).strip() if v is not None else "") or "last_published_version"
+        if s not in GUIDE_EXPORT_VERSIONS:
+            raise ValueError(f"version must be one of {', '.join(GUIDE_EXPORT_VERSIONS)}")
+        return s
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def purpose_supported(cls, v):
+        s = (str(v).strip().upper() if v is not None else "") or "EXPORT"
+        if s not in GUIDE_EXPORT_PURPOSES:
+            raise ValueError(f"purpose must be one of {', '.join(GUIDE_EXPORT_PURPOSES)}")
+        return s
+
+    @field_validator("format", mode="before")
+    @classmethod
+    def format_supported(cls, v):
+        s = (str(v).strip().lower() if v is not None else "") or "yaml"
+        if s in ("md", "markdown"):
+            s = "markdown"
+        if s == "yml":
+            s = "yaml"
+        if s not in GUIDE_EXPORT_FORMATS:
+            raise ValueError(f"format must be one of {', '.join(GUIDE_EXPORT_FORMATS)}")
+        return s
+
+    @model_validator(mode="after")
+    def require_guide_reference(self):
+        refs = _collect_guide_references(self.guide, self.guides)
+        if not refs:
+            raise ValueError("guide (id or URL) is required")
+        if len(refs) > GUIDE_EXPORT_MAX_GUIDES:
+            raise ValueError(f"Too many guides requested (max {GUIDE_EXPORT_MAX_GUIDES})")
+        return self
+
 
 class ApplyPayload(BaseModel):
     creds: Creds
@@ -6086,6 +6275,1306 @@ def api_build_guide(
     if bulk_publish_error:
         resp["bulkPublishError"] = bulk_publish_error
     return resp
+
+
+# ---- Guide export: HTML -> Markdown ----
+class _StepHtmlToMarkdown(HTMLParser):
+    """Convert a Stonly step HTML fragment into Markdown."""
+
+    _HEADINGS = {"h1": 1, "h2": 2, "h3": 3, "h4": 4, "h5": 5, "h6": 6}
+    _SKIP_TAGS = {"script", "style", "noscript", "head"}
+    _PARAGRAPH_TAGS = {"p", "div", "section", "article", "header", "footer", "figure", "figcaption", "dd", "dt"}
+    _INLINE_WRAPS = {
+        "strong": ("**", "**"),
+        "b": ("**", "**"),
+        "em": ("*", "*"),
+        "i": ("*", "*"),
+        "code": ("`", "`"),
+        "s": ("~~", "~~"),
+        "del": ("~~", "~~"),
+        "strike": ("~~", "~~"),
+    }
+    _CALLOUT_LABELS = {
+        "warning": "Warning",
+        "danger": "Warning",
+        "error": "Warning",
+        "tip": "Tip",
+        "info": "Note",
+        "note": "Note",
+        "success": "Success",
+    }
+
+    def __init__(self) -> None:
+        super().__init__(convert_charrefs=True)
+        self.blocks: List[Tuple[str, str]] = []
+        self._inline: List[str] = []
+        self._wraps: List[Dict[str, Any]] = []
+        self._lists: List[Dict[str, Any]] = []
+        self._quote_depth = 0
+        self._skip_depth = 0
+        self._pre_depth = 0
+        self._heading: Optional[int] = None
+        self._li_marker_pending = False
+        self._callout_pending: Optional[str] = None
+        self._table: Optional[Dict[str, Any]] = None
+
+    # -- internals ---------------------------------------------------------
+    def _take_inline(self) -> str:
+        text_value = "".join(self._inline)
+        self._inline = []
+        self._wraps = []
+        if self._pre_depth:
+            return text_value.strip("\n")
+        text_value = text_value.replace(" ", " ")
+        text_value = re.sub(r"[ \t]+", " ", text_value)
+        text_value = re.sub(r" *\n *", "\n", text_value)
+        return text_value.strip()
+
+    def _push_block(self, text_value: str, kind: str = "text") -> None:
+        if not text_value or not text_value.strip():
+            return
+        if self._quote_depth and self._callout_pending:
+            text_value = f"**{self._callout_pending}**\n{text_value}"
+            self._callout_pending = None
+        if self._quote_depth:
+            prefix = "> " * self._quote_depth
+            text_value = "\n".join(
+                (prefix + line) if line else prefix.rstrip() for line in text_value.split("\n")
+            )
+        self.blocks.append((kind, text_value))
+
+    def _list_marker(self) -> str:
+        if not self._lists:
+            return ""
+        indent = "  " * (len(self._lists) - 1)
+        top = self._lists[-1]
+        if top["type"] == "ol":
+            return f"{indent}{top['index']}. "
+        return f"{indent}- "
+
+    def _flush(self) -> None:
+        text_value = self._take_inline()
+        if not text_value:
+            return
+        if self._heading:
+            self._push_block("#" * self._heading + " " + text_value.replace("\n", " "), "heading")
+            return
+        if self._lists:
+            if self._li_marker_pending:
+                prefix = self._list_marker()
+                self._li_marker_pending = False
+            else:
+                prefix = "  " * len(self._lists)
+            first, *rest = text_value.split("\n")
+            lines = [prefix + first]
+            lines.extend(" " * len(prefix) + line for line in rest)
+            self._push_block("\n".join(lines), "list")
+            return
+        self._push_block(text_value)
+
+    def _close_wrap(self, name: str) -> None:
+        idx = None
+        for i in range(len(self._wraps) - 1, -1, -1):
+            if self._wraps[i]["tag"] == name:
+                idx = i
+                break
+        if idx is None:
+            return
+        wrap = self._wraps.pop(idx)
+        start = min(int(wrap["start"]), len(self._inline))
+        inner = "".join(self._inline[start:])
+        del self._inline[start:]
+        if not inner.strip():
+            self._inline.append(inner)
+            return
+        if name == "a":
+            href = str(wrap.get("href") or "").strip()
+            self._inline.append(f"[{inner.strip()}]({href})" if href else inner)
+            return
+        lead = inner[: len(inner) - len(inner.lstrip())]
+        trail = inner[len(inner.rstrip()):]
+        self._inline.append(f"{lead}{wrap['open']}{inner.strip()}{wrap['close']}{trail}")
+
+    def _append_image(self, attrs_map: Dict[str, str]) -> None:
+        src = str(attrs_map.get("src") or "").strip()
+        alt = str(attrs_map.get("alt") or attrs_map.get("title") or "").strip()
+        if not src:
+            return
+        if src.lower().startswith("data:"):
+            mime = src.split(",", 1)[0]
+            src = f"{mime},<inline-data-omitted>"
+        self._inline.append(f"![{alt}]({src})")
+
+    def _callout_label(self, attrs_map: Dict[str, str]) -> str:
+        hint = f"{attrs_map.get('class', '')} {attrs_map.get('data-type', '')}".lower()
+        for key, label in self._CALLOUT_LABELS.items():
+            if key in hint:
+                return label
+        return ""
+
+    def _emit_table(self) -> None:
+        table = self._table
+        self._table = None
+        rows = (table or {}).get("rows") or []
+        if not rows:
+            return
+        width = max(len(row["cells"]) for row in rows)
+
+        def render(cells: List[str]) -> str:
+            padded = list(cells) + [""] * (width - len(cells))
+            return "| " + " | ".join(padded) + " |"
+
+        lines = [render(rows[0]["cells"]), "| " + " | ".join(["---"] * width) + " |"]
+        lines.extend(render(row["cells"]) for row in rows[1:])
+        self._push_block("\n".join(lines), "table")
+
+    # -- HTMLParser hooks --------------------------------------------------
+    def handle_starttag(self, tag, attrs):
+        name = (tag or "").lower()
+        if name in self._SKIP_TAGS:
+            self._skip_depth += 1
+            return
+        if self._skip_depth:
+            return
+        attrs_map = {k.lower(): (v or "") for k, v in (attrs or [])}
+
+        if name == "br":
+            self._inline.append("\n")
+            return
+        if name == "img":
+            self._append_image(attrs_map)
+            return
+        if name == "hr":
+            self._flush()
+            self._push_block("---")
+            return
+        if name == "a" and not self._pre_depth:
+            self._wraps.append({"tag": "a", "start": len(self._inline), "href": attrs_map.get("href", "")})
+            return
+        if name in self._INLINE_WRAPS and not self._pre_depth:
+            open_token, close_token = self._INLINE_WRAPS[name]
+            self._wraps.append({"tag": name, "start": len(self._inline), "open": open_token, "close": close_token})
+            return
+        if name in self._HEADINGS:
+            self._flush()
+            self._heading = self._HEADINGS[name]
+            return
+        if name in self._PARAGRAPH_TAGS:
+            self._flush()
+            return
+        if name in ("ul", "ol"):
+            self._flush()
+            self._lists.append({"type": "ol" if name == "ol" else "ul", "index": 0})
+            return
+        if name == "li":
+            self._flush()
+            if self._lists:
+                self._lists[-1]["index"] += 1
+            self._li_marker_pending = True
+            return
+        if name in ("blockquote", "aside"):
+            self._flush()
+            label = self._callout_label(attrs_map)
+            self._quote_depth += 1
+            self._callout_pending = label or None
+            return
+        if name == "pre":
+            self._flush()
+            self._pre_depth += 1
+            return
+        if name == "table":
+            self._flush()
+            self._table = {"rows": [], "current": None}
+            return
+        if name == "tr":
+            self._flush()
+            if self._table is not None:
+                self._table["current"] = {"cells": [], "header": False}
+            return
+        if name in ("td", "th"):
+            self._take_inline()
+            if self._table is not None and self._table.get("current") is not None and name == "th":
+                self._table["current"]["header"] = True
+            return
+
+    def handle_endtag(self, tag):
+        name = (tag or "").lower()
+        if name in self._SKIP_TAGS:
+            self._skip_depth = max(0, self._skip_depth - 1)
+            return
+        if self._skip_depth:
+            return
+
+        if name == "a" and not self._pre_depth:
+            self._close_wrap("a")
+            return
+        if name in self._INLINE_WRAPS and not self._pre_depth:
+            self._close_wrap(name)
+            return
+        if name in self._HEADINGS:
+            self._flush()
+            self._heading = None
+            return
+        if name in self._PARAGRAPH_TAGS:
+            self._flush()
+            return
+        if name in ("ul", "ol"):
+            self._flush()
+            if self._lists:
+                self._lists.pop()
+            self._li_marker_pending = False
+            return
+        if name == "li":
+            self._flush()
+            self._li_marker_pending = False
+            return
+        if name in ("blockquote", "aside"):
+            self._flush()
+            self._quote_depth = max(0, self._quote_depth - 1)
+            self._callout_pending = None
+            return
+        if name == "pre":
+            code = self._take_inline()
+            self._pre_depth = max(0, self._pre_depth - 1)
+            if code:
+                self._push_block("```\n" + code + "\n```", "code")
+            return
+        if name in ("td", "th"):
+            cell = self._take_inline().replace("\n", " ").replace("|", "\\|")
+            if self._table is not None and self._table.get("current") is not None:
+                self._table["current"]["cells"].append(cell)
+            return
+        if name == "tr":
+            if self._table is not None and self._table.get("current") is not None:
+                row = self._table["current"]
+                self._table["current"] = None
+                if row.get("cells"):
+                    self._table["rows"].append(row)
+            return
+        if name == "table":
+            self._emit_table()
+            return
+
+    def handle_data(self, data):
+        if self._skip_depth or not data:
+            return
+        self._inline.append(data)
+
+    def close(self) -> None:
+        super().close()
+        self._flush()
+        if self._table is not None:
+            self._emit_table()
+
+    def result(self) -> str:
+        out: List[str] = []
+        previous_kind = ""
+        for kind, text_value in self.blocks:
+            if not out:
+                out.append(text_value)
+            elif kind == "list" and previous_kind == "list":
+                out.append("\n" + text_value)
+            else:
+                out.append("\n\n" + text_value)
+            previous_kind = kind
+        text_out = "".join(out)
+        text_out = "\n".join(line.rstrip() for line in text_out.split("\n"))
+        return re.sub(r"\n{3,}", "\n\n", text_out).strip()
+
+
+def _step_html_to_markdown(value: Any) -> str:
+    text_value = str(value or "")
+    if not text_value.strip():
+        return ""
+    if "<" not in text_value:
+        return re.sub(r"[ \t]+", " ", html.unescape(text_value)).strip()
+    parser = _StepHtmlToMarkdown()
+    try:
+        parser.feed(text_value)
+        parser.close()
+        return parser.result()
+    except Exception:
+        logger.exception("guide export: markdown conversion failed, falling back to plain text")
+        stripped = html.unescape(re.sub(r"<[^>]+>", " ", text_value))
+        return re.sub(r"[ \t]+", " ", stripped).strip()
+
+
+# ---- Guide export: document building and rendering ----
+class _GuideExportYamlDumper(yaml.SafeDumper):
+    """SafeDumper that writes multi-line strings as readable block scalars."""
+
+
+def _guide_export_yaml_str(dumper, value):
+    if "\n" in value:
+        return dumper.represent_scalar("tag:yaml.org,2002:str", value, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", value)
+
+
+_GuideExportYamlDumper.add_representer(str, _guide_export_yaml_str)
+
+
+def _guide_export_yaml(documents: List[Dict[str, Any]]) -> str:
+    return yaml.dump_all(
+        documents,
+        Dumper=_GuideExportYamlDumper,
+        sort_keys=False,
+        allow_unicode=True,
+        default_flow_style=False,
+        width=4096,
+    ).strip() + "\n"
+
+
+def _normalize_export_step(
+    step: Dict[str, Any],
+    *,
+    content_format: str,
+    include_modules: bool,
+    titles_by_step: Dict[str, str],
+) -> Dict[str, Any]:
+    raw_content = step.get("content")
+    out: Dict[str, Any] = {
+        "id": step.get("id"),
+        "title": str(step.get("title") or "").strip(),
+        "type": str(step.get("type") or "regular"),
+    }
+    if step.get("isFirstStep"):
+        out["isFirstStep"] = True
+    tags = [str(t).strip() for t in (step.get("tags") or []) if str(t).strip()]
+    if tags:
+        out["tags"] = tags
+
+    # Most steps carry HTML, but action steps (e.g. widgetAction) carry a structured payload.
+    if isinstance(raw_content, (dict, list)):
+        out["content"] = ""
+        out["contentData"] = raw_content
+    else:
+        text_value = str(raw_content or "")
+        out["content"] = text_value.strip() if content_format == "html" else _step_html_to_markdown(text_value)
+
+    next_steps: List[Dict[str, Any]] = []
+    for nxt in step.get("nextSteps") or []:
+        if not isinstance(nxt, dict):
+            continue
+        target = nxt.get("id")
+        entry: Dict[str, Any] = {
+            "label": str(nxt.get("choiceLabel") or "").strip(),
+            "stepId": target,
+        }
+        title = titles_by_step.get(str(target)) if target is not None else ""
+        if title:
+            entry["stepTitle"] = title
+        if target is None:
+            entry["note"] = "No target step (end of branch)"
+        next_steps.append(entry)
+    out["nextSteps"] = next_steps
+
+    meta = step.get("meta") if isinstance(step.get("meta"), dict) else None
+    if meta and (meta.get("embeddedGuideId") or meta.get("embeddedStepId")):
+        out["embeddedGuide"] = {
+            "guideId": meta.get("embeddedGuideId"),
+            "stepId": meta.get("embeddedStepId"),
+        }
+    modules = step.get("modules")
+    if include_modules and isinstance(modules, list) and modules:
+        out["modules"] = modules
+    return out
+
+
+def _build_guide_export_document(
+    *,
+    guide_id: str,
+    team_id: int,
+    steps: List[Dict[str, Any]],
+    guide_modules: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+    applied: Dict[str, Any],
+    content_format: str,
+    include_modules: bool,
+) -> Dict[str, Any]:
+    titles_by_step: Dict[str, str] = {}
+    for step in steps:
+        if isinstance(step, dict) and step.get("id") is not None:
+            titles_by_step[str(step["id"])] = str(step.get("title") or "").strip()
+
+    normalized = [
+        _normalize_export_step(
+            step,
+            content_format=content_format,
+            include_modules=include_modules,
+            titles_by_step=titles_by_step,
+        )
+        for step in steps
+        if isinstance(step, dict)
+    ]
+    first_step = next((s for s in normalized if s.get("isFirstStep")), None) or (normalized[0] if normalized else None)
+    title = (
+        str(meta.get("name") or "").strip()
+        or str((first_step or {}).get("title") or "").strip()
+        or f"Guide {guide_id}"
+    )
+
+    query = {"teamId": team_id, "contentId": guide_id, "purpose": applied.get("purpose") or "EXPORT"}
+    if applied.get("language"):
+        query["language"] = applied["language"]
+    if applied.get("version"):
+        query["version"] = applied["version"]
+
+    guide_block: Dict[str, Any] = {
+        "id": guide_id,
+        "title": title,
+        "teamId": int(team_id),
+        "language": applied.get("language") or "default",
+        "version": applied.get("version"),
+        "purpose": applied.get("purpose"),
+        "contentFormat": content_format,
+        "stepCount": len(normalized),
+        "firstStepId": (first_step or {}).get("id"),
+    }
+    if meta.get("status"):
+        guide_block["status"] = meta["status"]
+    languages = [str(l) for l in (meta.get("languages") or []) if str(l).strip()]
+    if languages:
+        guide_block["availableLanguages"] = languages
+    folder = meta.get("folder") or {}
+    if isinstance(folder, dict) and (folder.get("id") or folder.get("name")):
+        guide_block["folder"] = {"id": folder.get("id"), "name": folder.get("name")}
+    guide_block["exportedAt"] = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    guide_block["exportEndpoint"] = "GET /guide/export?" + urlencode(query)
+
+    document: Dict[str, Any] = {"guide": guide_block, "steps": normalized}
+    if include_modules and guide_modules:
+        document["guideModules"] = guide_modules
+    return document
+
+
+def _render_guide_export_markdown(document: Dict[str, Any]) -> str:
+    guide = document.get("guide") or {}
+    steps = document.get("steps") or []
+    lines: List[str] = ["---", _guide_export_yaml([guide]).strip(), "---", ""]
+    lines.append(f"# {guide.get('title') or guide.get('id')}")
+    lines.append("")
+
+    transitions: List[str] = []
+    for step in steps:
+        for nxt in step.get("nextSteps") or []:
+            label = nxt.get("label") or "(continue)"
+            target = nxt.get("stepId")
+            arrow = f"`{step.get('id')}` {step.get('title')} --[{label}]--> "
+            if target is None:
+                arrow += "_end of branch_"
+            else:
+                arrow += f"`{target}` {nxt.get('stepTitle') or ''}".strip()
+            transitions.append(f"- {arrow}")
+    if transitions:
+        lines.append("## Flow")
+        lines.append("")
+        lines.extend(transitions)
+        lines.append("")
+
+    for index, step in enumerate(steps, start=1):
+        lines.append(f"## Step {index} — {step.get('title') or '(untitled)'}")
+        facts = [f"id: `{step.get('id')}`", f"type: `{step.get('type')}`"]
+        if step.get("isFirstStep"):
+            facts.append("**first step**")
+        if step.get("tags"):
+            facts.append("tags: " + ", ".join(step["tags"]))
+        lines.append("")
+        lines.append(" · ".join(facts))
+        lines.append("")
+        content = str(step.get("content") or "").strip()
+        if content:
+            lines.append(content)
+            lines.append("")
+        if step.get("contentData") is not None:
+            lines.append("```yaml")
+            lines.append(_guide_export_yaml([{"contentData": step["contentData"]}]).strip())
+            lines.append("```")
+            lines.append("")
+        embedded = step.get("embeddedGuide")
+        if embedded:
+            suffix = f" starting at step `{embedded.get('stepId')}`" if embedded.get("stepId") else ""
+            lines.append(f"Embeds guide `{embedded.get('guideId')}`{suffix}")
+            lines.append("")
+        next_steps = step.get("nextSteps") or []
+        if next_steps:
+            lines.append("**Next steps**")
+            lines.append("")
+            for nxt in next_steps:
+                label = nxt.get("label") or "(continue)"
+                target = nxt.get("stepId")
+                if target is None:
+                    lines.append(f"- {label} -> _end of branch_")
+                else:
+                    suffix = f" ({nxt['stepTitle']})" if nxt.get("stepTitle") else ""
+                    lines.append(f"- {label} -> step `{target}`{suffix}")
+            lines.append("")
+        if step.get("modules"):
+            lines.append("**Modules**")
+            lines.append("")
+            lines.append("```yaml")
+            lines.append(_guide_export_yaml([{"modules": step["modules"]}]).strip())
+            lines.append("```")
+            lines.append("")
+
+    if document.get("guideModules"):
+        lines.append("## Guide modules")
+        lines.append("")
+        lines.append("```yaml")
+        lines.append(_guide_export_yaml([{"guideModules": document["guideModules"]}]).strip())
+        lines.append("```")
+        lines.append("")
+
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip() + "\n"
+
+
+# ---- Guide export: Guide Builder (re-importable) YAML ----
+# Step types the build API cannot create. They are exported as regular steps carrying a
+# note so the user can rebuild the real step type in the editor after the import.
+_SPECIAL_STEP_LABELS = {
+    "automation": "Automation",
+    "contactform": "Contact form",
+    "nps": "NPS survey",
+    "crs": "Customer rating survey",
+    "customsurvey": "Custom survey",
+    "checklist": "Checklist",
+    "aianswer": "AI answers",
+    "aianswers": "AI answers",
+    "aiaction": "AI action",
+    "widgetaction": "Widget action",
+    "embeddedcontent": "Embedded guide",
+    "guide": "Embedded guide",
+    "iframe": "Embedded iframe",
+    "link": "Link",
+    "ad": "Ad",
+    "introduction": "Introduction",
+    "endguide": "End of guide",
+}
+_BUILDER_DEFAULT_CHOICE_LABEL = "Next"
+
+
+def _module_localized_content(content: Any, language: Optional[str]) -> Dict[str, Any]:
+    """Module content is either flat or keyed by language code; return the flat form."""
+    if not isinstance(content, dict):
+        return {}
+    if any(key in content for key in ("label", "placeholder", "successMessage", "optionList", "title")):
+        return content
+    candidates = ([language] if language else []) + list(content.keys())
+    for key in candidates:
+        inner = content.get(key)
+        if isinstance(inner, dict) and inner:
+            return inner
+    return content
+
+
+def _describe_step_module(module: Dict[str, Any], language: Optional[str]) -> Optional[str]:
+    module_type = str(module.get("type") or "").upper()
+    props = module.get("properties") if isinstance(module.get("properties"), dict) else {}
+    content = _module_localized_content(module.get("content"), language)
+
+    if module_type == "INPUT":
+        label = str(content.get("label") or props.get("key") or "Untitled field").strip()
+        subtype = str(props.get("subtype") or "text")
+        required = ", required" if props.get("isRequired") else ""
+        options: List[str] = []
+        raw_options = content.get("optionList")
+        if isinstance(raw_options, list):
+            for option in raw_options[:8]:
+                if isinstance(option, dict):
+                    text = option.get("label") or option.get("value") or option.get("key")
+                else:
+                    text = option
+                if text:
+                    options.append(str(text))
+        suffix = f" - options: {', '.join(options)}" if options else ""
+        return f"Input field \"{label}\" ({subtype}{required}){suffix}"
+    if module_type == "FORM":
+        success = str(content.get("successMessage") or "").strip()
+        suffix = f" - success message: \"{success}\"" if success else ""
+        return f"Contact form module{suffix}"
+    if module_type == "AUTOMATION":
+        calls = props.get("serverCallIds")
+        count = len(calls) if isinstance(calls, list) else 0
+        return f"Automation module ({count} server call(s) to re-attach)"
+    if module_type == "EMBEDDED_GUIDE":
+        guide_ref = props.get("guideId") or ""
+        start = props.get("stepStartType") or ""
+        return f"Embedded guide {guide_ref} (start: {start})".strip()
+    if module_type == "CHECKLIST_ITEM":
+        return f"Checklist item: {content.get('label') or content.get('title') or 'untitled'}"
+    if module_type == "CONDITIONAL_SECTION":
+        return "Conditional section (visibility rules to re-create)"
+    if module_type in ("BPA_METADATA", ""):
+        return None
+    return f"{module_type} module"
+
+
+def _html_escape_text(value: Any) -> str:
+    return html.escape(str(value or ""), quote=False)
+
+
+def _build_step_conversion_note(step: Dict[str, Any], language: Optional[str]) -> Optional[str]:
+    """
+    Build the HTML note prepended to a converted step, or None when nothing was lost.
+
+    Uses the same <aside class="warning"> callout Stonly itself uses, so the note is
+    impossible to miss in the editor after the import.
+    """
+    step_type = str(step.get("type") or "regular")
+    modules = [m for m in (step.get("modules") or []) if isinstance(m, dict)]
+    details = [d for d in (_describe_step_module(m, language) for m in modules) if d]
+
+    raw_content = step.get("content")
+    meta = step.get("meta") if isinstance(step.get("meta"), dict) else {}
+    special_label = _SPECIAL_STEP_LABELS.get(step_type.lower())
+
+    if step_type.lower() == "link" and isinstance(raw_content, str) and raw_content.strip():
+        url = raw_content.strip()
+        details.append(f'Link target: <a href="{html.escape(url, quote=True)}">{_html_escape_text(url)}</a>')
+    if meta.get("embeddedGuideId"):
+        target = f"Embedded guide id: {_html_escape_text(meta.get('embeddedGuideId'))}"
+        if meta.get("embeddedStepId"):
+            target += f" (start step {_html_escape_text(meta.get('embeddedStepId'))})"
+        details.append(target)
+    if isinstance(raw_content, dict):
+        action = raw_content.get("type") or "unknown"
+        details.append(f"Action: {_html_escape_text(action)}")
+    elif isinstance(raw_content, list):
+        details.append(f"Original payload had {len(raw_content)} entries")
+
+    if not special_label and not details:
+        return None
+
+    if special_label:
+        headline = f'Converted from a "{special_label}" step'
+        explanation = (
+            "The build API only creates regular steps, so this one was imported as a regular step. "
+            "Re-create it in the editor, then delete this note."
+        )
+    else:
+        headline = "This step contained extra modules"
+        explanation = (
+            "The build API cannot create step modules. Re-add them in the editor, then delete this note."
+        )
+
+    parts = [
+        '<aside class="warning">',
+        f"<p><strong>{_html_escape_text(headline)}</strong></p>",
+        f"<p>{explanation}</p>",
+    ]
+    if details:
+        # Details are pre-escaped above; the link entry intentionally keeps its anchor tag.
+        parts.append("<ul>" + "".join(f"<li>{d}</li>" for d in details) + "</ul>")
+    parts.append("</aside>")
+    return "".join(parts)
+
+
+def _compose_builder_content(note: Optional[str], raw_content: Any) -> str:
+    """Original HTML content, prefixed with a conversion note when something needs rebuilding."""
+    body = raw_content.strip() if isinstance(raw_content, str) else ""
+    if note and body:
+        return note + body
+    if note:
+        return note
+    if body:
+        return body
+    # The build API requires content; keep a visible placeholder rather than an empty step.
+    return "<p></p>"
+
+
+def _builder_step_key(step_id: str, title: str, used: set) -> str:
+    slug = re.sub(r"[^a-z0-9]+", "-", str(title or "").lower()).strip("-")[:40].strip("-")
+    key = slug or f"step-{step_id}"
+    if key in used:
+        key = f"{key}-{step_id}"
+    while key in used:
+        key = f"{key}-x"
+    used.add(key)
+    return key
+
+
+def _build_guide_builder_document(
+    *,
+    guide_id: str,
+    team_id: int,
+    steps: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+    applied: Dict[str, Any],
+) -> Tuple[Dict[str, Any], List[str], Dict[str, Any]]:
+    """
+    Convert an exported guide (a graph of steps) into Guide Builder YAML (a tree of steps).
+
+    Edges that point back to an already-emitted step become `ref:` choices, which is how the
+    builder re-creates loops and steps with several parents. Returns the document, warnings,
+    and stats used for the header comment.
+    """
+    by_id: Dict[str, Dict[str, Any]] = {}
+    order: List[str] = []
+    for step in steps:
+        if not isinstance(step, dict) or step.get("id") is None:
+            continue
+        step_id = str(step["id"])
+        if step_id in by_id:
+            continue
+        by_id[step_id] = step
+        order.append(step_id)
+
+    warnings: List[str] = []
+    language = applied.get("language") or next(
+        (str(l) for l in (meta.get("languages") or []) if str(l).strip()), None
+    ) or "en"
+
+    if not by_id:
+        raise HTTPException(502, detail={
+            "error": "Guide export returned no steps",
+            "guideId": guide_id,
+        })
+
+    first_id = next((sid for sid in order if by_id[sid].get("isFirstStep")), order[0])
+
+    # Spanning tree over the step graph (breadth first keeps the YAML shallow).
+    edges_by_parent: Dict[str, List[Dict[str, Any]]] = {}
+    visited = {first_id}
+    unlabelled_edges = 0
+    dangling_edges = 0
+
+    def walk(root: str) -> None:
+        nonlocal unlabelled_edges, dangling_edges
+        queue = [root]
+        cursor = 0
+        while cursor < len(queue):
+            step_id = queue[cursor]
+            cursor += 1
+            entries: List[Dict[str, Any]] = []
+            for edge in by_id[step_id].get("nextSteps") or []:
+                if not isinstance(edge, dict):
+                    continue
+                label = str(edge.get("choiceLabel") or "").strip()
+                if not label:
+                    unlabelled_edges += 1
+                target = edge.get("id")
+                target_id = str(target) if target is not None else ""
+                if not target_id or target_id not in by_id:
+                    dangling_edges += 1
+                    continue
+                if target_id in visited:
+                    entries.append({"kind": "ref", "label": label, "target": target_id})
+                else:
+                    visited.add(target_id)
+                    entries.append({"kind": "step", "label": label, "target": target_id})
+                    queue.append(target_id)
+            edges_by_parent[step_id] = entries
+
+    walk(first_id)
+
+    orphan_roots: List[str] = []
+    for step_id in order:
+        if step_id not in visited:
+            visited.add(step_id)
+            orphan_roots.append(step_id)
+            walk(step_id)
+
+    # Only steps that something links back to need an addressable key.
+    ref_targets = {
+        entry["target"]
+        for entries in edges_by_parent.values()
+        for entry in entries
+        if entry["kind"] == "ref"
+    }
+    used_keys: set = set()
+    keys: Dict[str, str] = {}
+    for step_id in order:
+        if step_id in ref_targets:
+            keys[step_id] = _builder_step_key(step_id, by_id[step_id].get("title"), used_keys)
+
+    # The build API requires a title on every step; the guide name is the best stand-in for an
+    # untitled first step, and the step id keeps the others traceable.
+    guide_name = str(meta.get("name") or "").strip()
+    converted = 0
+    tagged = 0
+    nodes: Dict[str, Dict[str, Any]] = {}
+    for step_id in order:
+        step = by_id[step_id]
+        node: Dict[str, Any] = {}
+        if step_id in keys:
+            node["key"] = keys[step_id]
+        fallback_title = (guide_name if step_id == first_id else "") or f"Step {step_id}"
+        node["title"] = str(step.get("title") or "").strip() or fallback_title
+        note = _build_step_conversion_note(step, language)
+        node["content"] = _compose_builder_content(note, step.get("content"))
+        if note:
+            converted += 1
+        if step.get("tags"):
+            tagged += 1
+        nodes[step_id] = node
+
+    for step_id, entries in edges_by_parent.items():
+        choices: List[Dict[str, Any]] = []
+        for entry in entries:
+            choice: Dict[str, Any] = {"label": entry["label"] or _BUILDER_DEFAULT_CHOICE_LABEL}
+            if entry["kind"] == "step":
+                choice["step"] = nodes[entry["target"]]
+            else:
+                choice["ref"] = keys[entry["target"]]
+            choices.append(choice)
+        if choices:
+            nodes[step_id]["choices"] = choices
+
+    if orphan_roots:
+        extra = []
+        for root in orphan_roots:
+            label = f"[Unlinked] {nodes[root]['title']}"
+            extra.append({"label": label[:80], "step": nodes[root]})
+        nodes[first_id].setdefault("choices", []).extend(extra)
+        warnings.append(
+            f"{len(orphan_roots)} step(s) were not reachable from the first step; "
+            "they are attached to the first step with an [Unlinked] label."
+        )
+    if dangling_edges:
+        warnings.append(f"{dangling_edges} transition(s) pointed to no step and were dropped.")
+    if unlabelled_edges:
+        warnings.append(
+            f"{unlabelled_edges} transition(s) had no label (automatic transitions); "
+            f"they use \"{_BUILDER_DEFAULT_CHOICE_LABEL}\" so the import can create a choice."
+        )
+    if converted:
+        warnings.append(
+            f"{converted} step(s) could not keep their original type and carry a "
+            "\"Converted from\" note to rebuild in the editor."
+        )
+
+    title = (
+        str(meta.get("name") or "").strip()
+        or str(nodes[first_id].get("title") or "").strip()
+        or f"Guide {guide_id}"
+    )
+    document = {
+        "guide": {
+            "contentTitle": title,
+            "contentType": "GUIDE",
+            "language": language,
+            "firstStep": nodes[first_id],
+        }
+    }
+    stats = {
+        "guideId": guide_id,
+        "teamId": team_id,
+        "title": title,
+        "language": language,
+        "version": applied.get("version"),
+        "stepCount": len(order),
+        "reusedSteps": len(keys),
+        "convertedSteps": converted,
+        "taggedSteps": tagged,
+        "folder": meta.get("folder") or {},
+        "status": meta.get("status"),
+    }
+    return document, warnings, stats
+
+
+def _builder_yaml_header(stats: Dict[str, Any]) -> str:
+    folder = stats.get("folder") or {}
+    folder_hint = ""
+    if folder.get("id"):
+        folder_hint = f", folder {folder['id']}"
+        if folder.get("name"):
+            folder_hint += f" ({folder['name']})"
+    lines = [
+        "# Stonly guide export - re-importable Guide Builder YAML.",
+        "# Paste into Expert mode > Guide YAML (or POST /api/guides/build) to rebuild this guide.",
+        f"# Source: guide {stats.get('guideId')}, team {stats.get('teamId')}{folder_hint}",
+        f"# Version: {stats.get('version')} | Language: {stats.get('language')} | Steps: {stats.get('stepCount')}",
+        "# contentType is assumed to be GUIDE - change it to ARTICLE or GUIDED_TOUR if needed.",
+    ]
+    if stats.get("reusedSteps"):
+        lines.append(
+            f"# {stats['reusedSteps']} step(s) are reached from several places: they carry a 'key' "
+            "and are linked again with 'ref'."
+        )
+    if stats.get("convertedSteps"):
+        lines.append(
+            f"# {stats['convertedSteps']} step(s) were special steps (automation, contact form, "
+            "inputs...) and became regular steps with a note explaining what to rebuild."
+        )
+    if stats.get("taggedSteps"):
+        lines.append(
+            f"# {stats['taggedSteps']} step(s) had tags; the build API does not support tags, "
+            "so they are not in this file."
+        )
+    return "\n".join(lines)
+
+
+def _render_guide_builder_yaml(entries: List[Dict[str, Any]]) -> str:
+    """One YAML document per guide, each preceded by its own header comment."""
+    chunks: List[str] = []
+    for entry in entries:
+        body = yaml.dump(
+            entry["builderDocument"],
+            Dumper=_GuideExportYamlDumper,
+            sort_keys=False,
+            allow_unicode=True,
+            default_flow_style=False,
+            width=1_000_000,
+        ).strip()
+        chunks.append(f"{entry['builderHeader']}\n{body}")
+    return "\n---\n".join(chunks) + "\n"
+
+
+def _render_guide_export(entries: List[Dict[str, Any]], fmt: str) -> str:
+    """
+    Render exported guides.
+
+    `yaml` emits Guide Builder YAML (HTML step content) that can be re-imported to rebuild the
+    guide; `markdown` and `json` emit the documentation view (Markdown step content).
+    """
+    if fmt == "yaml":
+        return _render_guide_builder_yaml(entries)
+    documents = [entry["dataDocument"] for entry in entries]
+    if fmt == "markdown":
+        return "\n\n---\n\n".join(_render_guide_export_markdown(doc).strip() for doc in documents) + "\n"
+    payload = documents[0] if len(documents) == 1 else documents
+    return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+
+
+GUIDE_EXPORT_EXTENSIONS = {"yaml": "yaml", "markdown": "md", "json": "json"}
+
+
+def _guide_export_error_text(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        upstream = detail.get("upstream")
+        if isinstance(upstream, dict):
+            return str(upstream.get("message") or upstream.get("error") or upstream)
+        return str(detail.get("error") or detail)
+    return str(detail)
+
+
+def _export_guide_with_fallbacks(
+    st: "Stonly",
+    guide_id: str,
+    *,
+    language: Optional[str],
+    version: str,
+    purpose: str,
+    known_languages: Optional[List[str]] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any], List[str]]:
+    """
+    Export one guide, retrying the combinations Stonly rejects with a 404: drafts have no
+    published version, `language` must match a language the guide actually has, and not every
+    tenant answers to purpose=BPA.
+    """
+    language_candidates: List[Optional[str]] = [language]
+    for candidate in known_languages or []:
+        value = str(candidate or "").strip()
+        if value and value not in language_candidates:
+            language_candidates.append(value)
+    if language is not None and None not in language_candidates:
+        language_candidates.append(None)
+
+    version_candidates = [version]
+    if version == "last_published_version":
+        version_candidates += ["last_saved_version", "last_saved"]
+
+    purpose_candidates = [purpose]
+    if purpose == "BPA":
+        purpose_candidates.append("EXPORT")
+
+    last_error: Optional[HTTPException] = None
+    for purpose_candidate in purpose_candidates:
+        for version_candidate in version_candidates:
+            for language_candidate in language_candidates:
+                try:
+                    data = st.export_guide(
+                        guide_id,
+                        language=language_candidate,
+                        version=version_candidate,
+                        purpose=purpose_candidate,
+                    )
+                except HTTPException as exc:
+                    if exc.status_code not in (400, 404):
+                        raise
+                    last_error = exc
+                    continue
+
+                warnings: List[str] = []
+                if language_candidate != language:
+                    asked = f"Language '{language}'" if language else "The guide default language"
+                    warnings.append(
+                        f"{asked} is not available for this guide; exported "
+                        f"'{language_candidate or 'default language'}' instead."
+                    )
+                if version_candidate != version:
+                    warnings.append(
+                        f"No {version.replace('_', ' ')} available; exported '{version_candidate}' instead."
+                    )
+                if purpose_candidate != purpose:
+                    warnings.append(
+                        f"This team did not accept purpose '{purpose}'; exported with "
+                        f"'{purpose_candidate}', so module details are missing."
+                    )
+                applied = {
+                    "language": language_candidate,
+                    "version": version_candidate,
+                    "purpose": purpose_candidate,
+                }
+                return data, applied, warnings
+
+    raise last_error or HTTPException(502, detail={"error": "Guide export failed", "guideId": guide_id})
+
+
+def _resolve_guide_metadata(
+    st: "Stonly",
+    guide_ids: List[str],
+    folder_id: Optional[int],
+) -> Tuple[Dict[str, Dict[str, Any]], Optional[str]]:
+    """Look up guide names/status/languages by scanning a folder, for richer export headers."""
+    if not folder_id:
+        return {}, None
+    try:
+        items = st.list_guides_in_folder(
+            folder_id=int(folder_id),
+            recursive=True,
+            limit=100,
+            max_items=GUIDE_PICKER_MAX_ITEMS,
+        )
+    except Exception as exc:
+        logger.warning("guide export: metadata lookup failed for folder %s: %s", folder_id, exc)
+        return {}, f"Could not read guide names from folder {folder_id}."
+
+    wanted = {str(g) for g in guide_ids}
+    out: Dict[str, Dict[str, Any]] = {}
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        gid = str(item.get("entityId") or item.get("id") or "").strip()
+        if not gid or gid not in wanted:
+            continue
+        folder = item.get("entityFolder") if isinstance(item.get("entityFolder"), dict) else {}
+        out[gid] = {
+            "name": item.get("entityName") or item.get("name"),
+            "status": item.get("entityStatus") or item.get("status"),
+            "folder": {"id": folder.get("id"), "name": folder.get("name")},
+            "languages": item.get("entityLanguages") or item.get("languages") or [],
+        }
+    return out, None
+
+
+def _team_root_folder(user_id: int, team_id: int) -> Optional[int]:
+    with SessionLocal() as db:
+        team = db.query(Team).filter(Team.user_id == user_id, Team.team_id == int(team_id)).first()
+        return getattr(team, "root_folder", None) if team else None
+
+
+@app.get("/api/guides/list", tags=["Builder"], summary="List guides in a folder (guide picker)")
+def api_guides_list(
+    request: Request,
+    teamId: int,
+    folderId: Optional[int] = None,
+    recursive: bool = True,
+    status: Optional[str] = None,
+    base: Optional[str] = None,
+    limit: int = GUIDE_PICKER_MAX_ITEMS,
+):
+    with SessionLocal() as db:
+        user = get_user_from_request(db, request)
+        st, team = get_stonly_client_for_team(
+            db,
+            user_id=user.id,
+            team_id=int(teamId),
+            base=base,
+            user_label="Undefined",
+        )
+        root_folder = getattr(team, "root_folder", None)
+
+    target_folder = folderId if folderId is not None else root_folder
+    if target_folder is None:
+        raise HTTPException(400, detail="folderId is required (this team has no root folder set)")
+
+    status_value = (status or "").strip().lower() or None
+    if status_value not in (None, "draft", "published"):
+        raise HTTPException(400, detail="status must be 'draft' or 'published'")
+
+    cap = max(1, min(int(limit or GUIDE_PICKER_MAX_ITEMS), GUIDE_PICKER_MAX_ITEMS))
+    try:
+        items = st.list_guides_in_folder(
+            folder_id=int(target_folder),
+            recursive=bool(recursive),
+            guide_status=status_value,
+            limit=100,
+            max_items=cap,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("guide list failed")
+        raise HTTPException(502, detail={"error": "Failed to list guides", "msg": str(e)})
+
+    out: List[Dict[str, Any]] = []
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+        gid = item.get("entityId") or item.get("id")
+        if not gid:
+            continue
+        folder = item.get("entityFolder") if isinstance(item.get("entityFolder"), dict) else {}
+        out.append({
+            "id": str(gid),
+            "name": str(item.get("entityName") or item.get("name") or "").strip() or "Untitled",
+            "status": item.get("entityStatus") or item.get("status"),
+            "folderId": folder.get("id"),
+            "folderName": folder.get("name"),
+            "languages": item.get("entityLanguages") or item.get("languages") or [],
+        })
+
+    return {
+        "folderId": int(target_folder),
+        "recursive": bool(recursive),
+        "count": len(out),
+        "truncated": len(out) >= cap,
+        "items": out,
+    }
+
+
+@app.post(
+    "/api/guides/export",
+    tags=["Builder"],
+    summary="Export existing Stonly guides as YAML, Markdown or JSON",
+)
+def api_guides_export(payload: GuideExportPayload, request: Request):
+    # Supports importer admin auth (X-Admin-Token + creds.teamToken) or a normal session.
+    st, auth_mode = resolve_stonly_client(payload.creds, request, admin_token=payload.adminToken)
+
+    resolved: List[str] = []
+    invalid: List[str] = []
+    for ref in _collect_guide_references(payload.guide, payload.guides):
+        guide_id = _extract_guide_id(ref)
+        if not guide_id:
+            invalid.append(ref)
+        elif guide_id not in resolved:
+            resolved.append(guide_id)
+    if not resolved:
+        raise HTTPException(400, detail={
+            "error": "No guide id could be resolved from the input",
+            "invalid": invalid,
+        })
+
+    warnings: List[str] = [f"Ignored input (not a guide id or URL): {ref}" for ref in invalid]
+
+    folder_id = payload.folderId
+    if folder_id is None and payload.resolveTitles and auth_mode == "session":
+        with SessionLocal() as db:
+            user = get_user_from_request(db, request)
+            user_id = user.id
+        folder_id = _team_root_folder(user_id, payload.creds.teamId)
+
+    metadata: Dict[str, Dict[str, Any]] = {}
+    if payload.resolveTitles and folder_id:
+        metadata, meta_warning = _resolve_guide_metadata(st, resolved, folder_id)
+        if meta_warning:
+            warnings.append(meta_warning)
+
+    build_yaml = payload.format == "yaml"
+    entries: List[Dict[str, Any]] = []
+    guides_out: List[Dict[str, Any]] = []
+    failures: List[Dict[str, Any]] = []
+    for guide_id in resolved:
+        meta = metadata.get(guide_id) or {}
+        try:
+            data, applied, guide_warnings = _export_guide_with_fallbacks(
+                st,
+                guide_id,
+                language=payload.language,
+                version=payload.version,
+                purpose=payload.purpose,
+                known_languages=[str(l) for l in (meta.get("languages") or [])],
+            )
+        except HTTPException as exc:
+            failures.append({
+                "guideId": guide_id,
+                "status": exc.status_code,
+                "error": _guide_export_error_text(exc),
+            })
+            continue
+
+        steps = data.get("steps") or []
+        entry: Dict[str, Any] = {"guideId": guide_id}
+        if build_yaml:
+            builder_document, builder_warnings, stats = _build_guide_builder_document(
+                guide_id=guide_id,
+                team_id=payload.creds.teamId,
+                steps=steps,
+                meta=meta,
+                applied=applied,
+            )
+            entry["builderDocument"] = builder_document
+            entry["builderHeader"] = _builder_yaml_header(stats)
+            summary = {
+                "title": stats["title"],
+                "status": meta.get("status"),
+                "stepCount": stats["stepCount"],
+                "language": stats["language"],
+                "version": applied.get("version"),
+            }
+            guide_warnings = guide_warnings + builder_warnings
+        else:
+            data_document = _build_guide_export_document(
+                guide_id=guide_id,
+                team_id=payload.creds.teamId,
+                steps=steps,
+                guide_modules=data.get("guideModules") or [],
+                meta=meta,
+                applied=applied,
+                content_format="markdown",
+                include_modules=payload.includeModules,
+            )
+            entry["dataDocument"] = data_document
+            summary = {
+                "title": data_document["guide"].get("title"),
+                "status": data_document["guide"].get("status"),
+                "stepCount": data_document["guide"].get("stepCount"),
+                "language": data_document["guide"].get("language"),
+                "version": data_document["guide"].get("version"),
+            }
+
+        entries.append(entry)
+        guides_out.append({
+            "guideId": guide_id,
+            **summary,
+            "warnings": guide_warnings,
+            "content": _render_guide_export([entry], payload.format),
+        })
+        warnings.extend(f"{guide_id}: {msg}" for msg in guide_warnings)
+
+    if not entries:
+        statuses = {int(f.get("status") or 502) for f in failures}
+        status = statuses.pop() if len(statuses) == 1 else 502
+        raise HTTPException(status if 400 <= status < 500 else 502, detail={
+            "error": "No guide could be exported",
+            "failures": failures,
+            "hint": "Check the guide id, the selected team, and that the guide has a published version.",
+        })
+
+    extension = GUIDE_EXPORT_EXTENSIONS.get(payload.format, "txt")
+    filename = (
+        f"stonly-guide-{entries[0]['guideId']}.{extension}"
+        if len(entries) == 1
+        else f"stonly-guides-{len(entries)}.{extension}"
+    )
+    document_key = "builderDocument" if build_yaml else "dataDocument"
+
+    return {
+        "ok": True,
+        "authMode": auth_mode,
+        "format": payload.format,
+        "reimportable": build_yaml,
+        "purpose": payload.purpose,
+        "requestedGuides": resolved,
+        "filename": filename,
+        "content": _render_guide_export(entries, payload.format),
+        "guides": guides_out,
+        "documents": [entry[document_key] for entry in entries],
+        "failures": failures,
+        "warnings": warnings,
+    }
 
 
 @app.post("/api/guides/publish-drafts", tags=["Builder"], summary="Publish draft guides already present in a folder")

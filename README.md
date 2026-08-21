@@ -34,6 +34,7 @@ Combines KB Builder and Guide Builder into one workflow for full, end-to-end bui
 - Markdown mode for long `.md` documents with a 2-step AI flow:
   1. Structure generation/review.
   2. Batched step-content generation (configurable batch size), then build/publish.
+- Guide export mode to convert existing guides into re-importable YAML, or into Markdown/JSON.
 
 ## Accounts and access
 
@@ -62,6 +63,22 @@ Teams are saved to your account so you can reuse them without re-entering tokens
 
 For access issues or admin tokens, contact valentin.bourrelier@stonly.com.
 
+## Guide export
+
+Expert Mode also exports the other way round: paste a guide URL from the editor (or pick a
+guide from the team's guide list) and get it back as a file. The output format decides what
+you get:
+
+- **YAML**: Guide Builder YAML with HTML step content, so you can paste it into Guide YAML to
+  rebuild the guide. Loops and shared steps are re-linked with `key`/`ref`, and special steps
+  (automations, contact forms, input fields...) become regular steps with a callout naming
+  what to rebuild in the editor.
+- **Markdown / JSON**: a documentation view with Markdown step content, a flow overview, and
+  step metadata, for feeding an AI or keeping guides in a repo.
+
+Multiple guides can be exported in one pass. See `docs/guide-export.md`.
+
 ## Additional docs
 
 - Importer endpoint: `docs/importer-html-to-guide.md`
+- Guide export endpoint: `docs/guide-export.md`

@@ -1177,6 +1177,366 @@
     inputs.forEach(attachFolderSelect);
   });
 
+  // 5b) Shared guide selector (guide picklist per team, cached like folders)
+  const GUIDE_CACHE_PREFIX = "st_guide_cache_";
+  const GUIDE_CACHE_TTL_MS = 10 * 60 * 1000;
+  const guideSelectRegistry = [];
+
+  function buildGuideCacheKey(teamId, rootFolder) {
+    return `${GUIDE_CACHE_PREFIX}${teamId}_${rootFolder || "root"}`;
+  }
+
+  function getCachedGuideList(teamId, rootFolder) {
+    if (!teamId) return null;
+    try {
+      const raw = localStorage.getItem(buildGuideCacheKey(teamId, rootFolder));
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || !Array.isArray(parsed.items)) return null;
+      if (!parsed.savedAt || (Date.now() - parsed.savedAt) > GUIDE_CACHE_TTL_MS) return null;
+      return parsed.items;
+    } catch {
+      return null;
+    }
+  }
+
+  function setCachedGuideList(teamId, rootFolder, items) {
+    if (!teamId) return;
+    try {
+      localStorage.setItem(
+        buildGuideCacheKey(teamId, rootFolder),
+        JSON.stringify({ items, savedAt: Date.now() })
+      );
+    } catch {}
+  }
+
+  function normalizeGuideItems(items) {
+    const seen = new Set();
+    const output = [];
+    (Array.isArray(items) ? items : []).forEach((item) => {
+      if (!item || typeof item !== "object") return;
+      const id = String(item.id ?? item.entityId ?? "").trim();
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      output.push({
+        id,
+        name: String(item.name ?? item.entityName ?? "").trim() || "Untitled",
+        status: String(item.status ?? item.entityStatus ?? "").trim(),
+        folderName: String(item.folderName ?? "").trim(),
+      });
+    });
+    output.sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
+    return output;
+  }
+
+  async function fetchGuidesForTeam(teamId) {
+    const base = (window.BASE || window.DEFAULT_BACKEND || "").replace(/\/+$/, "");
+    if (!base) throw new Error("Missing backend base");
+    const url = `${base}/api/guides/list?teamId=${encodeURIComponent(teamId)}&recursive=true`;
+    const res = await fetch(url, { credentials: "include" });
+    if (!res.ok) {
+      let hint = "Verify the team root folder and token.";
+      if (res.status === 401) hint = "Verify team token.";
+      if (res.status === 400) hint = "Set a root folder for this team.";
+      if (res.status === 404) hint = "Verify the root folder ID.";
+      throw new Error(`Failed to fetch guides (${res.status}) - ${hint}`);
+    }
+    const data = await res.json().catch(() => null);
+    return {
+      items: normalizeGuideItems(data?.items),
+      truncated: !!data?.truncated,
+    };
+  }
+
+  function setGuideError(state, message) {
+    if (!state?.error) return;
+    state.error.textContent = message || "";
+    state.error.classList.toggle("hidden", !message);
+  }
+
+  function isGuidePanelOpen(state) {
+    return !!state?.panel && !state.panel.classList.contains("hidden");
+  }
+
+  function closeGuidePanel(state) {
+    if (!state?.panel) return;
+    state.panel.classList.add("hidden");
+    if (typeof state.updateButtonIcon === "function") state.updateButtonIcon();
+  }
+
+  function openGuidePanel(state) {
+    if (!state?.panel) return;
+    state.panel.classList.remove("hidden");
+    filterGuideOptions(state, state.searchInput?.value || "");
+    if (typeof state.updateButtonIcon === "function") state.updateButtonIcon();
+  }
+
+  function filterGuideOptions(state, query) {
+    if (!state?.optionButtons?.length) return;
+    const needle = normalizeFolderQuery(query);
+    let shown = 0;
+    state.optionButtons.forEach(({ entry, button }) => {
+      const match = !needle || entry.search.includes(needle);
+      button.classList.toggle("hidden", !match);
+      if (match) shown += 1;
+    });
+    state.empty.classList.toggle("hidden", shown !== 0);
+  }
+
+  function guideSelectAppend(state, guideId) {
+    const field = state.input;
+    if (!field) return;
+    const multi = field.tagName === "TEXTAREA";
+    if (!multi) {
+      field.value = guideId;
+    } else {
+      const lines = String(field.value || "")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (!lines.includes(guideId)) lines.push(guideId);
+      field.value = lines.join("\n");
+    }
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    updateGuideBadge(state);
+    if (!multi) closeGuidePanel(state);
+  }
+
+  function updateGuideBadge(state) {
+    if (!state?.badge) return;
+    const refs = String(state.input?.value || "")
+      .split(/[\s,;]+/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    if (!refs.length) {
+      state.badge.textContent = "";
+      state.badge.classList.add("hidden");
+      return;
+    }
+    const names = refs
+      .map((ref) => {
+        const id = (ref.match(/[A-Za-z0-9_-]+/g) || []).filter((token) => state.guideNameById?.has(token)).pop();
+        return id ? state.guideNameById.get(id) : "";
+      })
+      .filter(Boolean);
+    let label = `${refs.length} guide${refs.length > 1 ? "s" : ""}`;
+    if (names.length === 1 && refs.length === 1) label = names[0];
+    else if (names.length) label += ` · ${names.slice(0, 2).join(", ")}${names.length > 2 ? "..." : ""}`;
+    state.badge.textContent = label;
+    state.badge.classList.remove("hidden");
+  }
+
+  function rebuildGuideOptions(state, entries) {
+    if (!state?.panel) return;
+    state.panel.innerHTML = "";
+    if (state.searchInput) state.panel.appendChild(state.searchInput);
+    state.panel.appendChild(state.empty);
+    state.optionButtons = entries.map((entry) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "folder-select-option guide-select-option";
+      const title = document.createElement("span");
+      title.className = "guide-select-option-title";
+      title.textContent = entry.name;
+      const meta = document.createElement("span");
+      meta.className = "guide-select-option-meta";
+      meta.textContent = [entry.id, entry.status, entry.folderName].filter(Boolean).join(" · ");
+      button.appendChild(title);
+      button.appendChild(meta);
+      button.addEventListener("click", () => guideSelectAppend(state, entry.id));
+      state.panel.appendChild(button);
+      return { entry, button };
+    });
+  }
+
+  function syncGuideSelects(team, opts) {
+    const teamId = team?.teamId ? String(team.teamId) : "";
+    const rootFolder = team?.rootFolder ? String(team.rootFolder) : "";
+    const teamChanged = !!opts?.teamChanged;
+    guideSelectRegistry.forEach((state) => {
+      state.teamId = teamId;
+      state.rootFolder = rootFolder;
+      if (teamChanged) {
+        state.guideItems = null;
+        state.guideNameById = new Map();
+        state.optionButtons = [];
+        state.panel.innerHTML = "";
+        state.panel.appendChild(state.empty);
+        closeGuidePanel(state);
+        setGuideError(state, "");
+      }
+      updateGuideBadge(state);
+    });
+  }
+
+  window.__syncGuideSelects = syncGuideSelects;
+
+  function attachGuideSelect(input) {
+    if (!input || input.dataset.guideSelectReady === "1") return;
+    input.dataset.guideSelectReady = "1";
+
+    const field = input.parentNode;
+    if (!field) return;
+    const label = field.querySelector("label");
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "folder-select guide-select";
+    if (label) {
+      field.insertBefore(wrapper, label);
+      wrapper.appendChild(label);
+    } else {
+      field.insertBefore(wrapper, input);
+    }
+
+    const inputWrap = document.createElement("div");
+    inputWrap.className = "folder-select-input";
+    inputWrap.appendChild(input);
+
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "folder-select-button";
+    button.setAttribute("aria-label", "Browse guides");
+    inputWrap.appendChild(button);
+    wrapper.appendChild(inputWrap);
+
+    const badge = document.createElement("span");
+    badge.className = "folder-select-badge hidden";
+    wrapper.appendChild(badge);
+
+    const panel = document.createElement("div");
+    panel.className = "folder-select-panel guide-select-panel hidden";
+    panel.setAttribute("role", "listbox");
+    wrapper.appendChild(panel);
+
+    const searchInput = document.createElement("input");
+    searchInput.type = "text";
+    searchInput.className = "folder-select-search";
+    searchInput.setAttribute("placeholder", "Search guides...");
+    searchInput.setAttribute("aria-label", "Search guides");
+    searchInput.setAttribute("autocomplete", "off");
+    panel.appendChild(searchInput);
+
+    const empty = document.createElement("div");
+    empty.className = "folder-select-empty hidden";
+    empty.textContent = "No guides found.";
+    panel.appendChild(empty);
+
+    const error = document.createElement("div");
+    error.className = "folder-select-error hidden";
+    wrapper.appendChild(error);
+
+    const state = {
+      input,
+      wrapper,
+      button,
+      panel,
+      searchInput,
+      badge,
+      empty,
+      error,
+      optionButtons: [],
+      guideItems: null,
+      guideNameById: new Map(),
+      teamId: "",
+      rootFolder: "",
+      isLoading: false,
+    };
+    guideSelectRegistry.push(state);
+
+    const searchIcon = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M10 2a8 8 0 1 0 4.9 14.3l4.4 4.4 1.4-1.4-4.4-4.4A8 8 0 0 0 10 2zm0 2a6 6 0 1 1 0 12 6 6 0 0 1 0-12z"/></svg>';
+    const refreshIcon = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.97 11.3A8 8 0 1 1 17.66 6.34"/><polyline points="15.4 5.5 17.7 6.3 16.8 4.1"/></svg>';
+    button.innerHTML = searchIcon;
+
+    function updateButtonIcon() {
+      if (state.isLoading) return;
+      const open = isGuidePanelOpen(state);
+      button.innerHTML = open ? refreshIcon : searchIcon;
+      button.setAttribute("aria-label", open ? "Refresh guides" : "Browse guides");
+    }
+    state.updateButtonIcon = updateButtonIcon;
+
+    function setLoading(loading) {
+      state.isLoading = !!loading;
+      button.classList.toggle("is-loading", !!loading);
+      button.innerHTML = loading
+        ? '<span class="folder-select-spinner" aria-hidden="true"></span>'
+        : searchIcon;
+      if (!loading) updateButtonIcon();
+    }
+
+    async function loadGuides(forceRefresh) {
+      if (!state.teamId) {
+        setGuideError(state, "Select a team first.");
+        return null;
+      }
+      setGuideError(state, "");
+      if (!forceRefresh) {
+        if (state.guideItems) return state.guideItems;
+        const cached = getCachedGuideList(state.teamId, state.rootFolder);
+        if (Array.isArray(cached)) {
+          state.guideItems = cached;
+          state.guideNameById = new Map(cached.map((item) => [item.id, item.name]));
+          return cached;
+        }
+      }
+      try {
+        setLoading(true);
+        const { items, truncated } = await fetchGuidesForTeam(state.teamId);
+        setCachedGuideList(state.teamId, state.rootFolder, items);
+        state.guideItems = items;
+        state.guideNameById = new Map(items.map((item) => [item.id, item.name]));
+        if (truncated) setGuideError(state, "Showing the first guides only. Use search or paste the guide URL.");
+        return items;
+      } catch (err) {
+        setGuideError(state, err?.message || "Failed to load guides.");
+        return null;
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const wasOpen = isGuidePanelOpen(state);
+      if (!wasOpen && state.searchInput) state.searchInput.value = "";
+      openGuidePanel(state);
+      if (state.isLoading) return;
+      const items = await loadGuides(wasOpen);
+      if (!items) return;
+      rebuildGuideOptions(
+        state,
+        items.map((item) => ({
+          ...item,
+          search: normalizeFolderQuery(`${item.id} ${item.name} ${item.folderName} ${item.status}`),
+        }))
+      );
+      filterGuideOptions(state, state.searchInput.value || "");
+      updateGuideBadge(state);
+      updateButtonIcon();
+      state.searchInput.focus();
+    });
+
+    searchInput.addEventListener("input", () => filterGuideOptions(state, searchInput.value || ""));
+    input.addEventListener("input", () => {
+      setGuideError(state, "");
+      updateGuideBadge(state);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closeGuidePanel(state);
+    });
+    document.addEventListener("click", (event) => {
+      const path = typeof event.composedPath === "function" ? event.composedPath() : null;
+      const isInside = path ? path.includes(wrapper) : wrapper.contains(event.target);
+      if (!isInside) closeGuidePanel(state);
+    });
+  }
+
+  onReady(function initGuideSelects() {
+    const fields = document.querySelectorAll('[data-guide-select="1"]');
+    if (!fields.length) return;
+    fields.forEach(attachGuideSelect);
+  });
+
   // 6) Shared persistence for team selection + folder IDs between apps
   onReady(function initSharedPersistence() {
     const groups = [
@@ -1863,6 +2223,9 @@
 
     function applyRootFolder(team, opts) {
       try {
+        if (typeof window.__syncGuideSelects === 'function') {
+          window.__syncGuideSelects(team, opts);
+        }
         if (typeof window.__syncFolderSelects === 'function') {
           window.__syncFolderSelects(team, opts);
           return;

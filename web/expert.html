@@ -18,7 +18,7 @@
   <style>
     :root { --bg: #f3f4f6; }
     /* Force lighter response backgrounds in light mode for contrast */
-    #kbOut, #guideOut, #autoOut, #markdownOut {
+    #kbOut, #guideOut, #autoOut, #markdownOut, #guideExportOut {
       background: #f8fafc !important; /* very light grey */
       border: 1px solid var(--border);
       color: var(--text);
@@ -26,7 +26,8 @@
     html[data-theme="dark"] #kbOut,
     html[data-theme="dark"] #guideOut,
     html[data-theme="dark"] #autoOut,
-    html[data-theme="dark"] #markdownOut {
+    html[data-theme="dark"] #markdownOut,
+    html[data-theme="dark"] #guideExportOut {
       background: #0f172a !important; /* keep dark in dark mode */
       border-color: var(--border);
       color: var(--text);
@@ -233,6 +234,7 @@
           <button id="expertModeManual" type="button" class="is-active" aria-pressed="true">Manual</button>
           <button id="expertModeAuto" type="button" aria-pressed="false">Automated</button>
           <button id="expertModeMarkdown" type="button" aria-pressed="false">File import</button>
+          <button id="expertModeExport" type="button" aria-pressed="false">Guide export</button>
         </div>
       </div>
     </section>
@@ -373,6 +375,68 @@
           <button id="copyMarkdownOut" class="px-3 py-1.5 rounded-md border text-sm" type="button">Copy</button>
         </div>
         <pre id="markdownOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-80"></pre>
+      </div>
+    </section>
+
+    <!-- Guide export -->
+    <section id="expertGuideExportSection" class="bg-card border rounded-xl shadow-sm p-5 space-y-4 hidden">
+      <header class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div>
+          <h2 class="text-lg font-semibold">Guide export</h2>
+          <p class="text-sm text-slate-500">Export existing guides as Guide Builder YAML you can re-import, or as Markdown/JSON to feed an AI.</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <div id="guideExportSpinner" class="hidden items-center gap-2 text-sm text-slate-500">
+            <span class="inline-block w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></span>
+            <span id="guideExportSpinnerText">Exporting...</span>
+          </div>
+          <button id="guideExportBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium" type="button">Export</button>
+        </div>
+      </header>
+
+      <div>
+        <label class="block text-sm font-medium" for="guideExportRefs">Guide URL or ID <span class="text-red-600">*</span></label>
+        <textarea id="guideExportRefs" rows="2" data-guide-select="1" autocomplete="off"
+                  placeholder="https://app.stonly.com/app/guide/U9RM3Ewtgo/editor/4999083"></textarea>
+        <p class="text-xs text-slate-500 mt-1">Paste an editor URL, a public guide URL, or a guide ID. One per line to export several guides at once, or use the search button to browse the team's guides.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-sm font-medium" for="guideExportFormat">Output format</label>
+          <select id="guideExportFormat" class="mt-1 w-full border rounded-lg p-2 text-sm">
+            <option value="yaml" selected>YAML - Guide Builder (re-importable)</option>
+            <option value="markdown">Markdown - docs / AI</option>
+            <option value="json">JSON - docs / AI</option>
+          </select>
+          <p id="guideExportFormatHint" class="text-xs text-slate-500 mt-1">Guide Builder YAML with HTML step content: paste it back in Guide YAML to rebuild the guide.</p>
+        </div>
+        <div>
+          <label class="block text-sm font-medium" for="guideExportVersion">Version</label>
+          <select id="guideExportVersion" class="mt-1 w-full border rounded-lg p-2 text-sm">
+            <option value="last_published_version" selected>Last published</option>
+            <option value="last_saved_version">Last saved version</option>
+            <option value="last_saved">Working copy (last saved)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium" for="guideExportLanguage">Language</label>
+          <input id="guideExportLanguage" class="mt-1 w-full text-center border rounded-lg p-2 text-sm" placeholder="guide default" autocomplete="off" />
+          <p class="text-xs text-slate-500 mt-1">Leave empty for the guide default, or type a code (fr, de...).</p>
+        </div>
+      </div>
+
+      <p id="guideExportStatus" class="text-sm text-slate-500">Ready.</p>
+
+      <div class="space-y-2">
+        <div class="flex items-center justify-between gap-2">
+          <h3 class="text-sm font-medium">Export output</h3>
+          <div class="flex items-center gap-2">
+            <button id="guideExportCopy" class="px-3 py-1.5 rounded-md border text-sm" type="button">Copy</button>
+            <button id="guideExportDownload" class="px-3 py-1.5 rounded-md border text-sm" type="button">Download</button>
+          </div>
+        </div>
+        <pre id="guideExportOut" class="bg-gray-50 dark:bg-slate-800 border border-slate-200 p-3 rounded text-xs overflow-auto max-h-96 whitespace-pre-wrap"></pre>
       </div>
     </section>
 
@@ -532,8 +596,8 @@
     </a>
   </div>
 
-  <script src="/js/shared.js?v=5"></script>
-  <script src="/js/expert.js?v=5"></script>
+  <script src="/js/shared.js?v=6"></script>
+  <script src="/js/expert.js?v=7"></script>
 </body>
 
 </html>

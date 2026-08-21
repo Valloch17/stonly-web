@@ -1,4 +1,7 @@
 import json
+import pytest
+import yaml
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 try:
     import server.main as main
@@ -852,3 +855,394 @@ def test_build_one_guide_keeps_insert_position_for_deferred_link():
     assert [call["position"] for call in st.append_calls] == [None, None]
     assert [call["position"] for call in st.link_calls] == [0]
     assert result["links"][0]["position"] == 0
+
+
+# --- Guide export ---------------------------------------------------------
+
+EDITOR_URL = "https://app.stonly.com/app/guide/U9RM3Ewtgo/editor/101"
+EXPORT_FOLDER = 2000
+CONVERTED_MARKER = "Converted from"
+
+
+def _export(client, creds, **overrides):
+    body = {"creds": creds, "guide": EDITOR_URL, "folderId": EXPORT_FOLDER}
+    body.update(overrides)
+    return client.post("/api/guides/export", json=body)
+
+
+def _first_step(content):
+    return yaml.safe_load(content)["guide"]["firstStep"]
+
+
+def _choice(step, label):
+    return next(c for c in step.get("choices") or [] if c.get("label") == label)
+
+
+def _walk_steps(step, acc=None):
+    acc = [] if acc is None else acc
+    acc.append(step)
+    for choice in step.get("choices") or []:
+        if choice.get("step"):
+            _walk_steps(choice["step"], acc)
+    return acc
+
+
+# --- YAML: the Guide Builder format, re-importable -------------------------
+
+def test_guide_export_yaml_uses_the_guide_builder_schema(client, creds):
+    r = _export(client, creds)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["reimportable"] is True
+    assert data["filename"] == "stonly-guide-U9RM3Ewtgo.yaml"
+
+    doc = yaml.safe_load(data["content"])
+    assert set(doc) == {"guide"}
+    guide = doc["guide"]
+    assert guide["contentTitle"] == "Machine installation"
+    assert guide["contentType"] == "GUIDE"
+    assert guide["language"] == "en"
+    first = guide["firstStep"]
+    assert first["title"] == "Overview"
+    # step content stays HTML, which is what the build API expects
+    assert first["content"].startswith("<h3>Intro</h3>")
+    assert "<strong>safety notes</strong>" in first["content"]
+    assert [c["label"] for c in first["choices"]] == ["Unload", "Report a problem", "Skip"]
+
+
+def test_guide_export_yaml_is_reimportable(client, creds):
+    """The export must parse straight back through the build endpoint's parser."""
+    content = _export(client, creds).json()["content"]
+    items = main.parse_guides_multi(content, main.GuideDefaults())
+    assert len(items) == 1
+    definition = items[0]["definition"]
+    assert definition.contentTitle == "Machine installation"
+    assert definition.contentType == "GUIDE"
+    assert definition.firstStep.title == "Overview"
+    assert len(definition.firstStep.choices) == 3
+    # every step in the tree carries a title and content
+    for step in _walk_steps(_first_step(content)):
+        assert step["title"].strip()
+        assert step["content"].strip()
+
+
+def test_guide_export_yaml_reimports_through_the_build_endpoint(client, creds):
+    content = _export(client, creds).json()["content"]
+    r = client.post("/api/guides/build", json={
+        "creds": creds,
+        "folderId": EXPORT_FOLDER,
+        "yaml": content,
+        "dryRun": True,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["summary"]["stepCount"] == 5
+
+
+def test_guide_export_yaml_batch_is_multi_document_and_reimportable(client, creds):
+    r = client.post("/api/guides/export", json={
+        "creds": creds,
+        "guides": [EDITOR_URL, "GRAPHGUIDE"],
+        "folderId": EXPORT_FOLDER,
+    })
+    assert r.status_code == 200, r.text
+    content = r.json()["content"]
+    assert len(list(yaml.safe_load_all(content))) == 2
+    items = main.parse_guides_multi(content, main.GuideDefaults())
+    assert [i["definition"].contentTitle for i in items] == ["Machine installation", "Graph guide"]
+
+
+def test_guide_export_yaml_keeps_a_traceable_header(client, creds):
+    content = _export(client, creds).json()["content"]
+    header = [line for line in content.split("\n") if line.startswith("#")]
+    assert any("U9RM3Ewtgo" in line for line in header)
+    assert any("contentType" in line for line in header)
+    assert any("tags" in line for line in header)  # the fixture's first step has tags
+
+
+def test_guide_export_yaml_converts_special_steps_with_a_note(client, creds):
+    content = _export(client, creds).json()["content"]
+    steps = {s["title"]: s for s in _walk_steps(_first_step(content))}
+
+    ticket = steps["Submit a ticket"]
+    assert CONVERTED_MARKER in ticket["content"]
+    assert '"Contact form"' in ticket["content"]
+    assert "Email address" in ticket["content"]          # form fields are listed
+    assert "Thanks!" in ticket["content"]
+    assert "<p>Fill in the form.</p>" in ticket["content"]  # original content kept
+
+    embedded = steps["Embedded"]
+    assert '"Embedded guide"' in embedded["content"]
+    assert "OTHERGUIDE" in embedded["content"]
+    assert "900" in embedded["content"]
+
+    # a step with no content at all still gets valid content
+    assert steps["Done"]["content"].strip()
+
+
+def test_guide_export_yaml_notes_modules_on_regular_steps(client, creds):
+    content = _export(client, creds).json()["content"]
+    steps = {s["title"]: s for s in _walk_steps(_first_step(content))}
+    unload = steps["Unload"]
+    assert "extra modules" in unload["content"]
+    assert "Resolution notes" in unload["content"]
+    assert "longText" in unload["content"]
+    assert "required" in unload["content"]
+    assert "<p>Use a forklift.</p>" in unload["content"]
+
+
+def test_guide_export_yaml_rebuilds_loops_and_shared_steps_with_refs(client, creds):
+    data = _export(client, creds, guide="GRAPHGUIDE").json()
+    content = data["content"]
+    guide = yaml.safe_load(content)["guide"]
+    first = guide["firstStep"]
+
+    # untitled first step falls back to the guide name
+    assert guide["contentTitle"] == "Graph guide"
+    assert first["title"] == "Graph guide"
+    # the first step is linked back to, so it is addressable
+    assert first["key"]
+
+    left = _choice(first, "Left")["step"]
+    right = _choice(first, "Right")["step"]
+    assert left["title"] == "Left branch"
+    # the loop back to the first step is a ref, not a copy
+    assert _choice(left, "Back to start")["ref"] == first["key"]
+    # the shared step is created once and linked from the other branch
+    shared = _choice(left, "Shared")["step"]
+    assert shared["title"] == "Shared wrap up"
+    assert shared["key"]
+    assert right["choices"][0]["ref"] == shared["key"]
+    # unlabelled transitions get a usable label
+    assert right["choices"][0]["label"] == "Next"
+
+    # the unreachable step is kept, flagged, and reported
+    orphan = _choice(first, "[Unlinked] Detached note")["step"]
+    assert orphan["title"] == "Detached note"
+    assert any("not reachable" in w for w in data["warnings"])
+    assert any("no label" in w for w in data["warnings"])
+
+    # and it all still parses as builder YAML
+    items = main.parse_guides_multi(content, main.GuideDefaults())
+    assert items[0]["definition"].firstStep.key == first["key"]
+
+
+def test_guide_export_yaml_drops_transitions_with_no_target(client, creds):
+    data = _export(client, creds).json()
+    assert any("pointed to no step" in w for w in data["warnings"])
+    unload = {s["title"]: s for s in _walk_steps(_first_step(data["content"]))}["Unload"]
+    assert not unload.get("choices")
+
+
+# --- Markdown / JSON: the documentation view ------------------------------
+
+def test_guide_export_markdown_uses_markdown_step_content(client, creds):
+    r = _export(client, creds, format="markdown")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["reimportable"] is False
+    assert data["filename"].endswith(".md")
+    content = data["content"]
+    assert content.startswith("---")
+    assert "# Machine installation" in content
+    assert "## Flow" in content
+    assert "--[Unload]--> `102`" in content
+    assert "## Step 1 — Overview" in content
+    assert "### Intro" in content                     # HTML converted to Markdown
+    assert "**safety notes**" in content
+    assert "[pallet](https://x.test/p)" in content
+    assert "<h3>" not in content
+
+
+def test_guide_export_json_uses_markdown_step_content(client, creds):
+    r = _export(client, creds, format="json")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["filename"].endswith(".json")
+    doc = json.loads(data["content"])
+    assert doc["guide"]["id"] == "U9RM3Ewtgo"
+    assert doc["guide"]["contentFormat"] == "markdown"
+    assert len(doc["steps"]) == 5
+    first = doc["steps"][0]
+    assert "### Intro" in first["content"]
+    assert first["nextSteps"][0] == {"label": "Unload", "stepId": 102, "stepTitle": "Unload"}
+    # modules are exposed as data here rather than as notes
+    unload = next(s for s in doc["steps"] if s["title"] == "Unload")
+    assert unload["modules"][0]["type"] == "INPUT"
+    embedded = next(s for s in doc["steps"] if s["title"] == "Embedded")
+    assert embedded["embeddedGuide"] == {"guideId": "OTHERGUIDE", "stepId": 900}
+
+
+# --- Fallbacks, errors, guide picker --------------------------------------
+
+def test_guide_export_accepts_id_and_public_url(client, creds):
+    assert _export(client, creds, guide="U9RM3Ewtgo").status_code == 200
+    r = _export(client, creds, guide="https://stonly.com/kb/guide/en/machine-install-U9RM3Ewtgo/Steps/101")
+    assert r.status_code == 200
+    assert r.json()["requestedGuides"] == ["U9RM3Ewtgo"]
+
+
+def test_guide_export_batch_skips_invalid_reference(client, creds):
+    r = client.post("/api/guides/export", json={
+        "creds": creds,
+        "guides": [EDITOR_URL, "DRAFTGUIDE", "###"],
+        "folderId": EXPORT_FOLDER,
+    })
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["requestedGuides"] == ["U9RM3Ewtgo", "DRAFTGUIDE"]
+    assert data["filename"] == "stonly-guides-2.yaml"
+    assert any("###" in w for w in data["warnings"])
+
+
+def test_guide_export_falls_back_to_saved_version_for_drafts(client, creds):
+    r = _export(client, creds, guide="DRAFTGUIDE")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["guides"][0]["version"] == "last_saved_version"
+    assert any("last published" in w for w in data["warnings"])
+
+
+def test_guide_export_falls_back_when_language_missing(client, creds):
+    r = _export(client, creds, guide="DRAFTGUIDE", language="de")
+    assert r.status_code == 200, r.text
+    assert any("'de' is not available" in w for w in r.json()["warnings"])
+
+
+def test_guide_export_unknown_guide_returns_404(client, creds):
+    r = _export(client, creds, guide="NOPE123")
+    assert r.status_code == 404, r.text
+    assert r.json()["detail"]["failures"][0]["guideId"] == "NOPE123"
+
+
+def test_guide_export_requires_a_guide_reference(client, creds):
+    assert client.post("/api/guides/export", json={"creds": creds}).status_code == 422
+
+
+def test_guide_export_rejects_unknown_format(client, creds):
+    assert _export(client, creds, format="pdf").status_code == 422
+
+
+def test_guide_export_requires_session(creds):
+    from fastapi.testclient import TestClient
+    with TestClient(main.app) as anonymous:
+        r = anonymous.post("/api/guides/export", json={"creds": creds, "guide": EDITOR_URL})
+    assert r.status_code == 401
+
+
+def test_guides_list_returns_picker_items(client, creds):
+    r = client.get(f"/api/guides/list?teamId={creds['teamId']}&folderId={EXPORT_FOLDER}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["folderId"] == EXPORT_FOLDER
+    assert data["count"] == 3
+    assert data["truncated"] is False
+    item = next(i for i in data["items"] if i["id"] == "U9RM3Ewtgo")
+    assert item["name"] == "Machine installation"
+    assert item["status"] == "published"
+    assert item["folderName"] == "Guides"
+    assert item["languages"] == ["en", "fr"]
+
+
+def test_guides_list_can_filter_status(client, creds):
+    r = client.get(f"/api/guides/list?teamId={creds['teamId']}&folderId={EXPORT_FOLDER}&status=draft")
+    assert r.status_code == 200
+    assert [i["id"] for i in r.json()["items"]] == ["DRAFTGUIDE"]
+
+
+def test_guides_list_rejects_bad_status(client, creds):
+    r = client.get(f"/api/guides/list?teamId={creds['teamId']}&folderId={EXPORT_FOLDER}&status=archived")
+    assert r.status_code == 400
+
+
+def test_guides_list_requires_folder_without_root(client, creds):
+    assert client.get(f"/api/guides/list?teamId={creds['teamId']}").status_code == 400
+
+
+# --- Units ----------------------------------------------------------------
+
+def test_extract_guide_id_variants():
+    assert main._extract_guide_id("https://app.stonly.com/app/guide/U9RM3Ewtgo/editor/4999083") == "U9RM3Ewtgo"
+    assert main._extract_guide_id("app.stonly.com/app/guide/abc123/editor") == "abc123"
+    assert main._extract_guide_id("https://stonly.com/kb/guide/en/some-slug-6h5WT6zwzA/Steps/85968") == "6h5WT6zwzA"
+    assert main._extract_guide_id("https://x.test/anything?guideId=Zz99aa") == "Zz99aa"
+    assert main._extract_guide_id("  U9RM3Ewtgo  ") == "U9RM3Ewtgo"
+    assert main._extract_guide_id("203") == "203"
+    assert main._extract_guide_id("not an id!") is None
+    assert main._extract_guide_id("") is None
+
+
+def test_step_html_to_markdown_handles_stonly_content():
+    md = main._step_html_to_markdown(
+        "<h4>Title</h4><p>Text with <em>emphasis</em>.</p>"
+        "<aside class=\"warning\"><p>Careful now</p></aside>"
+        "<ol><li>First<ul><li>Nested</li></ul></li><li>Second</li></ol>"
+        "<table><tr><th>A</th><th>B</th></tr><tr><td>1</td><td>2</td></tr></table>"
+        "<pre><code>run me</code></pre>"
+        "<p><img src=\"https://x.test/i.png\" alt=\"Shot\"></p>"
+    )
+    assert "#### Title" in md
+    assert "*emphasis*" in md
+    assert "> **Warning**\n> Careful now" in md
+    assert "1. First" in md
+    assert "  - Nested" in md
+    assert "| A | B |" in md
+    assert "| --- | --- |" in md
+    assert "```\nrun me\n```" in md
+    assert "![Shot](https://x.test/i.png)" in md
+    # inline images encoded as data URIs are not dumped into the export
+    assert "<inline-data-omitted>" in main._step_html_to_markdown(
+        '<p><img src="data:image/png;base64,AAAABBBB" alt="x"></p>'
+    )
+
+
+def test_step_html_to_markdown_passes_through_plain_text():
+    assert main._step_html_to_markdown("https://x.test/a") == "https://x.test/a"
+    assert main._step_html_to_markdown("") == ""
+    assert main._step_html_to_markdown(None) == ""
+
+
+def test_data_view_yaml_keeps_multiline_blocks_readable():
+    document = main._build_guide_export_document(
+        guide_id="ABC",
+        team_id=1,
+        steps=[{"id": 1, "title": "T", "content": "<p>One</p><p>Two</p>", "type": "regular",
+                "isFirstStep": True, "nextSteps": [], "tags": []}],
+        guide_modules=[],
+        meta={},
+        applied={"language": "en", "version": "last_published_version", "purpose": "EXPORT"},
+        content_format="markdown",
+        include_modules=False,
+    )
+    text = main._guide_export_yaml([document])
+    assert "content: |-" in text
+    assert yaml.safe_load(text)["steps"][0]["content"] == "One\n\nTwo"
+
+
+def test_builder_document_handles_structured_step_content():
+    document, warnings, stats = main._build_guide_builder_document(
+        guide_id="ABC",
+        team_id=1,
+        steps=[{"id": 1, "title": "Close", "content": {"type": "CLOSE_WIDGET", "value": {}},
+                "type": "widgetAction", "isFirstStep": True, "nextSteps": [], "tags": []}],
+        meta={},
+        applied={"language": "en", "version": "last_saved", "purpose": "BPA"},
+    )
+    first = document["guide"]["firstStep"]
+    assert "CLOSE_WIDGET" in first["content"]
+    assert '"Widget action"' in first["content"]
+    assert stats["convertedSteps"] == 1
+    # renders and re-parses
+    text = main._render_guide_export(
+        [{"builderDocument": document, "builderHeader": main._builder_yaml_header(stats)}], "yaml"
+    )
+    assert main.parse_guides_multi(text, main.GuideDefaults())[0]["definition"].firstStep.title == "Close"
+
+
+def test_builder_document_requires_steps():
+    with pytest.raises(HTTPException):
+        main._build_guide_builder_document(
+            guide_id="ABC", team_id=1, steps=[], meta={},
+            applied={"language": "en", "version": "last_saved", "purpose": "BPA"},
+        )
