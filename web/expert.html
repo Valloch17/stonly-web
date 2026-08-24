@@ -264,7 +264,7 @@
             <label for="autoPrompt" class="block text-sm font-medium">Prompt instructions <span class="text-red-600">*</span></label>
             <p id="autoPromptCount" class="text-xs text-slate-500 tabular-nums">0 / 120,000</p>
           </div>
-          <textarea id="autoPrompt" rows="6" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Describe the product, audience, and topics to cover."></textarea>
+          <textarea id="autoPrompt" rows="6" data-paste-button="1" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Describe the product, audience, and topics to cover."></textarea>
           <div class="mt-2 flex items-center justify-between gap-2">
             <p class="text-xs text-slate-500">Used for automated KB, guide, and organiser generation.</p>
             <div class="relative inline-flex">
@@ -365,7 +365,7 @@
 
       <div>
         <label class="block text-sm font-medium">Structure YAML (review/edit before build)</label>
-        <textarea id="markdownStructureYaml" rows="10" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Generated structure YAML will appear here."></textarea>
+        <textarea id="markdownStructureYaml" rows="10" data-paste-button="1" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Generated structure YAML will appear here."></textarea>
         <p id="markdownStructureYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
 
@@ -396,7 +396,7 @@
 
       <div>
         <label class="block text-sm font-medium" for="guideExportRefs">Guide URL or ID <span class="text-red-600">*</span></label>
-        <textarea id="guideExportRefs" rows="2" data-guide-select="1" autocomplete="off"
+        <textarea id="guideExportRefs" rows="2" data-paste-button="1" data-guide-select="1" autocomplete="off"
                   placeholder="https://app.stonly.com/app/guide/U9RM3Ewtgo/editor/4999083"></textarea>
         <p class="text-xs text-slate-500 mt-1">Paste an editor URL, a public guide URL, or a guide ID. One per line to export several guides at once, or use the search button to browse the team's guides.</p>
       </div>
@@ -457,7 +457,7 @@
       <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div class="md:col-span-2">
           <label class="block text-sm font-medium">Brand website URL (optional)</label>
-          <input id="brandUrl" type="url" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://example.com" />
+          <input id="brandUrl" type="url" data-paste-button="1" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="https://example.com" />
           <p class="text-xs text-slate-500 mt-1">If empty, we'll infer the URL from the brand name.</p>
         </div>
       </div>
@@ -496,7 +496,7 @@
           </div>
         </header>
         <div>
-          <textarea id="kbYaml" rows="6" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
+          <textarea id="kbYaml" rows="6" data-paste-button="1" class="w-full border rounded-lg p-2 text-sm" placeholder="- name: Getting Started&#10;  children:&#10;    - name: Account&#10;      children: []"></textarea>
           <p id="kbYamlError" class="text-sm text-red-600 mt-1"></p>
         </div>
         <div class="flex items-center justify-between">
@@ -528,7 +528,7 @@
         </div>
       </header>
       <div>
-        <textarea id="guideYaml" rows="8" class="w-full border rounded-lg p-2 text-sm" placeholder="# See Guide Builder examples"></textarea>
+        <textarea id="guideYaml" rows="8" data-paste-button="1" class="w-full border rounded-lg p-2 text-sm" placeholder="# See Guide Builder examples"></textarea>
         <p id="guideYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
       <div class="flex items-center justify-between">
@@ -553,7 +553,7 @@
         </div>
       </header>
       <div>
-        <textarea id="organiserYaml" rows="8" class="w-full border rounded-lg p-2 text-sm" placeholder="---&#10;folderId: 500058&#10;guide:&#10;  contentTitle: &quot;🚢 Procedure | Damaged Container&quot;&#10;  contentType: GUIDE&#10;---&#10;folderId: 500073&#10;guide:&#10;  contentTitle: &quot;✍️ Creator | Using SOP Templates&quot;&#10;  contentType: ARTICLE"></textarea>
+        <textarea id="organiserYaml" rows="8" data-paste-button="1" class="w-full border rounded-lg p-2 text-sm" placeholder="---&#10;folderId: 500058&#10;guide:&#10;  contentTitle: &quot;🚢 Procedure | Damaged Container&quot;&#10;  contentType: GUIDE&#10;---&#10;folderId: 500073&#10;guide:&#10;  contentTitle: &quot;✍️ Creator | Using SOP Templates&quot;&#10;  contentType: ARTICLE"></textarea>
         <p id="organiserYamlError" class="text-sm text-red-600 mt-1"></p>
       </div>
     </section>
@@ -596,7 +596,7 @@
     </a>
   </div>
 
-  <script src="/js/shared.js?v=6"></script>
+  <script src="/js/shared.js?v=7"></script>
   <script src="/js/expert.js?v=7"></script>
 </body>
 

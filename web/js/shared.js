@@ -1537,6 +1537,106 @@
     fields.forEach(attachGuideSelect);
   });
 
+  // 5c) Shared one-click paste buttons (opt in with data-paste-button="1")
+  const PASTE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"></rect><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M9 12h6M9 16h4"></path></svg>';
+  const PASTE_DONE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9 17.5 20 6.5"></polyline></svg>';
+
+  function attachPasteButton(field) {
+    if (!field || field.dataset.pasteButtonReady === "1") return;
+    field.dataset.pasteButtonReady = "1";
+
+    const parent = field.parentElement;
+    if (!parent) return;
+    // Fields wrapped by the folder/guide picker already have a button row to sit in.
+    const inline = parent.classList.contains("folder-select-input");
+
+    const button = document.createElement("button");
+    button.type = "button";
+    const single = field.tagName !== "TEXTAREA";
+    button.className = inline
+      ? "folder-select-button paste-button-inline"
+      : (single ? "paste-button paste-button--single" : "paste-button");
+    button.innerHTML = PASTE_ICON;
+    const defaultTitle = "Paste from clipboard";
+    button.title = defaultTitle;
+    button.setAttribute("aria-label", defaultTitle);
+
+    if (inline) {
+      parent.insertBefore(button, field.nextSibling);
+    } else {
+      const wrapper = document.createElement("div");
+      wrapper.className = "paste-field";
+      parent.insertBefore(wrapper, field);
+      wrapper.appendChild(field);
+      wrapper.appendChild(button);
+    }
+
+    let resetTimer = null;
+    function flash(ok, message) {
+      if (resetTimer) clearTimeout(resetTimer);
+      button.innerHTML = ok ? PASTE_DONE_ICON : PASTE_ICON;
+      button.classList.toggle("is-done", !!ok);
+      button.classList.toggle("is-error", !ok);
+      button.title = message || (ok ? "Pasted" : defaultTitle);
+      resetTimer = setTimeout(() => {
+        button.innerHTML = PASTE_ICON;
+        button.classList.remove("is-done", "is-error");
+        button.title = defaultTitle;
+      }, 1600);
+    }
+
+    // Keep the caret where it is: without this, mousedown blurs the field first.
+    button.addEventListener("mousedown", (event) => event.preventDefault());
+
+    button.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const hadFocus = document.activeElement === field;
+      let text = "";
+      try {
+        if (!navigator.clipboard?.readText) throw new Error("Clipboard read not supported");
+        text = await navigator.clipboard.readText();
+      } catch {
+        // Firefox (and denied permissions) cannot read the clipboard for us.
+        field.focus();
+        flash(false, "Clipboard blocked by the browser - press Ctrl+V");
+        return;
+      }
+      if (!text) {
+        flash(false, "Clipboard is empty");
+        return;
+      }
+
+      field.focus();
+      // Focused: insert at the caret. Not focused: replace the whole field.
+      if (!hadFocus) field.select();
+      let inserted = false;
+      try {
+        inserted = document.execCommand("insertText", false, text);
+      } catch {
+        inserted = false;
+      }
+      if (!inserted) {
+        const start = field.selectionStart ?? field.value.length;
+        const end = field.selectionEnd ?? field.value.length;
+        field.value = field.value.slice(0, start) + text + field.value.slice(end);
+        const caret = start + text.length;
+        try { field.setSelectionRange(caret, caret); } catch {}
+        // execCommand fires "input" itself; only the fallback has to.
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      field.dispatchEvent(new Event("change", { bubbles: true }));
+      flash(true, hadFocus ? "Pasted at the cursor" : "Pasted");
+    });
+  }
+
+  window.attachPasteButton = attachPasteButton;
+
+  onReady(function initPasteButtons() {
+    const fields = document.querySelectorAll('[data-paste-button="1"]');
+    if (!fields.length) return;
+    fields.forEach(attachPasteButton);
+  });
+
   // 6) Shared persistence for team selection + folder IDs between apps
   onReady(function initSharedPersistence() {
     const groups = [
@@ -2041,7 +2141,7 @@
               </div>
               <div>
                 <label class="block text-sm font-medium">Team token <span class="text-red-600">*</span></label>
-                <input id="teamModalToken" type="password" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Stonly team token" autocomplete="off" />
+                <input id="teamModalToken" type="password" data-paste-button="1" class="mt-1 w-full border rounded-lg p-2 text-sm" placeholder="Stonly team token" autocomplete="off" />
                 <p id="teamModalTokenHint" class="text-xs text-slate-500 mt-1 hidden">Leave blank to keep the current token.</p>
               </div>
               <div>
@@ -2071,6 +2171,9 @@
         </div>
       `;
       document.body.appendChild(overlay);
+      if (typeof window.attachPasteButton === 'function') {
+        overlay.querySelectorAll('[data-paste-button="1"]').forEach(window.attachPasteButton);
+      }
       return overlay;
     }
 

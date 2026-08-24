@@ -324,6 +324,98 @@ input[data-folder-select="1"]::-webkit-inner-spin-button {
   color: var(--muted);
 }
 
+/* One-click paste buttons on text fields (data-paste-button="1") */
+.paste-field {
+  position: relative;
+  display: block;
+}
+
+/* Scoped with .paste-field so the global button polish does not win on specificity */
+.paste-field .paste-button {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--card);
+  color: var(--muted);
+  opacity: 0.55;
+  cursor: pointer;
+  transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.paste-field .paste-button--single {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+.paste-field:hover .paste-button,
+.paste-field:focus-within .paste-button,
+.paste-field .paste-button:focus-visible {
+  opacity: 1;
+}
+
+.paste-field .paste-button:hover {
+  color: var(--text);
+  border-color: color-mix(in srgb, var(--border) 40%, var(--text) 60%);
+}
+
+.paste-field .paste-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.paste-field .paste-button.is-done {
+  opacity: 1;
+  color: #16a34a;
+  border-color: #86efac;
+}
+
+.paste-field .paste-button.is-error {
+  opacity: 1;
+  color: #dc2626;
+  border-color: #fca5a5;
+}
+
+/* Keep field text clear of the button */
+.paste-field > textarea,
+.paste-field > input {
+  padding-right: 2.35rem;
+}
+
+/* Inside the folder/guide picker the button joins the existing button row */
+.folder-select-input .paste-button-inline {
+  flex: 0 0 2.25rem;
+  background: var(--card);
+  color: var(--muted);
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent 30%);
+}
+
+.folder-select-input .paste-button-inline:hover {
+  background: color-mix(in srgb, var(--card) 70%, var(--bg) 30%);
+  color: var(--text);
+}
+
+.folder-select-input .paste-button-inline svg {
+  width: 15px;
+  height: 15px;
+}
+
+.folder-select-input .paste-button-inline.is-done {
+  color: #16a34a;
+}
+
+.folder-select-input .paste-button-inline.is-error {
+  color: #dc2626;
+}
+
 /* Global button polish (excluding the floating theme toggle) */
 button:not(.theme-toggle) {
   transition:
