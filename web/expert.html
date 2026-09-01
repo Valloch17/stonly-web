@@ -332,6 +332,18 @@
           <label class="block text-sm font-medium">Call interval (s)</label>
           <input id="markdownCallIntervalSeconds" type="number" min="0" step="0.1" max="30" value="1" class="mt-1 w-full border rounded-lg p-2 text-sm" />
         </div>
+        <div class="md:col-span-4">
+          <button id="markdownUserPromptToggle" type="button" class="inline-flex items-center gap-1 text-sm font-medium" aria-expanded="false" aria-controls="markdownUserPromptPanel">
+            <svg id="markdownUserPromptToggleIcon" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 transition-transform" aria-hidden="true">
+              <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 0 1 .02-1.06L10.94 10 7.23 6.29a.75.75 0 0 1 1.06-1.06l4.24 4.24a.75.75 0 0 1 0 1.06L8.29 14.77a.75.75 0 0 1-1.08 0z" clip-rule="evenodd" />
+            </svg>
+            <span>User prompt <span class="text-slate-500 font-normal">(optional)</span></span>
+          </button>
+          <div id="markdownUserPromptPanel" class="hidden mt-2">
+            <textarea id="markdownUserPrompt" rows="3" class="w-full border rounded-lg p-2 text-sm" placeholder="For example: Stick as much as possible to the content verbiage in the steps."></textarea>
+            <p class="text-xs text-slate-500 mt-1">Applied when generating the structure and step content.</p>
+          </div>
+        </div>
         <div>
           <label class="block text-sm font-medium">Publish</label>
           <label class="inline-flex items-center gap-2 text-sm mt-2">
@@ -597,7 +609,7 @@
   </div>
 
   <script src="/js/shared.js?v=7"></script>
-  <script src="/js/expert.js?v=7"></script>
+  <script src="/js/expert.js?v=9"></script>
 </body>
 
 </html>

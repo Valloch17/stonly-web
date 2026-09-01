@@ -1527,6 +1527,7 @@ class MarkdownStructurePayload(BaseModel):
     outputMode: Literal["single", "multiple"] = "single"
     contentType: Literal["GUIDE", "ARTICLE", "GUIDED_TOUR"] = "GUIDE"
     language: str = "en-US"
+    userPrompt: Optional[str] = None
 
     @field_validator("markdown", mode="before")
     @classmethod
@@ -1559,6 +1560,11 @@ class MarkdownStructurePayload(BaseModel):
         text = str(v or "en-US").strip()
         return text or "en-US"
 
+    @field_validator("userPrompt", mode="before")
+    @classmethod
+    def normalize_user_prompt(cls, v):
+        return _validate_ai_prompt_text(v) or None
+
 
 class HTMLStructurePayload(BaseModel):
     html: str
@@ -1567,6 +1573,7 @@ class HTMLStructurePayload(BaseModel):
     outputMode: Literal["single", "multiple"] = "single"
     contentType: Literal["GUIDE", "ARTICLE", "GUIDED_TOUR"] = "GUIDE"
     language: str = "en-US"
+    userPrompt: Optional[str] = None
 
     @field_validator("html", mode="before")
     @classmethod
@@ -1598,6 +1605,11 @@ class HTMLStructurePayload(BaseModel):
     def normalize_language(cls, v):
         text = str(v or "en-US").strip()
         return text or "en-US"
+
+    @field_validator("userPrompt", mode="before")
+    @classmethod
+    def normalize_user_prompt(cls, v):
+        return _validate_ai_prompt_text(v) or None
 
 
 class MarkdownBuildPayload(BaseModel):
@@ -1613,6 +1625,7 @@ class MarkdownBuildPayload(BaseModel):
     minCallIntervalSeconds: float = Field(default=MARKDOWN_BATCH_MIN_CALL_INTERVAL_SECONDS, ge=0.0, le=30.0)
     defaults: GuideDefaults = GuideDefaults()
     documentName: Optional[str] = None
+    userPrompt: Optional[str] = None
 
     @field_validator("folderId")
     @classmethod
@@ -1654,6 +1667,11 @@ class MarkdownBuildPayload(BaseModel):
             raise ValueError("documentName is too long (max 500 characters)")
         return v
 
+    @field_validator("userPrompt", mode="before")
+    @classmethod
+    def normalize_user_prompt(cls, v):
+        return _validate_ai_prompt_text(v) or None
+
 
 class HTMLBuildPayload(BaseModel):
     creds: Creds
@@ -1668,6 +1686,7 @@ class HTMLBuildPayload(BaseModel):
     minCallIntervalSeconds: float = Field(default=MARKDOWN_BATCH_MIN_CALL_INTERVAL_SECONDS, ge=0.0, le=30.0)
     defaults: GuideDefaults = GuideDefaults()
     documentName: Optional[str] = None
+    userPrompt: Optional[str] = None
 
     @field_validator("folderId")
     @classmethod
@@ -1708,6 +1727,11 @@ class HTMLBuildPayload(BaseModel):
         if v and len(v) > 500:
             raise ValueError("documentName is too long (max 500 characters)")
         return v
+
+    @field_validator("userPrompt", mode="before")
+    @classmethod
+    def normalize_user_prompt(cls, v):
+        return _validate_ai_prompt_text(v) or None
 
 
 class BrandWebsitePayload(BaseModel):
@@ -3883,6 +3907,7 @@ def _build_html_structure_prompt(
     step_budget: dict[str, int],
     strict_budget: bool,
     enforce_branch_completeness: bool,
+    user_prompt: Optional[str],
 ) -> str:
     mode_line = (
         "Return exactly one guide."
@@ -3910,6 +3935,8 @@ def _build_html_structure_prompt(
     ]
     if document_name:
         sections.append(f"Document name: {document_name}")
+    if user_prompt:
+        sections.append("Additional user instructions (follow these when compatible with the source):\n" + user_prompt)
     if source_truncated:
         sections.append("The HTML source was condensed for context-size reasons. Use the extracted outline as ground truth.")
     if strict_budget:
@@ -3934,6 +3961,7 @@ def _build_html_batch_prompt(
     batch_index: int,
     batch_count: int,
     context_truncated: bool,
+    user_prompt: Optional[str],
 ) -> str:
     targets = []
     for step in batch_steps:
@@ -3954,6 +3982,8 @@ def _build_html_batch_prompt(
     ]
     if document_name:
         sections.append(f"Document name: {document_name}")
+    if user_prompt:
+        sections.append("Additional user instructions (follow these when compatible with the source):\n" + user_prompt)
     if context_truncated:
         sections.append("The HTML source was partially condensed for context-size limits.")
     sections.extend(
@@ -3979,6 +4009,7 @@ def generate_html_structure_yaml_with_ai(
     step_budget: dict[str, int],
     strict_budget: bool = False,
     enforce_branch_completeness: bool = False,
+    user_prompt: Optional[str] = None,
 ) -> tuple[str, bool]:
     excerpt, was_truncated = _build_html_outline_excerpt(source_html, max_chars=MARKDOWN_CONTEXT_MAX_CHARS)
     prompt = _build_html_structure_prompt(
@@ -3991,6 +4022,7 @@ def generate_html_structure_yaml_with_ai(
         step_budget=step_budget,
         strict_budget=strict_budget,
         enforce_branch_completeness=enforce_branch_completeness,
+        user_prompt=user_prompt,
     )
     text = generate_ai_text(
         [prompt],
@@ -4012,6 +4044,7 @@ def generate_html_batch_content_yaml_with_ai(
     document_name: Optional[str],
     batch_index: int,
     batch_count: int,
+    user_prompt: Optional[str] = None,
 ) -> tuple[str, bool]:
     context, was_truncated = _build_html_context_for_steps(
         source_html,
@@ -4026,6 +4059,7 @@ def generate_html_batch_content_yaml_with_ai(
         batch_index=batch_index,
         batch_count=batch_count,
         context_truncated=was_truncated,
+        user_prompt=user_prompt,
     )
     text = generate_ai_text(
         [prompt],
@@ -4355,6 +4389,7 @@ def _build_markdown_structure_prompt(
     step_budget: dict[str, int],
     strict_budget: bool,
     enforce_branch_completeness: bool,
+    user_prompt: Optional[str],
 ) -> str:
     mode_line = (
         "Return exactly one guide."
@@ -4386,6 +4421,8 @@ def _build_markdown_structure_prompt(
     ]
     if document_name:
         sections.append(f"Document name: {document_name}")
+    if user_prompt:
+        sections.append("Additional user instructions (follow these when compatible with the source):\n" + user_prompt)
     if source_truncated:
         sections.append("The source was excerpted for context-size reasons. Use section headings and snippets to infer structure.")
     if strict_budget:
@@ -4410,6 +4447,7 @@ def _build_markdown_batch_prompt(
     batch_index: int,
     batch_count: int,
     context_truncated: bool,
+    user_prompt: Optional[str],
 ) -> str:
     targets = []
     for step in batch_steps:
@@ -4430,6 +4468,8 @@ def _build_markdown_batch_prompt(
     ]
     if document_name:
         sections.append(f"Document name: {document_name}")
+    if user_prompt:
+        sections.append("Additional user instructions (follow these when compatible with the source):\n" + user_prompt)
     if context_truncated:
         sections.append("The markdown source was partially excerpted for context-size limits.")
     sections.extend(
@@ -4455,6 +4495,7 @@ def generate_markdown_structure_yaml_with_ai(
     step_budget: dict[str, int],
     strict_budget: bool = False,
     enforce_branch_completeness: bool = False,
+    user_prompt: Optional[str] = None,
 ) -> tuple[str, bool]:
     excerpt, was_truncated = _build_markdown_outline_excerpt(markdown_text, max_chars=MARKDOWN_CONTEXT_MAX_CHARS)
     prompt = _build_markdown_structure_prompt(
@@ -4467,6 +4508,7 @@ def generate_markdown_structure_yaml_with_ai(
         step_budget=step_budget,
         strict_budget=strict_budget,
         enforce_branch_completeness=enforce_branch_completeness,
+        user_prompt=user_prompt,
     )
     text = generate_ai_text(
         [prompt],
@@ -4488,6 +4530,7 @@ def generate_markdown_batch_content_yaml_with_ai(
     document_name: Optional[str],
     batch_index: int,
     batch_count: int,
+    user_prompt: Optional[str] = None,
 ) -> tuple[str, bool]:
     context, was_truncated = _build_markdown_context_for_steps(
         markdown_text,
@@ -4502,6 +4545,7 @@ def generate_markdown_batch_content_yaml_with_ai(
         batch_index=batch_index,
         batch_count=batch_count,
         context_truncated=was_truncated,
+        user_prompt=user_prompt,
     )
     text = generate_ai_text(
         [prompt],
@@ -7957,6 +8001,7 @@ def api_importer_html_to_guide_structure(payload: HTMLStructurePayload, request:
             step_budget=step_budget,
             strict_budget=(attempt > 1 and strict_budget_enabled),
             enforce_branch_completeness=(attempt > 1),
+            user_prompt=payload.userPrompt,
         )
         yaml_text = normalize_ai_yaml(raw_yaml)
 
@@ -8084,6 +8129,7 @@ def api_importer_markdown_to_guide_structure(payload: MarkdownStructurePayload, 
             step_budget=step_budget,
             strict_budget=(attempt > 1 and strict_budget_enabled),
             enforce_branch_completeness=(attempt > 1),
+            user_prompt=payload.userPrompt,
         )
         yaml_text = normalize_ai_yaml(raw_yaml)
 
@@ -8314,6 +8360,7 @@ def _run_markdown_to_guide_build(
                     document_name=payload.documentName,
                     batch_index=batch_idx,
                     batch_count=len(batches),
+                    user_prompt=payload.userPrompt,
                 )
                 content_by_step = _parse_markdown_step_content_yaml(raw_batch_yaml, expected_ids)
                 append_progress(
@@ -8628,6 +8675,7 @@ def _run_html_to_guide_build(
                     document_name=payload.documentName,
                     batch_index=batch_idx,
                     batch_count=len(batches),
+                    user_prompt=payload.userPrompt,
                 )
                 content_by_step = _parse_markdown_step_content_yaml(raw_batch_yaml, expected_ids)
                 append_progress(

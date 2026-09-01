@@ -543,6 +543,7 @@ def test_html_structure_uses_selected_model_and_returns_placeholders(client, mon
             "outputMode": "single",
             "aiModel": "gpt51",
             "language": "en-US",
+            "userPrompt": "Keep the source wording wherever possible.",
         },
     )
     assert r.status_code == 200
@@ -554,6 +555,7 @@ def test_html_structure_uses_selected_model_and_returns_placeholders(client, mon
     assert "<p>[TO_FILL_FROM_HTML]</p>" in body["yaml"]
     assert captured["ai_model"] == "gpt51"
     assert captured["output_mode"] == "single"
+    assert captured["user_prompt"] == "Keep the source wording wherever possible."
 
 
 def test_markdown_structure_uses_selected_model_and_returns_placeholders(client, monkeypatch):
@@ -588,6 +590,7 @@ def test_markdown_structure_uses_selected_model_and_returns_placeholders(client,
             "outputMode": "single",
             "aiModel": "gpt52",
             "language": "en-US",
+            "userPrompt": "Keep the source wording wherever possible.",
         },
     )
     assert r.status_code == 200
@@ -599,6 +602,7 @@ def test_markdown_structure_uses_selected_model_and_returns_placeholders(client,
     assert "<p>[TO_FILL_FROM_MARKDOWN]</p>" in body["yaml"]
     assert captured["ai_model"] == "gpt52"
     assert captured["output_mode"] == "single"
+    assert captured["user_prompt"] == "Keep the source wording wherever possible."
 
 
 def test_html_build_retries_failed_batch_and_builds(client, monkeypatch):
@@ -606,6 +610,7 @@ def test_html_build_retries_failed_batch_and_builds(client, monkeypatch):
     captured = {}
 
     def fake_generate_html_batch_content_yaml_with_ai(**kwargs):
+        captured["user_prompt"] = kwargs["user_prompt"]
         batch_index = kwargs["batch_index"]
         attempts[batch_index] = attempts.get(batch_index, 0) + 1
         if batch_index == 1 and attempts[batch_index] == 1:
@@ -657,8 +662,10 @@ def test_html_build_retries_failed_batch_and_builds(client, monkeypatch):
             "publish": True,
             "batchSize": 2,
             "maxRetriesPerBatch": 3,
+            "maxConcurrentBatches": 1,
             "defaults": {"language": "en-US"},
             "documentName": "Verification.html",
+            "userPrompt": "Keep the source wording wherever possible.",
         },
     )
     assert r.status_code == 200
@@ -666,14 +673,15 @@ def test_html_build_retries_failed_batch_and_builds(client, monkeypatch):
     assert body["ok"] is True
     assert body["batchCount"] == 2
     assert body["modelUsed"] == "gpt52"
-    assert body["progress"][0]["batch"] == 1
-    assert body["progress"][0]["attempts"] == 2
-    assert body["progress"][1]["batch"] == 2
-    assert body["progress"][1]["attempts"] == 1
+    first_batch = next(entry for entry in body["progress"] if entry["batch"] == 1 and entry["status"] == "ok")
+    second_batch = next(entry for entry in body["progress"] if entry["batch"] == 2 and entry["status"] == "ok")
+    assert first_batch["attempts"] == 2
+    assert second_batch["attempts"] == 1
     assert "HTML body for g1-s001" in captured["yaml"]
     assert "HTML body for g1-s002" in captured["yaml"]
     assert "HTML body for g1-s003" in captured["yaml"]
     assert captured["publish"] is True
+    assert captured["user_prompt"] == "Keep the source wording wherever possible."
 
 
 def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):
@@ -681,6 +689,7 @@ def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):
     captured = {}
 
     def fake_generate_markdown_batch_content_yaml_with_ai(**kwargs):
+        captured["user_prompt"] = kwargs["user_prompt"]
         batch_index = kwargs["batch_index"]
         attempts[batch_index] = attempts.get(batch_index, 0) + 1
         if batch_index == 1 and attempts[batch_index] == 1:
@@ -732,8 +741,10 @@ def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):
             "publish": True,
             "batchSize": 2,
             "maxRetriesPerBatch": 3,
+            "maxConcurrentBatches": 1,
             "defaults": {"language": "en-US"},
             "documentName": "Source.md",
+            "userPrompt": "Keep the source wording wherever possible.",
         },
     )
     assert r.status_code == 200
@@ -741,14 +752,15 @@ def test_markdown_build_retries_failed_batch_and_builds(client, monkeypatch):
     assert body["ok"] is True
     assert body["batchCount"] == 2
     assert body["modelUsed"] == "gpt51"
-    assert body["progress"][0]["batch"] == 1
-    assert body["progress"][0]["attempts"] == 2
-    assert body["progress"][1]["batch"] == 2
-    assert body["progress"][1]["attempts"] == 1
+    first_batch = next(entry for entry in body["progress"] if entry["batch"] == 1 and entry["status"] == "ok")
+    second_batch = next(entry for entry in body["progress"] if entry["batch"] == 2 and entry["status"] == "ok")
+    assert first_batch["attempts"] == 2
+    assert second_batch["attempts"] == 1
     assert "Body for g1-s001" in captured["yaml"]
     assert "Body for g1-s002" in captured["yaml"]
     assert "Body for g1-s003" in captured["yaml"]
     assert captured["publish"] is True
+    assert captured["user_prompt"] == "Keep the source wording wherever possible."
 
 
 class RecordingGuideBuilderStonly:

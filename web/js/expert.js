@@ -14,6 +14,7 @@
   const MARKDOWN_CALL_INTERVAL_KEY = 'expert_markdown_call_interval_seconds';
   const MARKDOWN_STRUCTURE_KEY = 'expert_markdown_structure_yaml';
   const MARKDOWN_MODEL_KEY = 'expert_markdown_ai_model';
+  const MARKDOWN_USER_PROMPT_KEY = 'expert_markdown_user_prompt';
   const EXPORT_REFS_KEY = 'expert_export_refs';
   const EXPORT_FORMAT_KEY = 'expert_export_format';
   const EXPORT_VERSION_KEY = 'expert_export_version';
@@ -988,7 +989,7 @@
   }
 
   function setMarkdownButtonsDisabled(disabled){
-    const ids = ['markdownGenerateStructureBtn', 'markdownBuildBtn'];
+    const ids = ['markdownGenerateStructureBtn', 'markdownBuildBtn', 'markdownUserPrompt'];
     ids.forEach((id) => {
       const btn = el(id);
       if (!btn) return;
@@ -1002,6 +1003,15 @@
       markdownAiModelButton.classList.toggle('opacity-70', !!disabled);
       markdownAiModelButton.classList.toggle('cursor-not-allowed', !!disabled);
     }
+  }
+
+  function setMarkdownUserPromptExpanded(expanded){
+    const panel = el('markdownUserPromptPanel');
+    const toggle = el('markdownUserPromptToggle');
+    const icon = el('markdownUserPromptToggleIcon');
+    if (panel) panel.classList.toggle('hidden', !expanded);
+    if (toggle) toggle.setAttribute('aria-expanded', String(!!expanded));
+    if (icon) icon.classList.toggle('rotate-90', !!expanded);
   }
 
   function setMarkdownOut(value){
@@ -1511,6 +1521,7 @@
     const outputMode = (el('markdownOutputMode')?.value || 'single').trim() || 'single';
     const language = (el('lang')?.value || 'en-US').trim() || 'en-US';
     const documentName = markdownDocumentNameFromFile(markdownFileState.name);
+    const userPrompt = (el('markdownUserPrompt')?.value || '').trim();
 
     setMarkdownButtonsDisabled(true);
     setMarkdownSpinner(true, 'Generating structure...');
@@ -1523,6 +1534,7 @@
         aiModel: getSelectedMarkdownAiModel(),
         contentType: 'GUIDE',
         language,
+        userPrompt,
       };
       body[kind === FILE_KIND_HTML ? 'html' : 'markdown'] = markdownFileState.content;
       const data = await apiFetch(getImportStructureEndpoint(kind), {
@@ -1598,6 +1610,7 @@
     if (el('markdownMaxConcurrency')) el('markdownMaxConcurrency').value = String(maxConcurrentBatches);
     if (el('markdownCallIntervalSeconds')) el('markdownCallIntervalSeconds').value = String(minCallIntervalSeconds);
     const documentName = markdownDocumentNameFromFile(markdownFileState.name);
+    const userPrompt = (el('markdownUserPrompt')?.value || '').trim();
 
     setMarkdownButtonsDisabled(true);
     setSettingsLocked(true);
@@ -1618,6 +1631,7 @@
         maxRetriesPerBatch: 3,
         defaults: { language: c.language },
         documentName,
+        userPrompt,
       };
       body[kind === FILE_KIND_HTML ? 'html' : 'markdown'] = markdownFileState.content;
       const startResp = await apiFetch(getImportBuildStartEndpoint(kind), {
@@ -1865,6 +1879,10 @@
     el('markdownGenerateStructureBtn')?.addEventListener('click', onMarkdownGenerateStructure);
     el('markdownBuildBtn')?.addEventListener('click', onMarkdownBuild);
     el('markdownFile')?.addEventListener('change', onMarkdownFileChange);
+    el('markdownUserPromptToggle')?.addEventListener('click', () => {
+      const toggle = el('markdownUserPromptToggle');
+      setMarkdownUserPromptExpanded(toggle?.getAttribute('aria-expanded') !== 'true');
+    });
     el('brandAssetsBtn')?.addEventListener('click', onBrandAssetsRun);
     el('btnFetchLogs')?.addEventListener('click', fetchLogs);
     el('btnClearLogs')?.addEventListener('click', clearLogs);
@@ -1981,6 +1999,16 @@
         }
         structureField.addEventListener('input', () => {
           try { localStorage.setItem(MARKDOWN_STRUCTURE_KEY, structureField.value || ''); } catch {}
+        });
+      }
+      const userPromptField = el('markdownUserPrompt');
+      if (userPromptField) {
+        const stored = localStorage.getItem(MARKDOWN_USER_PROMPT_KEY);
+        if (typeof stored === 'string' && stored.length && !userPromptField.value) {
+          userPromptField.value = stored;
+        }
+        userPromptField.addEventListener('input', () => {
+          try { localStorage.setItem(MARKDOWN_USER_PROMPT_KEY, userPromptField.value || ''); } catch {}
         });
       }
       const outputModeField = el('markdownOutputMode');
