@@ -1590,7 +1590,6 @@
 
     button.addEventListener("click", async (event) => {
       event.preventDefault();
-      const hadFocus = document.activeElement === field;
       let text = "";
       try {
         if (!navigator.clipboard?.readText) throw new Error("Clipboard read not supported");
@@ -1607,8 +1606,9 @@
       }
 
       field.focus();
-      // Focused: insert at the caret. Not focused: replace the whole field.
-      if (!hadFocus) field.select();
+      // The button always replaces the field: select everything, then overwrite it.
+      // (Appending at the caret is what Ctrl+V is for.)
+      try { field.select(); } catch {}
       let inserted = false;
       try {
         inserted = document.execCommand("insertText", false, text);
@@ -1616,16 +1616,13 @@
         inserted = false;
       }
       if (!inserted) {
-        const start = field.selectionStart ?? field.value.length;
-        const end = field.selectionEnd ?? field.value.length;
-        field.value = field.value.slice(0, start) + text + field.value.slice(end);
-        const caret = start + text.length;
-        try { field.setSelectionRange(caret, caret); } catch {}
+        field.value = text;
+        try { field.setSelectionRange(text.length, text.length); } catch {}
         // execCommand fires "input" itself; only the fallback has to.
         field.dispatchEvent(new Event("input", { bubbles: true }));
       }
       field.dispatchEvent(new Event("change", { bubbles: true }));
-      flash(true, hadFocus ? "Pasted at the cursor" : "Pasted");
+      flash(true, "Pasted");
     });
   }
 
