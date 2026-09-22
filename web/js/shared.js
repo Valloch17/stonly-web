@@ -1541,6 +1541,9 @@
   const PASTE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="3" width="8" height="4" rx="1"></rect><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"></path><path d="M9 12h6M9 16h4"></path></svg>';
   const PASTE_DONE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="4 12.5 9 17.5 20 6.5"></polyline></svg>';
 
+  // Above this many characters, insertText is too slow to use (see the click handler).
+  const UNDOABLE_PASTE_MAX = 10000;
+
   function attachPasteButton(field) {
     if (!field || field.dataset.pasteButtonReady === "1") return;
     field.dataset.pasteButtonReady = "1";
@@ -1606,14 +1609,18 @@
       }
 
       field.focus();
-      // The button always replaces the field: select everything, then overwrite it.
-      // (Appending at the caret is what Ctrl+V is for.)
-      try { field.select(); } catch {}
+      // The button always replaces the field. (Appending at the caret is what Ctrl+V is for.)
+      // insertText is the nice path - it keeps native undo - but Chrome's implementation is
+      // O(n^2): ~70ms at 20k chars, ~7s at 200k, and it hangs the tab on a big YAML paste.
+      // Past the threshold, assign the value instead and give up undo.
       let inserted = false;
-      try {
-        inserted = document.execCommand("insertText", false, text);
-      } catch {
-        inserted = false;
+      if (text.length <= UNDOABLE_PASTE_MAX) {
+        try {
+          field.select();
+          inserted = document.execCommand("insertText", false, text);
+        } catch {
+          inserted = false;
+        }
       }
       if (!inserted) {
         field.value = text;
